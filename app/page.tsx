@@ -247,6 +247,39 @@ export default function Home() {
     }
   }
 
+  async function fetchAiQuests(
+    places: NearbyPlace[],
+    excludeIds: string[],
+  ): Promise<GeneratedQuest[] | null> {
+    const groupBand: "solo" | "2" | "group" =
+      groupSize === 1 ? "solo" : groupSize === 2 ? "2" : "group";
+    try {
+      const r = await fetch("/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          location: city,
+          nearbyPlaces: places.map((p) => p.name).slice(0, 20),
+          spiceLevel: spice,
+          groupSize: groupBand,
+          timeAvailable: timeMinutes,
+          excludeIds,
+        }),
+      });
+      if (!r.ok) return null;
+      const data = (await r.json()) as {
+        ok: boolean;
+        quests?: GeneratedQuest[];
+      };
+      if (!data.ok || !Array.isArray(data.quests) || data.quests.length === 0) {
+        return null;
+      }
+      return data.quests;
+    } catch {
+      return null;
+    }
+  }
+
   const generate = async () => {
     if (!canGenerate) return;
     setRolling(true);
@@ -263,19 +296,26 @@ export default function Home() {
       saveShown(shown);
     }
 
-    const count = 3 + Math.floor(Math.random() * 3); // 3-5
-    const { quests: picked, resetShown } = generateQuests(
-      {
-        city,
-        groupSize,
-        timeMinutes,
-        spice,
-        nearby: places,
-        ratings: ratingByQuest,
-        excludeIds: shown,
-      },
-      count,
-    );
+    // Try Claude first; fall back to the static generator on any failure.
+    let picked = await fetchAiQuests(places, shown);
+    let resetShown = false;
+    if (!picked) {
+      const count = 3 + Math.floor(Math.random() * 3);
+      const result = generateQuests(
+        {
+          city,
+          groupSize,
+          timeMinutes,
+          spice,
+          nearby: places,
+          ratings: ratingByQuest,
+          excludeIds: shown,
+        },
+        count,
+      );
+      picked = result.quests;
+      resetShown = result.resetShown;
+    }
 
     const nextShown = resetShown
       ? picked.map((q) => q.id)
