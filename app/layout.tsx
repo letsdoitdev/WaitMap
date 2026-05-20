@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Side Quest Generator",
+  title: "Unemployment",
   description: "Spontaneous IRL adventure quests for you and your friends.",
 };
 

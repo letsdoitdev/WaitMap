@@ -1,6 +1,6 @@
 import { QUESTS, QuestTemplate } from "./quests";
 import { NearbyPlace, pickVenue } from "./nearby";
-import { Rating, ratingScoreDelta } from "./ratings";
+import { Rating } from "./ratings";
 
 export type GenerateInput = {
   city: string;
@@ -9,6 +9,12 @@ export type GenerateInput = {
   spice: number; // 1-10
   nearby?: NearbyPlace[];
   ratings?: Record<string, Rating>;
+  excludeIds?: string[]; // quest ids already shown this session
+};
+
+export type GenerateResult = {
+  quests: GeneratedQuest[];
+  resetShown: boolean; // true if we ran out of fresh quests and reset
 };
 
 export type GeneratedQuest = QuestTemplate & {
@@ -20,61 +26,78 @@ export type GeneratedQuest = QuestTemplate & {
 
 const SPICE_TOLERANCE = 3;
 
-export function generateQuests(input: GenerateInput, count = 4): GeneratedQuest[] {
+function fisherYates<T>(arr: T[]): T[] {
+  const out = arr.slice();
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+function viable(q: QuestTemplate, input: GenerateInput): boolean {
+  if (input.groupSize < q.minGroup || input.groupSize > q.maxGroup) return false;
+  if (input.timeMinutes < q.minTime) return false;
+  if (Math.abs(q.spice - input.spice) > SPICE_TOLERANCE) return false;
+  return true;
+}
+
+export function generateQuests(
+  input: GenerateInput,
+  count = 4,
+): GenerateResult {
   const city = input.city.trim() || "your city";
   const nearby = input.nearby ?? [];
   const ratings = input.ratings ?? {};
+  const excluded = new Set(input.excludeIds ?? []);
 
-  const scored = QUESTS.map((q) => {
-    const groupOk = input.groupSize >= q.minGroup && input.groupSize <= q.maxGroup;
-    const timeOk = input.timeMinutes >= q.minTime;
-    const spiceGap = Math.abs(q.spice - input.spice);
-    const spiceOk = spiceGap <= SPICE_TOLERANCE;
+  // 1. Filter for viability + drop cooked-rated quests.
+  const fullViable = QUESTS.filter(
+    (q) => viable(q, input) && ratings[q.id] !== "cooked",
+  );
 
-    let score = 0;
-    if (groupOk) score += 3;
-    if (timeOk) score += 3;
-    score += Math.max(0, SPICE_TOLERANCE - spiceGap);
-    if (timeOk && input.timeMinutes <= q.maxTime + 60) score += 1;
-
-    // Boost quests where we can plug in a real nearby venue.
-    if (q.venueQuery && pickVenue(nearby, q.venueQuery)) {
-      score += 2;
-    }
-
-    score += ratingScoreDelta(ratings[q.id]);
-
-    return { q, score, groupOk, timeOk, spiceOk, cooked: ratings[q.id] === "cooked" };
-  });
-
-  // Filter viable + drop user's "cooked" choices entirely when possible.
-  let pool = scored.filter((s) => s.groupOk && s.timeOk && s.spiceOk && !s.cooked);
-  if (pool.length < count) pool = scored.filter((s) => s.groupOk && s.timeOk && !s.cooked);
-  if (pool.length < count) pool = scored.filter((s) => s.groupOk && !s.cooked);
-  if (pool.length < count) pool = scored.filter((s) => !s.cooked);
-  if (pool.length < count) pool = scored;
-
-  const picks: typeof scored = [];
-  const working = pool.slice();
-  while (picks.length < count && working.length > 0) {
-    const totalWeight = working.reduce(
-      (sum, s) => sum + Math.max(1, s.score) ** 1.5,
-      0,
-    );
-    let r = Math.random() * totalWeight;
-    let idx = 0;
-    for (let i = 0; i < working.length; i++) {
-      r -= Math.max(1, working[i].score) ** 1.5;
-      if (r <= 0) {
-        idx = i;
-        break;
-      }
-    }
-    picks.push(working[idx]);
-    working.splice(idx, 1);
+  // 2. Within viable, prefer never-shown quests; if empty, reset.
+  let fresh = fullViable.filter((q) => !excluded.has(q.id));
+  let resetShown = false;
+  if (fresh.length < count) {
+    resetShown = true;
+    fresh = fullViable;
   }
 
-  return picks.map(({ q }) => {
+  // 3. If still under-count, relax constraints progressively (preserving the
+  //    reset signal so the UI knows we wrapped around).
+  let pool: QuestTemplate[] = fresh;
+  if (pool.length < count) {
+    pool = QUESTS.filter(
+      (q) =>
+        input.groupSize >= q.minGroup &&
+        input.groupSize <= q.maxGroup &&
+        input.timeMinutes >= q.minTime &&
+        ratings[q.id] !== "cooked",
+    );
+    resetShown = true;
+  }
+  if (pool.length < count) {
+    pool = QUESTS.filter(
+      (q) =>
+        input.groupSize >= q.minGroup &&
+        input.groupSize <= q.maxGroup &&
+        ratings[q.id] !== "cooked",
+    );
+    resetShown = true;
+  }
+  if (pool.length < count) {
+    pool = QUESTS.filter((q) => ratings[q.id] !== "cooked");
+    resetShown = true;
+  }
+  if (pool.length < count) pool = QUESTS.slice();
+
+  // 4. Fisher-Yates shuffle, take first N.
+  const shuffled = fisherYates(pool);
+  const picked = shuffled.slice(0, count);
+
+  // 5. Resolve venues + templating.
+  const quests = picked.map((q): GeneratedQuest => {
     const venue = pickVenue(nearby, q.venueQuery);
     const venueName = venue?.name ?? "a spot you choose";
     return {
@@ -87,4 +110,6 @@ export function generateQuests(input: GenerateInput, count = 4): GeneratedQuest[
       matchedVenue: venue ? { name: venue.name, type: venue.type } : undefined,
     };
   });
+
+  return { quests, resetShown };
 }

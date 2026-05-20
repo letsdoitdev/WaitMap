@@ -11,7 +11,7 @@ export type RatingRecord = {
   timestamp: number;
 };
 
-export const RATING_STORAGE_KEY = "sidequest-ratings-v1";
+export const RATING_STORAGE_KEY = "sqRatings";
 
 export function ratingScoreDelta(rating: Rating | undefined): number {
   switch (rating) {
