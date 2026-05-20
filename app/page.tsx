@@ -45,6 +45,7 @@ const ALL_CATEGORIES: QuestCategory[] = [
 ];
 
 const SHOWN_KEY = "sqShown";
+const SHOWN_TITLES_KEY = "sqShownTitles";
 const BOOKMARK_KEY = "sqBookmarks";
 
 function loadShown(): string[] {
@@ -62,6 +63,26 @@ function loadShown(): string[] {
 function saveShown(ids: string[]) {
   try {
     sessionStorage.setItem(SHOWN_KEY, JSON.stringify(ids));
+  } catch {
+    // ignore
+  }
+}
+
+function loadShownTitles(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = sessionStorage.getItem(SHOWN_TITLES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveShownTitles(titles: string[]) {
+  try {
+    sessionStorage.setItem(SHOWN_TITLES_KEY, JSON.stringify(titles));
   } catch {
     // ignore
   }
@@ -250,6 +271,7 @@ export default function Home() {
   async function fetchAiQuests(
     places: NearbyPlace[],
     excludeIds: string[],
+    previousTitles: string[],
   ): Promise<GeneratedQuest[] | null> {
     const groupBand: "solo" | "2" | "group" =
       groupSize === 1 ? "solo" : groupSize === 2 ? "2" : "group";
@@ -264,6 +286,7 @@ export default function Home() {
           groupSize: groupBand,
           timeAvailable: timeMinutes,
           excludeIds,
+          previousTitles,
         }),
       });
       if (!r.ok) return null;
@@ -290,14 +313,18 @@ export default function Home() {
     setNearbyStatus(places.length > 0 ? "ok" : "fallback");
 
     let shown = loadShown();
+    let shownTitles = loadShownTitles();
     if (quests) {
       const currentIds = quests.map((q) => q.id);
+      const currentTitles = quests.map((q) => q.title);
       shown = Array.from(new Set([...shown, ...currentIds]));
+      shownTitles = [...shownTitles, ...currentTitles].slice(-9);
       saveShown(shown);
+      saveShownTitles(shownTitles);
     }
 
     // Try Claude first; fall back to the static generator on any failure.
-    let picked = await fetchAiQuests(places, shown);
+    let picked = await fetchAiQuests(places, shown, shownTitles);
     let resetShown = false;
     if (!picked) {
       const count = 3 + Math.floor(Math.random() * 3);
@@ -320,7 +347,11 @@ export default function Home() {
     const nextShown = resetShown
       ? picked.map((q) => q.id)
       : Array.from(new Set([...shown, ...picked.map((q) => q.id)]));
+    const nextShownTitles = resetShown
+      ? picked.map((q) => q.title)
+      : [...shownTitles, ...picked.map((q) => q.title)].slice(-9);
     saveShown(nextShown);
+    saveShownTitles(nextShownTitles);
 
     setQuests(picked);
     setRolling(false);

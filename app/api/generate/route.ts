@@ -15,6 +15,7 @@ type GenerateBody = {
   groupSize?: GroupSizeBand;
   timeAvailable?: number;
   excludeIds?: string[];
+  previousTitles?: string[];
 };
 
 type ClaudeQuest = {
@@ -81,7 +82,13 @@ WHAT MAKES A COOKED QUEST (low rated):
 - Make-believe or roleplay scenarios
 - "Don't do X" framing
 - Google Street View or purely digital activities
-- Vague with no clear action ("explore your surroundings")`;
+- Vague with no clear action ("explore your surroundings")
+
+VARIETY RULES (critical — apply to every batch of 3):
+- All 3 quests MUST be from different categories. Never return two Food quests, two Social quests, two Outdoor quests, etc. in the same batch.
+- All 3 quests MUST use different action types. The action types are: [buy/spend money], [talk to a stranger], [go to a place and observe/find something], [physical challenge], [eat/drink something], [take a photo/video], [explore/discover]. No two quests in the same batch may share an action type.
+- Vary the energy level: at least one quest should be low-effort/chill, at least one should require leaving your comfort zone.
+- If the user filtered by category (e.g. "Food only"), you can repeat category but you MUST still vary the action type, energy level, and venue type.`;
 
 function isQuestCategory(s: string): s is QuestCategory {
   return (VALID_CATEGORIES as string[]).includes(s);
@@ -178,6 +185,9 @@ export async function POST(req: NextRequest) {
   const excludeIds = Array.isArray(body.excludeIds)
     ? body.excludeIds.slice(0, 200)
     : [];
+  const previousTitles = Array.isArray(body.previousTitles)
+    ? body.previousTitles.filter((t) => typeof t === "string").slice(-9)
+    : [];
 
   const nearbyStr = nearbyPlaces.length
     ? nearbyPlaces.join(", ")
@@ -185,8 +195,11 @@ export async function POST(req: NextRequest) {
   const excludeStr = excludeIds.length
     ? `\nQuest IDs already shown this session (avoid reusing these IDs): ${excludeIds.slice(-30).join(", ")}.`
     : "";
+  const previousStr = previousTitles.length
+    ? `\n\nPreviously generated quest titles to AVOID repeating or closely resembling: ${previousTitles.join(", ")}. Generate quests that are meaningfully different in theme, venue type, and action.`
+    : "";
 
-  const userMessage = `Generate 3 side quests for someone in ${location}. Nearby places include: ${nearbyStr}. Filters: spice level ${spiceLevel}/10, group size ${groupSize}, time available ${timeAvailable} minutes.${excludeStr}\n\nReturn ONLY a valid JSON array of 3 quest objects. No markdown, no explanation, just the raw JSON array. Each object must have keys: id (kebab-case unique), title, description, category (one of: Chaos, Outdoor, Social, Creative, Food, Late Night, Chill, Fitness, Nature, Tech, Exploration), spice (1-10), duration (minutes), groupSize ("solo"|"2"|"group"), cost ("free"|"$"|"$$").`;
+  const userMessage = `Generate 3 side quests for someone in ${location}. Nearby places include: ${nearbyStr}. Filters: spice level ${spiceLevel}/10, group size ${groupSize}, time available ${timeAvailable} minutes.${excludeStr}${previousStr}\n\nReturn ONLY a valid JSON array of 3 quest objects. No markdown, no explanation, just the raw JSON array. Each object must have keys: id (kebab-case unique), title, description, category (one of: Chaos, Outdoor, Social, Creative, Food, Late Night, Chill, Fitness, Nature, Tech, Exploration), spice (1-10), duration (minutes), groupSize ("solo"|"2"|"group"), cost ("free"|"$"|"$$").`;
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const controller = new AbortController();
