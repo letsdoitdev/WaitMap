@@ -10,6 +10,11 @@ import {
   RATING_STORAGE_KEY,
   latestRatings,
 } from "@/lib/ratings";
+import {
+  SUGGEST_STORAGE_KEY,
+  Suggestion,
+  SelfRating,
+} from "@/lib/suggestions";
 
 const CATEGORY_STYLES: Record<QuestCategory, string> = {
   Chaos: "bg-red-500/15 text-red-300 border-red-500/30",
@@ -107,10 +112,55 @@ export default function Home() {
     "idle" | "loading" | "ok" | "fallback"
   >("idle");
   const [ratingsHistory, setRatingsHistory] = useState<RatingRecord[]>([]);
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [suggestText, setSuggestText] = useState("");
+  const [suggestSelfRating, setSuggestSelfRating] = useState<SelfRating>(null);
+  const [suggestSent, setSuggestSent] = useState(false);
+  const [suggestBusy, setSuggestBusy] = useState(false);
 
   useEffect(() => {
     setRatingsHistory(loadRatings());
   }, []);
+
+  const submitSuggestion = async () => {
+    const text = suggestText.trim();
+    if (!text || text.length > 500 || suggestBusy) return;
+    setSuggestBusy(true);
+    const record: Suggestion = {
+      id:
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `sug_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+      text,
+      selfRating: suggestSelfRating,
+      timestamp: Date.now(),
+    };
+    try {
+      const raw = localStorage.getItem(SUGGEST_STORAGE_KEY);
+      const all: Suggestion[] = raw ? JSON.parse(raw) : [];
+      all.push(record);
+      localStorage.setItem(SUGGEST_STORAGE_KEY, JSON.stringify(all));
+    } catch {
+      // ignore
+    }
+    try {
+      await fetch("/api/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, selfRating: suggestSelfRating }),
+      });
+    } catch {
+      // ignore
+    }
+    setSuggestBusy(false);
+    setSuggestSent(true);
+    setTimeout(() => {
+      setSuggestOpen(false);
+      setSuggestSent(false);
+      setSuggestText("");
+      setSuggestSelfRating(null);
+    }, 1200);
+  };
 
   const ratingByQuest = useMemo(() => latestRatings(ratingsHistory), [ratingsHistory]);
 
@@ -356,7 +406,100 @@ export default function Home() {
             </p>
           </section>
         )}
+
+        <div className="mt-10 flex justify-center">
+          <button
+            onClick={() => setSuggestOpen(true)}
+            className="rounded-full border border-white/15 bg-white/5 px-4 py-2 text-sm text-white/70 transition hover:border-fuchsia-400/50 hover:text-fuchsia-200"
+          >
+            💡 Suggest a Quest
+          </button>
+        </div>
       </div>
+
+      {suggestOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center"
+          onClick={() => !suggestBusy && !suggestSent && setSuggestOpen(false)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-white/10 bg-slate-950 p-5 shadow-2xl sm:p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-lg font-bold">💡 Suggest a Quest</h3>
+              <button
+                onClick={() => setSuggestOpen(false)}
+                disabled={suggestBusy}
+                className="text-white/50 hover:text-white"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            <p className="mb-3 text-xs text-white/50">
+              Got an idea for a quest? Drop it here. The maintainers see all
+              suggestions.
+            </p>
+            <textarea
+              value={suggestText}
+              onChange={(e) => setSuggestText(e.target.value.slice(0, 500))}
+              placeholder="At a hardware store, see who can build the tallest free-standing tower out of $10 of supplies in 15 minutes..."
+              rows={4}
+              maxLength={500}
+              disabled={suggestBusy || suggestSent}
+              className="w-full rounded-lg border border-white/10 bg-black/50 p-3 text-sm outline-none focus:border-fuchsia-400/60 focus:ring-2 focus:ring-fuchsia-400/30 disabled:opacity-60"
+            />
+            <div className="mt-1 text-right text-[10px] text-white/40">
+              {suggestText.length}/500
+            </div>
+
+            <div className="mt-3">
+              <div className="mb-1.5 text-xs uppercase tracking-wider text-white/50">
+                Your self-rating (optional)
+              </div>
+              <div className="grid grid-cols-4 gap-1.5">
+                {(["cooked", "mid", "tuff", "fire"] as const).map((r) => {
+                  const active = suggestSelfRating === r;
+                  const icon =
+                    r === "cooked" ? "🗑️" : r === "mid" ? "😐" : r === "tuff" ? "💪" : "🔥";
+                  return (
+                    <button
+                      key={r}
+                      onClick={() =>
+                        setSuggestSelfRating((cur) => (cur === r ? null : r))
+                      }
+                      disabled={suggestBusy || suggestSent}
+                      className={`rounded-lg border px-2 py-1.5 text-xs font-semibold capitalize transition ${
+                        active
+                          ? "border-fuchsia-400 bg-fuchsia-500/20 text-fuchsia-100"
+                          : "border-white/10 text-white/60 hover:border-fuchsia-400/40"
+                      }`}
+                    >
+                      <span className="mr-1">{icon}</span>
+                      {r}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <button
+              onClick={submitSuggestion}
+              disabled={
+                !suggestText.trim() || suggestBusy || suggestSent
+              }
+              className="mt-5 w-full rounded-xl bg-gradient-to-r from-fuchsia-500 via-pink-500 to-amber-400 px-4 py-2.5 text-sm font-bold text-slate-950 transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {suggestSent
+                ? "✓ Thanks! Sent."
+                : suggestBusy
+                  ? "Sending..."
+                  : "Submit Suggestion"}
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
