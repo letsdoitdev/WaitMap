@@ -30,7 +30,22 @@ const CATEGORY_STYLES: Record<QuestCategory, string> = {
   Exploration: "bg-orange-500/15 text-orange-200 border-orange-500/30",
 };
 
+const ALL_CATEGORIES: QuestCategory[] = [
+  "Chaos",
+  "Outdoor",
+  "Social",
+  "Creative",
+  "Food",
+  "Late Night",
+  "Chill",
+  "Fitness",
+  "Nature",
+  "Tech",
+  "Exploration",
+];
+
 const SHOWN_KEY = "sqShown";
+const BOOKMARK_KEY = "sqBookmarks";
 
 function loadShown(): string[] {
   if (typeof window === "undefined") return [];
@@ -47,6 +62,26 @@ function loadShown(): string[] {
 function saveShown(ids: string[]) {
   try {
     sessionStorage.setItem(SHOWN_KEY, JSON.stringify(ids));
+  } catch {
+    // ignore
+  }
+}
+
+function loadBookmarks(): GeneratedQuest[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(BOOKMARK_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as GeneratedQuest[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveBookmarks(items: GeneratedQuest[]) {
+  try {
+    localStorage.setItem(BOOKMARK_KEY, JSON.stringify(items));
   } catch {
     // ignore
   }
@@ -128,6 +163,8 @@ function saveRatings(records: RatingRecord[]) {
   }
 }
 
+type View = "results" | "saved";
+
 export default function Home() {
   const [city, setCity] = useState("");
   const [groupSize, setGroupSize] = useState(3);
@@ -139,6 +176,9 @@ export default function Home() {
     "idle" | "loading" | "ok" | "fallback"
   >("idle");
   const [ratingsHistory, setRatingsHistory] = useState<RatingRecord[]>([]);
+  const [bookmarks, setBookmarks] = useState<GeneratedQuest[]>([]);
+  const [view, setView] = useState<View>("results");
+  const [categoryFilter, setCategoryFilter] = useState<QuestCategory | null>(null);
   const [suggestOpen, setSuggestOpen] = useState(false);
   const [suggestText, setSuggestText] = useState("");
   const [suggestSelfRating, setSuggestSelfRating] = useState<SelfRating>(null);
@@ -147,6 +187,7 @@ export default function Home() {
 
   useEffect(() => {
     setRatingsHistory(loadRatings());
+    setBookmarks(loadBookmarks());
   }, []);
 
   const submitSuggestion = async () => {
@@ -190,6 +231,7 @@ export default function Home() {
   };
 
   const ratingByQuest = useMemo(() => latestRatings(ratingsHistory), [ratingsHistory]);
+  const bookmarkIds = useMemo(() => new Set(bookmarks.map((b) => b.id)), [bookmarks]);
 
   const canGenerate = city.trim().length > 0;
 
@@ -209,12 +251,11 @@ export default function Home() {
     if (!canGenerate) return;
     setRolling(true);
     setNearbyStatus("loading");
+    setView("results");
 
     const places = await fetchNearby(city);
     setNearbyStatus(places.length > 0 ? "ok" : "fallback");
 
-    // On reroll, mark the currently-displayed quests as shown so they don't
-    // come back.
     let shown = loadShown();
     if (quests) {
       const currentIds = quests.map((q) => q.id);
@@ -236,7 +277,6 @@ export default function Home() {
       count,
     );
 
-    // If we wrapped around, start the session fresh with only the new picks.
     const nextShown = resetShown
       ? picked.map((q) => q.id)
       : Array.from(new Set([...shown, ...picked.map((q) => q.id)]));
@@ -260,12 +300,20 @@ export default function Home() {
     const next = [...ratingsHistory, record];
     setRatingsHistory(next);
     saveRatings(next);
-    // Fire-and-forget server save.
     fetch("/api/rate-quest", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(record),
     }).catch(() => {});
+  };
+
+  const toggleBookmark = (q: GeneratedQuest) => {
+    setBookmarks((prev) => {
+      const exists = prev.some((b) => b.id === q.id);
+      const next = exists ? prev.filter((b) => b.id !== q.id) : [...prev, q];
+      saveBookmarks(next);
+      return next;
+    });
   };
 
   const timeLabel = useMemo(() => {
@@ -274,6 +322,15 @@ export default function Home() {
     const m = timeMinutes % 60;
     return m ? `${h}h ${m}m` : `${h}h`;
   }, [timeMinutes]);
+
+  // What to display below the filter chips.
+  const sourceList: GeneratedQuest[] =
+    view === "saved" ? bookmarks : quests ?? [];
+  const displayedQuests = categoryFilter
+    ? sourceList.filter((q) => q.category === categoryFilter)
+    : sourceList;
+
+  const showResultsArea = view === "saved" || quests !== null;
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-950 text-white">
@@ -385,74 +442,150 @@ export default function Home() {
           )}
         </section>
 
-        {quests && (
-          <section className="mt-8 space-y-4">
-            {quests.map((q, i) => {
-              const userRating = ratingByQuest[q.id];
-              return (
-                <article
-                  key={q.id + i}
-                  className="group rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.07] to-white/[0.02] p-5 transition hover:border-white/20 sm:p-6"
-                >
-                  <div className="mb-2 flex flex-wrap items-center gap-2">
-                    <span
-                      className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${CATEGORY_STYLES[q.category]}`}
-                    >
-                      {q.category}
-                    </span>
-                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-white/70">
-                      👥 {q.minGroup}-{q.maxGroup}
-                    </span>
-                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-white/70">
-                      ⏱ {q.minTime}-{q.maxTime} min
-                    </span>
-                    {q.cost && (
-                      <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-white/70">
-                        💵 {q.cost}
-                      </span>
-                    )}
-                    {q.nearbyDetected && (
-                      <span className="rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2.5 py-0.5 text-xs font-semibold text-emerald-200">
-                        📍 Nearby detected
-                      </span>
-                    )}
-                    <div className="ml-auto">
-                      <SpiceBar level={q.spice} />
-                    </div>
-                  </div>
-                  <h3 className="text-lg font-bold leading-snug sm:text-xl">
-                    {i + 1}. {q.title}
-                  </h3>
-                  <p className="mt-1.5 text-sm text-white/70 sm:text-base">
-                    {q.description}
-                  </p>
+        {showResultsArea && (
+          <>
+            {/* Filter chips */}
+            <div className="mt-8 -mx-1 flex flex-wrap gap-1.5">
+              <button
+                onClick={() => {
+                  setView("results");
+                  setCategoryFilter(null);
+                }}
+                className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                  view === "results" && categoryFilter === null
+                    ? "border-fuchsia-400 bg-fuchsia-500/20 text-fuchsia-100"
+                    : "border-white/10 bg-white/5 text-white/60 hover:border-fuchsia-400/40"
+                }`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setView("saved")}
+                className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                  view === "saved"
+                    ? "border-amber-400 bg-amber-500/20 text-amber-100"
+                    : "border-white/10 bg-white/5 text-white/60 hover:border-amber-400/40"
+                }`}
+              >
+                🔖 Saved ({bookmarks.length})
+              </button>
+              {ALL_CATEGORIES.map((c) => {
+                const active = categoryFilter === c;
+                return (
+                  <button
+                    key={c}
+                    onClick={() => {
+                      // Toggle off if already active; otherwise select.
+                      setCategoryFilter(active ? null : c);
+                      if (view === "saved" && active) setView("results");
+                    }}
+                    className={`rounded-full border px-3 py-1 text-xs font-semibold transition ${
+                      active
+                        ? CATEGORY_STYLES[c] + " border-current"
+                        : "border-white/10 bg-white/5 text-white/60 hover:border-white/30"
+                    }`}
+                  >
+                    {c}
+                  </button>
+                );
+              })}
+            </div>
 
-                  <div className="mt-4 grid grid-cols-4 gap-1.5 sm:gap-2">
-                    {RATINGS.map((r) => {
-                      const active = userRating === r.key;
-                      return (
-                        <button
-                          key={r.key}
-                          onClick={() => rateQuest(q, r.key)}
-                          className={`flex flex-col items-center gap-0.5 rounded-lg border px-2 py-2 text-xs font-semibold transition active:scale-95 sm:flex-row sm:justify-center sm:gap-1.5 sm:text-sm ${
-                            active ? r.active : r.idle
-                          }`}
-                          aria-pressed={active}
-                          aria-label={`Rate ${r.label}`}
+            <section className="mt-4 space-y-4">
+              {displayedQuests.length === 0 ? (
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-8 text-center text-sm text-white/50">
+                  {view === "saved"
+                    ? bookmarks.length === 0
+                      ? "No bookmarks yet. Tap 🔖 on any quest to save it."
+                      : `No saved quests in ${categoryFilter}. Try another category.`
+                    : `No quests in ${categoryFilter}. Try another filter or reroll.`}
+                </div>
+              ) : (
+                displayedQuests.map((q, i) => {
+                  const userRating = ratingByQuest[q.id];
+                  const bookmarked = bookmarkIds.has(q.id);
+                  return (
+                    <article
+                      key={q.id + i}
+                      className="group rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.07] to-white/[0.02] p-5 transition hover:border-white/20 sm:p-6"
+                    >
+                      <div className="mb-2 flex flex-wrap items-center gap-2">
+                        <span
+                          className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${CATEGORY_STYLES[q.category]}`}
                         >
-                          <span className="text-base sm:text-sm">{r.icon}</span>
-                          <span>{r.label}</span>
+                          {q.category}
+                        </span>
+                        <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-white/70">
+                          👥 {q.minGroup}-{q.maxGroup}
+                        </span>
+                        <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-white/70">
+                          ⏱ {q.minTime}-{q.maxTime} min
+                        </span>
+                        {q.cost && (
+                          <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-white/70">
+                            💵 {q.cost}
+                          </span>
+                        )}
+                        {q.nearbyDetected && (
+                          <span className="rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2.5 py-0.5 text-xs font-semibold text-emerald-200">
+                            📍 Nearby detected
+                          </span>
+                        )}
+                        <div className="ml-auto">
+                          <SpiceBar level={q.spice} />
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-3">
+                        <h3 className="flex-1 text-lg font-bold leading-snug sm:text-xl">
+                          {q.title}
+                        </h3>
+                        <button
+                          onClick={() => toggleBookmark(q)}
+                          aria-label={bookmarked ? "Remove bookmark" : "Bookmark quest"}
+                          aria-pressed={bookmarked}
+                          className={`rounded-lg border px-2 py-1 text-base transition active:scale-95 ${
+                            bookmarked
+                              ? "border-amber-400 bg-amber-500/20 text-amber-200"
+                              : "border-white/15 text-white/50 hover:border-amber-400/50 hover:text-amber-200"
+                          }`}
+                        >
+                          {bookmarked ? "🔖" : "🏷️"}
                         </button>
-                      );
-                    })}
-                  </div>
-                </article>
-              );
-            })}
-            <p className="pt-2 text-center text-xs text-white/40">
-              Stay safe. Be kind. Take photos.
-            </p>
-          </section>
+                      </div>
+                      <p className="mt-1.5 text-sm text-white/70 sm:text-base">
+                        {q.description}
+                      </p>
+
+                      <div className="mt-4 grid grid-cols-4 gap-1.5 sm:gap-2">
+                        {RATINGS.map((r) => {
+                          const active = userRating === r.key;
+                          return (
+                            <button
+                              key={r.key}
+                              onClick={() => rateQuest(q, r.key)}
+                              className={`flex flex-col items-center gap-0.5 rounded-lg border px-2 py-2 text-xs font-semibold transition active:scale-95 sm:flex-row sm:justify-center sm:gap-1.5 sm:text-sm ${
+                                active ? r.active : r.idle
+                              }`}
+                              aria-pressed={active}
+                              aria-label={`Rate ${r.label}`}
+                            >
+                              <span className="text-base sm:text-sm">{r.icon}</span>
+                              <span>{r.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </article>
+                  );
+                })
+              )}
+              {displayedQuests.length > 0 && (
+                <p className="pt-2 text-center text-xs text-white/40">
+                  Stay safe. Be kind. Take photos.
+                </p>
+              )}
+            </section>
+          </>
         )}
 
         <div className="mt-10 flex justify-center">
