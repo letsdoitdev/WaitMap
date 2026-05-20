@@ -471,9 +471,8 @@ export default function Home() {
             transition={{ duration: 0.6, delay: 0.05 }}
             className="text-balance text-5xl font-bold tracking-tight text-white md:text-7xl"
           >
-            Side Quest{" "}
             <span className="bg-gradient-to-br from-violet-300 via-fuchsia-300 to-amber-200 bg-clip-text text-transparent">
-              Generator
+              Unemployment
             </span>
           </motion.h1>
           <motion.p

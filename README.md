@@ -1,4 +1,4 @@
-# Side Quest Generator
+# Unemployment
 
 A spontaneous IRL adventure generator for groups of friends. Enter your city, group size, time, and spice level — get 3-5 creative real-world quests drawn from a database of 50+ challenges across Chaos, Outdoor, Social, Creative, Food, and Late Night categories.
 
