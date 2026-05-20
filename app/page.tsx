@@ -23,7 +23,34 @@ const CATEGORY_STYLES: Record<QuestCategory, string> = {
   Creative: "bg-purple-500/15 text-purple-300 border-purple-500/30",
   Food: "bg-amber-500/15 text-amber-300 border-amber-500/30",
   "Late Night": "bg-indigo-500/15 text-indigo-300 border-indigo-500/30",
+  Chill: "bg-teal-500/15 text-teal-200 border-teal-500/30",
+  Fitness: "bg-lime-500/15 text-lime-200 border-lime-500/30",
+  Nature: "bg-green-500/15 text-green-200 border-green-500/30",
+  Tech: "bg-cyan-500/15 text-cyan-200 border-cyan-500/30",
+  Exploration: "bg-orange-500/15 text-orange-200 border-orange-500/30",
 };
+
+const SHOWN_KEY = "sqShown";
+
+function loadShown(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = sessionStorage.getItem(SHOWN_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveShown(ids: string[]) {
+  try {
+    sessionStorage.setItem(SHOWN_KEY, JSON.stringify(ids));
+  } catch {
+    // ignore
+  }
+}
 
 const RATINGS: { key: Rating; label: string; icon: string; active: string; idle: string }[] = [
   {
@@ -186,20 +213,36 @@ export default function Home() {
     const places = await fetchNearby(city);
     setNearbyStatus(places.length > 0 ? "ok" : "fallback");
 
+    // On reroll, mark the currently-displayed quests as shown so they don't
+    // come back.
+    let shown = loadShown();
+    if (quests) {
+      const currentIds = quests.map((q) => q.id);
+      shown = Array.from(new Set([...shown, ...currentIds]));
+      saveShown(shown);
+    }
+
     const count = 3 + Math.floor(Math.random() * 3); // 3-5
-    setQuests(
-      generateQuests(
-        {
-          city,
-          groupSize,
-          timeMinutes,
-          spice,
-          nearby: places,
-          ratings: ratingByQuest,
-        },
-        count,
-      ),
+    const { quests: picked, resetShown } = generateQuests(
+      {
+        city,
+        groupSize,
+        timeMinutes,
+        spice,
+        nearby: places,
+        ratings: ratingByQuest,
+        excludeIds: shown,
+      },
+      count,
     );
+
+    // If we wrapped around, start the session fresh with only the new picks.
+    const nextShown = resetShown
+      ? picked.map((q) => q.id)
+      : Array.from(new Set([...shown, ...picked.map((q) => q.id)]));
+    saveShown(nextShown);
+
+    setQuests(picked);
     setRolling(false);
   };
 
@@ -363,6 +406,11 @@ export default function Home() {
                     <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-white/70">
                       ⏱ {q.minTime}-{q.maxTime} min
                     </span>
+                    {q.cost && (
+                      <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-white/70">
+                        💵 {q.cost}
+                      </span>
+                    )}
                     {q.nearbyDetected && (
                       <span className="rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2.5 py-0.5 text-xs font-semibold text-emerald-200">
                         📍 Nearby detected
