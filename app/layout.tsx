@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "WaitMap",
-  description: "See restaurant wait times near you in real time.",
+  title: "Side Quest Generator",
+  description: "Spontaneous IRL adventure quests for you and your friends.",
 };
 
 export default function RootLayout({
