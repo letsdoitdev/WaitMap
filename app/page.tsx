@@ -1,8 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { generateQuests, GeneratedQuest } from "@/lib/generate";
 import { QuestCategory } from "@/lib/quests";
+import { NearbyPlace, NearbyResponse } from "@/lib/nearby";
+import {
+  Rating,
+  RatingRecord,
+  RATING_STORAGE_KEY,
+  latestRatings,
+} from "@/lib/ratings";
 
 const CATEGORY_STYLES: Record<QuestCategory, string> = {
   Chaos: "bg-red-500/15 text-red-300 border-red-500/30",
@@ -12,6 +19,37 @@ const CATEGORY_STYLES: Record<QuestCategory, string> = {
   Food: "bg-amber-500/15 text-amber-300 border-amber-500/30",
   "Late Night": "bg-indigo-500/15 text-indigo-300 border-indigo-500/30",
 };
+
+const RATINGS: { key: Rating; label: string; icon: string; active: string; idle: string }[] = [
+  {
+    key: "cooked",
+    label: "Cooked",
+    icon: "🗑️",
+    active: "bg-zinc-500/30 border-zinc-400 text-zinc-100",
+    idle: "border-white/10 text-white/60 hover:border-zinc-400/50 hover:text-zinc-200",
+  },
+  {
+    key: "mid",
+    label: "Mid",
+    icon: "😐",
+    active: "bg-yellow-500/25 border-yellow-400 text-yellow-100",
+    idle: "border-white/10 text-white/60 hover:border-yellow-400/50 hover:text-yellow-200",
+  },
+  {
+    key: "tuff",
+    label: "Tuff",
+    icon: "💪",
+    active: "bg-blue-500/25 border-blue-400 text-blue-100",
+    idle: "border-white/10 text-white/60 hover:border-blue-400/50 hover:text-blue-200",
+  },
+  {
+    key: "fire",
+    label: "Fire",
+    icon: "🔥",
+    active: "bg-orange-500/30 border-orange-400 text-orange-100",
+    idle: "border-white/10 text-white/60 hover:border-orange-400/50 hover:text-orange-200",
+  },
+];
 
 function SpiceBar({ level }: { level: number }) {
   return (
@@ -38,6 +76,26 @@ function SpiceBar({ level }: { level: number }) {
   );
 }
 
+function loadRatings(): RatingRecord[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(RATING_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as RatingRecord[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRatings(records: RatingRecord[]) {
+  try {
+    localStorage.setItem(RATING_STORAGE_KEY, JSON.stringify(records));
+  } catch {
+    // ignore quota / privacy-mode errors
+  }
+}
+
 export default function Home() {
   const [city, setCity] = useState("");
   const [groupSize, setGroupSize] = useState(3);
@@ -45,18 +103,76 @@ export default function Home() {
   const [spice, setSpice] = useState(5);
   const [quests, setQuests] = useState<GeneratedQuest[] | null>(null);
   const [rolling, setRolling] = useState(false);
+  const [nearbyStatus, setNearbyStatus] = useState<
+    "idle" | "loading" | "ok" | "fallback"
+  >("idle");
+  const [ratingsHistory, setRatingsHistory] = useState<RatingRecord[]>([]);
+
+  useEffect(() => {
+    setRatingsHistory(loadRatings());
+  }, []);
+
+  const ratingByQuest = useMemo(() => latestRatings(ratingsHistory), [ratingsHistory]);
 
   const canGenerate = city.trim().length > 0;
 
-  const generate = () => {
+  async function fetchNearby(loc: string): Promise<NearbyPlace[]> {
+    try {
+      const r = await fetch(`/api/nearby-places?location=${encodeURIComponent(loc)}`);
+      if (!r.ok) return [];
+      const data = (await r.json()) as NearbyResponse;
+      if (!data.ok) return [];
+      return data.places;
+    } catch {
+      return [];
+    }
+  }
+
+  const generate = async () => {
     if (!canGenerate) return;
     setRolling(true);
-    // small delay so the reroll feels alive
-    setTimeout(() => {
-      const count = 3 + Math.floor(Math.random() * 3); // 3-5
-      setQuests(generateQuests({ city, groupSize, timeMinutes, spice }, count));
-      setRolling(false);
-    }, 250);
+    setNearbyStatus("loading");
+
+    const places = await fetchNearby(city);
+    setNearbyStatus(places.length > 0 ? "ok" : "fallback");
+
+    const count = 3 + Math.floor(Math.random() * 3); // 3-5
+    setQuests(
+      generateQuests(
+        {
+          city,
+          groupSize,
+          timeMinutes,
+          spice,
+          nearby: places,
+          ratings: ratingByQuest,
+        },
+        count,
+      ),
+    );
+    setRolling(false);
+  };
+
+  const rateQuest = (q: GeneratedQuest, rating: Rating) => {
+    const record: RatingRecord = {
+      questId: q.id,
+      questName: q.title,
+      category: q.category,
+      spiceLevel: spice,
+      groupSize,
+      timeAvailable: timeMinutes,
+      rating,
+      timestamp: Date.now(),
+    };
+    const next = [...ratingsHistory, record];
+    setRatingsHistory(next);
+    saveRatings(next);
+    // Fire-and-forget server save.
+    fetch("/api/rate-quest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(record),
+    }).catch(() => {});
   };
 
   const timeLabel = useMemo(() => {
@@ -156,46 +272,85 @@ export default function Home() {
             disabled={!canGenerate || rolling}
             className="mt-6 w-full rounded-xl bg-gradient-to-r from-fuchsia-500 via-pink-500 to-amber-400 px-5 py-3.5 text-base font-bold text-slate-950 shadow-lg shadow-fuchsia-500/20 transition active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50 sm:text-lg"
           >
-            {quests ? (rolling ? "Rolling..." : "🎲 Reroll Quests") : rolling ? "Rolling..." : "Generate Quests"}
+            {rolling
+              ? nearbyStatus === "loading"
+                ? "Finding nearby spots..."
+                : "Rolling..."
+              : quests
+                ? "🎲 Reroll Quests"
+                : "Generate Quests"}
           </button>
           {!canGenerate && (
             <p className="mt-2 text-center text-xs text-white/40">
               Add a city to begin your adventure.
             </p>
           )}
+          {nearbyStatus === "fallback" && quests && (
+            <p className="mt-2 text-center text-xs text-amber-300/70">
+              Couldn&apos;t reach nearby venue data — using generic quests.
+            </p>
+          )}
         </section>
 
         {quests && (
           <section className="mt-8 space-y-4">
-            {quests.map((q, i) => (
-              <article
-                key={q.id + i}
-                className="group rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.07] to-white/[0.02] p-5 transition hover:border-white/20 sm:p-6"
-              >
-                <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <span
-                    className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${CATEGORY_STYLES[q.category]}`}
-                  >
-                    {q.category}
-                  </span>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-white/70">
-                    👥 {q.minGroup}-{q.maxGroup}
-                  </span>
-                  <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-white/70">
-                    ⏱ {q.minTime}-{q.maxTime} min
-                  </span>
-                  <div className="ml-auto">
-                    <SpiceBar level={q.spice} />
+            {quests.map((q, i) => {
+              const userRating = ratingByQuest[q.id];
+              return (
+                <article
+                  key={q.id + i}
+                  className="group rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.07] to-white/[0.02] p-5 transition hover:border-white/20 sm:p-6"
+                >
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <span
+                      className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${CATEGORY_STYLES[q.category]}`}
+                    >
+                      {q.category}
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-white/70">
+                      👥 {q.minGroup}-{q.maxGroup}
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-xs text-white/70">
+                      ⏱ {q.minTime}-{q.maxTime} min
+                    </span>
+                    {q.nearbyDetected && (
+                      <span className="rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2.5 py-0.5 text-xs font-semibold text-emerald-200">
+                        📍 Nearby detected
+                      </span>
+                    )}
+                    <div className="ml-auto">
+                      <SpiceBar level={q.spice} />
+                    </div>
                   </div>
-                </div>
-                <h3 className="text-lg font-bold leading-snug sm:text-xl">
-                  {i + 1}. {q.title}
-                </h3>
-                <p className="mt-1.5 text-sm text-white/70 sm:text-base">
-                  {q.description}
-                </p>
-              </article>
-            ))}
+                  <h3 className="text-lg font-bold leading-snug sm:text-xl">
+                    {i + 1}. {q.title}
+                  </h3>
+                  <p className="mt-1.5 text-sm text-white/70 sm:text-base">
+                    {q.description}
+                  </p>
+
+                  <div className="mt-4 grid grid-cols-4 gap-1.5 sm:gap-2">
+                    {RATINGS.map((r) => {
+                      const active = userRating === r.key;
+                      return (
+                        <button
+                          key={r.key}
+                          onClick={() => rateQuest(q, r.key)}
+                          className={`flex flex-col items-center gap-0.5 rounded-lg border px-2 py-2 text-xs font-semibold transition active:scale-95 sm:flex-row sm:justify-center sm:gap-1.5 sm:text-sm ${
+                            active ? r.active : r.idle
+                          }`}
+                          aria-pressed={active}
+                          aria-label={`Rate ${r.label}`}
+                        >
+                          <span className="text-base sm:text-sm">{r.icon}</span>
+                          <span>{r.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </article>
+              );
+            })}
             <p className="pt-2 text-center text-xs text-white/40">
               Stay safe. Be kind. Take photos.
             </p>

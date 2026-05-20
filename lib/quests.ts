@@ -17,6 +17,9 @@ export type QuestTemplate = {
   minTime: number; // minutes
   maxTime: number;
   lateNight?: boolean;
+  // OSM tag values to look for if we have nearby-place data. If a match is
+  // found, {venue} in title/description is replaced with the real venue name.
+  venueQuery?: string[];
 };
 
 // {city} is substituted with the user's location at generation time.
@@ -35,9 +38,9 @@ export const QUESTS: QuestTemplate[] = [
   },
   {
     id: "weirdest-cart",
-    title: "Walmart 1am Weirdest-Cart Audit",
+    title: "1am Weirdest-Cart Audit",
     description:
-      "Hit a 24-hour store in {city}. Fill one shared cart with the weirdest items under $3 each. Pay together at checkout.",
+      "Hit {venue} in {city} (or any 24-hour store). Fill one shared cart with the weirdest items under $3 each. Pay together at checkout.",
     category: "Late Night",
     spice: 7,
     minGroup: 2,
@@ -45,6 +48,7 @@ export const QUESTS: QuestTemplate[] = [
     minTime: 45,
     maxTime: 90,
     lateNight: true,
+    venueQuery: ["supermarket"],
   },
   {
     id: "tech-meetup-chaos",
@@ -62,13 +66,14 @@ export const QUESTS: QuestTemplate[] = [
     id: "museum-sprint",
     title: "Museum 90-Min Photo Sprint",
     description:
-      "No GPS. Enter and exit 4 museums or galleries in {city} within 90 minutes. Photograph the weirdest object in each.",
+      "Start at {venue} in {city}. No GPS. Enter and exit 4 museums or galleries within 90 minutes. Photograph the weirdest object in each.",
     category: "Creative",
     spice: 6,
     minGroup: 2,
     maxGroup: 6,
     minTime: 90,
     maxTime: 120,
+    venueQuery: ["museum"],
   },
   {
     id: "bus-roulette",
@@ -86,13 +91,14 @@ export const QUESTS: QuestTemplate[] = [
     id: "park-bench-philosophers",
     title: "Park Bench Philosophers",
     description:
-      "Find a park in {city}. Sit on different benches. Strike up 3-minute philosophy conversations with anyone nearby.",
+      "Head to {venue} in {city}. Sit on different benches. Strike up 3-minute philosophy conversations with anyone nearby.",
     category: "Outdoor",
     spice: 3,
     minGroup: 2,
     maxGroup: 6,
     minTime: 45,
     maxTime: 90,
+    venueQuery: ["park"],
   },
   {
     id: "fake-tourist",
@@ -122,7 +128,7 @@ export const QUESTS: QuestTemplate[] = [
     id: "karaoke-cold-open",
     title: "Karaoke Cold Open",
     description:
-      "Find a karaoke spot in {city}. First person up sings a song chosen entirely by the group. No vetoes.",
+      "Roll to {venue} in {city} (or any karaoke spot). First person up sings a song chosen entirely by the group. No vetoes.",
     category: "Late Night",
     spice: 6,
     minGroup: 2,
@@ -130,18 +136,20 @@ export const QUESTS: QuestTemplate[] = [
     minTime: 60,
     maxTime: 180,
     lateNight: true,
+    venueQuery: ["bar"],
   },
   {
     id: "skyline-hunt",
     title: "Skyline Hunt",
     description:
-      "Find the highest publicly accessible vantage point in {city}. Take a group photo at the top. Free or paid.",
+      "Make for {venue} in {city} (or the highest publicly accessible vantage point you can find). Take a group photo at the top.",
     category: "Outdoor",
     spice: 4,
     minGroup: 1,
     maxGroup: 8,
     minTime: 60,
     maxTime: 120,
+    venueQuery: ["viewpoint", "attraction"],
   },
   {
     id: "open-mic-dare",
@@ -184,19 +192,20 @@ export const QUESTS: QuestTemplate[] = [
     id: "spice-gauntlet",
     title: "Spice Gauntlet",
     description:
-      "Find the spiciest dish on any menu in {city}. Order one. Everyone takes one bite. No drinks for 60 seconds.",
+      "Hit {venue} in {city}. Order the spiciest dish on the menu. Everyone takes one bite. No drinks for 60 seconds.",
     category: "Food",
     spice: 8,
     minGroup: 2,
     maxGroup: 8,
     minTime: 45,
     maxTime: 90,
+    venueQuery: ["restaurant", "fast_food"],
   },
   {
     id: "diner-deep-talk",
     title: "Diner Deep Talk",
     description:
-      "Find a 24-hour diner in {city}. Order fries. Each person answers one question they've never answered honestly.",
+      "Post up at {venue} in {city} (or any late-night diner). Order fries. Each person answers one question they've never answered honestly.",
     category: "Late Night",
     spice: 5,
     minGroup: 2,
@@ -204,30 +213,33 @@ export const QUESTS: QuestTemplate[] = [
     minTime: 60,
     maxTime: 120,
     lateNight: true,
+    venueQuery: ["restaurant", "fast_food"],
   },
   {
     id: "playground-takeover",
     title: "Playground Takeover (Legal)",
     description:
-      "Find a public playground in {city}. Hold a 10-minute swing competition. Loser buys snacks.",
+      "Meet at {venue} in {city}. Hold a 10-minute swing competition. Loser buys snacks.",
     category: "Outdoor",
     spice: 3,
     minGroup: 2,
     maxGroup: 6,
     minTime: 30,
     maxTime: 60,
+    venueQuery: ["playground"],
   },
   {
     id: "mystery-menu",
     title: "Mystery Menu",
     description:
-      "Each person orders for the person across from them at a restaurant in {city}. No allergies, no swaps.",
+      "At {venue} in {city}, each person orders for the person across from them. No allergies, no swaps.",
     category: "Food",
     spice: 6,
     minGroup: 2,
     maxGroup: 8,
     minTime: 60,
     maxTime: 120,
+    venueQuery: ["restaurant"],
   },
   {
     id: "subway-portrait",
@@ -294,13 +306,14 @@ export const QUESTS: QuestTemplate[] = [
     id: "free-museum-day",
     title: "Free Museum Speedrun",
     description:
-      "Find any free museum or gallery in {city}. Speedrun it in 20 minutes. Each person picks their favorite piece.",
+      "Hit {venue} in {city} (or any free museum). Speedrun it in 20 minutes. Each person picks their favorite piece.",
     category: "Creative",
     spice: 2,
     minGroup: 1,
     maxGroup: 8,
     minTime: 30,
     maxTime: 60,
+    venueQuery: ["museum"],
   },
   {
     id: "stranger-pic",
@@ -318,7 +331,7 @@ export const QUESTS: QuestTemplate[] = [
     id: "midnight-snack-quest",
     title: "Midnight Snack Quest",
     description:
-      "After midnight in {city}, find the strangest open food spot. Order whatever the cashier recommends.",
+      "After midnight, head to {venue} in {city} (or the strangest open food spot you can find). Order whatever the cashier recommends.",
     category: "Late Night",
     spice: 6,
     minGroup: 2,
@@ -326,18 +339,20 @@ export const QUESTS: QuestTemplate[] = [
     minTime: 45,
     maxTime: 90,
     lateNight: true,
+    venueQuery: ["fast_food", "restaurant"],
   },
   {
     id: "rooftop-recon",
     title: "Rooftop Recon",
     description:
-      "Find a (legal) rooftop bar or terrace in {city}. Order the most colorful drink on the menu. Toast loudly.",
+      "Roll to {venue} in {city} (or any rooftop bar). Order the most colorful drink on the menu. Toast loudly.",
     category: "Social",
     spice: 4,
     minGroup: 2,
     maxGroup: 8,
     minTime: 60,
     maxTime: 120,
+    venueQuery: ["bar"],
   },
   {
     id: "graffiti-tour",
@@ -403,7 +418,7 @@ export const QUESTS: QuestTemplate[] = [
     id: "wildcard-bartender",
     title: "Wildcard Bartender",
     description:
-      "At a bar in {city}, tell the bartender three adjectives. Drink whatever they make. No refusals.",
+      "At {venue} in {city}, tell the bartender three adjectives. Drink whatever they make. No refusals.",
     category: "Late Night",
     spice: 7,
     minGroup: 2,
@@ -411,18 +426,20 @@ export const QUESTS: QuestTemplate[] = [
     minTime: 45,
     maxTime: 90,
     lateNight: true,
+    venueQuery: ["bar"],
   },
   {
     id: "park-picnic-blind",
     title: "Blind Picnic",
     description:
-      "Each person brings one mystery snack to a park in {city}. Picnic-style, blind taste-test, rank them.",
+      "Each person brings one mystery snack to {venue} in {city}. Picnic-style, blind taste-test, rank them.",
     category: "Food",
     spice: 3,
     minGroup: 3,
     maxGroup: 8,
     minTime: 45,
     maxTime: 90,
+    venueQuery: ["park"],
   },
   {
     id: "alphabet-walk",
@@ -477,25 +494,27 @@ export const QUESTS: QuestTemplate[] = [
     id: "playground-tag",
     title: "Adult Tag",
     description:
-      "Find a green space in {city}. Play one full round of tag. Wear whatever you're already wearing. No quitting.",
+      "Meet at {venue} in {city}. Play one full round of tag. Wear whatever you're already wearing. No quitting.",
     category: "Outdoor",
     spice: 5,
     minGroup: 4,
     maxGroup: 10,
     minTime: 30,
     maxTime: 60,
+    venueQuery: ["park", "playground"],
   },
   {
     id: "menu-translator",
     title: "Menu Translator",
     description:
-      "Pick a restaurant in {city} with a menu in another language. No phones, order by pointing only.",
+      "Pick a restaurant in {city} with a menu in another language — try {venue}. No phones, order by pointing only.",
     category: "Food",
     spice: 5,
     minGroup: 2,
     maxGroup: 6,
     minTime: 60,
     maxTime: 90,
+    venueQuery: ["restaurant"],
   },
   {
     id: "two-truths-locals",
@@ -598,7 +617,8 @@ export const QUESTS: QuestTemplate[] = [
     id: "best-bench",
     title: "Best Bench in {city}",
     description:
-      "Find and rate 5 benches in {city} by view, comfort, and vibes. Award a sticky note to the winning bench.",
+      "Start at {venue} in {city}. Find and rate 5 benches by view, comfort, and vibes. Award a sticky note to the winning bench.",
+    venueQuery: ["park"],
     category: "Outdoor",
     spice: 1,
     minGroup: 1,

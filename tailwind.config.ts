@@ -11,13 +11,6 @@ const config: Config = {
       colors: {
         background: "var(--background)",
         foreground: "var(--foreground)",
-        wait: {
-          green: "#22c55e",
-          blue: "#3b82f6",
-          orange: "#f97316",
-          red: "#ef4444",
-          gray: "#9ca3af",
-        },
       },
     },
   },
