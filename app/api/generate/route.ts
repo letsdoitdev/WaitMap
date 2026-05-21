@@ -16,6 +16,7 @@ type GenerateBody = {
   timeAvailable?: number;
   excludeIds?: string[];
   previousTitles?: string[];
+  category?: string | null;
 };
 
 // v4 schema as returned by the model
@@ -78,6 +79,8 @@ CORE PRINCIPLES (always apply)
 4. Wholesome counts. Sunrise hikes, midnight diner runs, photo expeditions are as valid as chaos comedy.
 5. No bland fake premises. If a quest uses a fake scenario, the premise must be intrinsically absurd ("car crashed into your kitchen"), not bland ("a leak you don't have").
 6. Variety is the product. Within any batch, mix wholesome adventure, real challenges, social weirdness, and chaos comedy.
+
+LOCATION INDEPENDENCE: Location is optional context, not a requirement. A significant portion of quests — especially Outdoor, Challenge, and Social vibes — should work anywhere without requiring a specific named venue. Examples of location-independent quests: drive 20 min with no map, find the highest point you can reach in 30 min, get 3 strangers to do something together. Reserve named venues only when they genuinely make the quest better.
 
 THE FOUR SPICINESS TIERS
 
@@ -215,9 +218,27 @@ function makeId(title: string): string {
   return `${slug}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+const UI_CATEGORIES: QuestCategory[] = [
+  "Chaos",
+  "Outdoor",
+  "Social",
+  "Creative",
+  "Food",
+  "Late Night",
+  "Chill",
+  "Fitness",
+  "Nature",
+  "Tech",
+  "Exploration",
+];
+function isUiCategory(s: string): s is QuestCategory {
+  return (UI_CATEGORIES as string[]).includes(s);
+}
+
 function normalize(
   q: ClaudeQuest,
   excludeIds: Set<string>,
+  categoryOverride: QuestCategory | null,
 ): GeneratedQuest | null {
   if (
     !q ||
@@ -227,9 +248,12 @@ function normalize(
     return null;
   }
   const v4Cat = isV4Category(q.category) ? q.category : null;
-  const category: QuestCategory = v4Cat
+  const inferredCategory: QuestCategory = v4Cat
     ? V4_TO_QUEST_CATEGORY[v4Cat]
     : "Social";
+  // If the user picked a specific category chip, honor it so the local filter
+  // matches the result regardless of which v4 vibe Claude chose.
+  const category: QuestCategory = categoryOverride ?? inferredCategory;
   const spice = clamp(Math.round(Number(q.spiceLevel) || 5), 1, 10);
   const { min: minTime, max: maxTime } = parseDuration(q.duration);
   const { min: minGroup, max: maxGroup } = parseGroupSizeString(q.groupSize);
@@ -295,6 +319,10 @@ export async function POST(req: NextRequest) {
   const previousTitles = Array.isArray(body.previousTitles)
     ? body.previousTitles.filter((t) => typeof t === "string").slice(-9)
     : [];
+  const categoryRaw =
+    typeof body.category === "string" ? body.category.trim() : "";
+  const requestedCategory =
+    categoryRaw && categoryRaw.toLowerCase() !== "all" ? categoryRaw : null;
 
   const nearbyStr = nearbyPlaces.length
     ? nearbyPlaces.join(", ")
@@ -308,8 +336,11 @@ export async function POST(req: NextRequest) {
   const previousStr = previousTitles.length
     ? `\n\nPreviously generated quest titles to AVOID repeating or closely resembling: ${previousTitles.join("; ")}. Generate quests that are meaningfully different in theme, venue type, and action.`
     : "";
+  const categoryPrefix = requestedCategory
+    ? `Generate quests in the ${requestedCategory} category. `
+    : "";
 
-  const userMessage = `Generate 3 side quests for someone in ${location}. Nearby places include: ${nearbyStr}. Inputs: spice level ${spiceLevel}/10, group size ${groupSizeHint}, time available ${timeAvailable} minutes.${previousStr}\n\nReturn a JSON array of exactly 3 quest objects following the OUTPUT FORMAT defined in the system prompt. No markdown, no explanation, just the raw JSON array.`;
+  const userMessage = `${categoryPrefix}Generate 3 side quests for someone in ${location}. Nearby places include: ${nearbyStr}. Inputs: spice level ${spiceLevel}/10, group size ${groupSizeHint}, time available ${timeAvailable} minutes.${previousStr}\n\nReturn a JSON array of exactly 3 quest objects following the OUTPUT FORMAT defined in the system prompt. No markdown, no explanation, just the raw JSON array.`;
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const controller = new AbortController();
@@ -351,9 +382,17 @@ export async function POST(req: NextRequest) {
     }
 
     const seen = new Set(excludeIds);
+    const categoryOverride: QuestCategory | null =
+      requestedCategory && isUiCategory(requestedCategory)
+        ? requestedCategory
+        : null;
     const quests: GeneratedQuest[] = [];
     for (const item of raw) {
-      const normalized = normalize(item as ClaudeQuest, seen);
+      const normalized = normalize(
+        item as ClaudeQuest,
+        seen,
+        categoryOverride,
+      );
       if (normalized) quests.push(normalized);
     }
 

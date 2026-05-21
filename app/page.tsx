@@ -285,6 +285,7 @@ export default function Home() {
     places: NearbyPlace[],
     excludeIds: string[],
     previousTitles: string[],
+    category: QuestCategory | null,
   ): Promise<GeneratedQuest[] | null> {
     const groupBand: "solo" | "2" | "group" =
       groupSize === 1 ? "solo" : groupSize === 2 ? "2" : "group";
@@ -300,6 +301,7 @@ export default function Home() {
           timeAvailable: timeMinutes,
           excludeIds,
           previousTitles,
+          category,
         }),
       });
       if (!r.ok) return null;
@@ -316,7 +318,9 @@ export default function Home() {
     }
   }
 
-  const generate = async () => {
+  const generate = async (
+    overrideCategory?: QuestCategory | null,
+  ) => {
     if (!canGenerate) return;
     setRolling(true);
     setNearbyStatus("loading");
@@ -336,7 +340,9 @@ export default function Home() {
       saveShownTitles(shownTitles);
     }
 
-    let picked = await fetchAiQuests(places, shown, shownTitles);
+    const cat =
+      overrideCategory !== undefined ? overrideCategory : categoryFilter;
+    let picked = await fetchAiQuests(places, shown, shownTitles, cat);
     let resetShown = false;
     if (!picked) {
       const count = 3 + Math.floor(Math.random() * 3);
@@ -576,7 +582,7 @@ export default function Home() {
               className="pointer-events-none absolute inset-x-6 -bottom-3 h-10 rounded-full bg-violet-500/40 blur-2xl"
             />
             <button
-              onClick={generate}
+              onClick={() => generate()}
               disabled={!canGenerate || rolling}
               className="group relative w-full overflow-hidden rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 px-6 py-4 text-base font-semibold text-white shadow-[0_0_30px_rgba(139,92,246,0.4)] transition-all duration-200 hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:text-lg"
             >
@@ -654,8 +660,18 @@ export default function Home() {
                   key={c}
                   active={active}
                   onClick={() => {
-                    setCategoryFilter(active ? null : c);
-                    if (view === "saved" && active) setView("results");
+                    if (active) {
+                      // Toggling off — clear filter, no regenerate.
+                      setCategoryFilter(null);
+                      if (view === "saved") setView("results");
+                      return;
+                    }
+                    setCategoryFilter(c);
+                    setView("results");
+                    // Trigger a fresh generation targeted at this category.
+                    if (canGenerate && !rolling) {
+                      generate(c);
+                    }
                   }}
                 >
                   {c}
