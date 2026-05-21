@@ -83,7 +83,7 @@ CORE PRINCIPLES (always apply)
 5. No bland fake premises. If a quest uses a fake scenario, the premise must be intrinsically absurd ("car crashed into your kitchen"), not bland ("a leak you don't have").
 6. Variety is the product. Within any batch, mix wholesome adventure, real challenges, social weirdness, and chaos comedy.
 
-LOCATION INDEPENDENCE: Location is optional context, not a requirement. A significant portion of quests — especially Outdoor, Challenge, and Social vibes — should work anywhere without requiring a specific named venue. Examples of location-independent quests: drive 20 min with no map, find the highest point you can reach in 30 min, get 3 strangers to do something together. Reserve named venues only when they genuinely make the quest better.
+LOCATION INDEPENDENCE: Location is optional context, not a requirement. A significant portion of quests — especially Outdoor, Challenge, and Social vibes — should work anywhere without requiring a specific named venue. Examples of location-independent quests: drive 20 min with no map, find the highest point you can reach in 30 min, get 3 strangers to do something together. Reserve named venues only when they genuinely make the quest better. The nearbyPlaces list is RAW BUSINESS NAMES ONLY — no descriptions, no details. Do not infer what is inside or available at any named place beyond its obvious category type. Use named venues only when the quest action is generic to that venue type (e.g. "go to a grocery store" — don't describe specific aisles or products you invented).
 
 THE FOUR SPICINESS TIERS
 
@@ -142,6 +142,7 @@ ANTI-RUBRIC — AUTO-REJECT if ANY apply:
 - Prescribing edgy or controversial specifics — let the group decide, provide the framework
 - Unnecessary location name — naming the city/neighborhood when the quest would work anywhere without it. Prefer universal framing: "drive without GPS" instead of "drive to [City]'s highest point without GPS". Only name a location when it adds genuine specificity (a named venue the group needs to go to).
 - Filler resolution steps — extra procedural steps that don't add fun: "figure out what's actually there", "plan the next quest", "make sure the booth fits everyone", "make sure to pay". These are obvious or irrelevant and make descriptions feel like instructions from a 35-year-old. End the description when the fun action is clear.
+- Venue hallucination — inventing details about a specific named venue (layout, features, activities, what's inside) that you cannot know from just a business name. If you name a real venue from the nearby list, only reference what you'd know from its category type (a coffee shop has coffee, a park has open space). NEVER invent that a restaurant has a maze, that a store has a specific section, or that any named place has features you made up.
 
 GENERATION PROCESS:
 1. Read the inputs (group size, time available, spice level, location/city).
@@ -157,6 +158,11 @@ VARIETY RULES (enforced):
 - CATEGORY BALANCE: When no specific category is requested, do NOT generate more than 1 Food quest per batch of 3. Food venues (restaurants, diners, cafes, grocery stores) are already the most common nearby places — deliberately counterbalance this by defaulting to non-Food quests. Only generate a Food quest when food is genuinely the best fit for the vibe, not just because food places are nearby.
 
 INDOOR QUESTS: These are quests done at home or inside. Examples: rearrange furniture into the most chaotic configuration possible and eat dinner there, cook something none of you have ever cooked with only pantry ingredients, play a video game but the controller gets passed every death/minute, etc. These should feel just as spontaneous and fun as outdoor quests.
+
+CATEGORY-SPECIFIC RULES:
+- Nature quests: Must take place outdoors in open/natural spaces — parks, trails, streets, yards, fields, bodies of water. Do NOT route Nature quests to businesses, stores, or named venues. Examples: walk until you pet 10 strangers' dogs, find the highest natural point within 30 min on foot, collect 5 different textures from the ground.
+- Outdoor quests: Can involve driving/transit to reach a destination, but the activity itself should happen outside, not inside a business.
+- Social/Food quests: These are the appropriate categories for business/venue-based activities.
 
 OUTPUT FORMAT — for each quest return valid JSON:
 {
