@@ -9,7 +9,8 @@ export type QuestCategory =
   | "Fitness"
   | "Nature"
   | "Tech"
-  | "Exploration";
+  | "Exploration"
+  | "Indoor";
 
 export type QuestCost = "free" | "$" | "$$" | "$$$";
 

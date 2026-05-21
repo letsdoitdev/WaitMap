@@ -17,6 +17,7 @@ type GenerateBody = {
   excludeIds?: string[];
   previousTitles?: string[];
   category?: string | null;
+  canDrive?: boolean;
 };
 
 // v4 schema as returned by the model
@@ -39,6 +40,7 @@ const V4_CATEGORIES = [
   "Culture",
   "Nightlife",
   "Creative",
+  "Indoor",
 ] as const;
 
 // Map v4 categories to the QuestCategory union the rest of the app uses
@@ -51,6 +53,7 @@ const V4_TO_QUEST_CATEGORY: Record<string, QuestCategory> = {
   Culture: "Creative",
   Nightlife: "Late Night",
   Creative: "Creative",
+  Indoor: "Indoor",
 };
 
 const SYSTEM_PROMPT = `You are Side Quest Generator v4 — a skill for generating side quests that friend groups will actually do. Calibrated against real seeds. Organized by spiciness tiers only; vibe variety within each tier is essential.
@@ -137,6 +140,8 @@ ANTI-RUBRIC — AUTO-REJECT if ANY apply:
 - Just-ask-employees-questions quests — needs a PROP, FAKE SCENARIO, or in-character commitment
 - Generating a worse variation of an existing seed
 - Prescribing edgy or controversial specifics — let the group decide, provide the framework
+- Unnecessary location name — naming the city/neighborhood when the quest would work anywhere without it. Prefer universal framing: "drive without GPS" instead of "drive to [City]'s highest point without GPS". Only name a location when it adds genuine specificity (a named venue the group needs to go to).
+- Filler resolution steps — extra procedural steps that don't add fun: "figure out what's actually there", "plan the next quest", "make sure the booth fits everyone", "make sure to pay". These are obvious or irrelevant and make descriptions feel like instructions from a 35-year-old. End the description when the fun action is clear.
 
 GENERATION PROCESS:
 1. Read the inputs (group size, time available, spice level, location/city).
@@ -149,12 +154,15 @@ VARIETY RULES (enforced):
 - All 3 quests must be from different vibe categories
 - No two quests can have the same primary action type
 - Include at least one chill/wholesome option and one that pushes comfort zone (relative to spice tier)
+- CATEGORY BALANCE: When no specific category is requested, do NOT generate more than 1 Food quest per batch of 3. Food venues (restaurants, diners, cafes, grocery stores) are already the most common nearby places — deliberately counterbalance this by defaulting to non-Food quests. Only generate a Food quest when food is genuinely the best fit for the vibe, not just because food places are nearby.
+
+INDOOR QUESTS: These are quests done at home or inside. Examples: rearrange furniture into the most chaotic configuration possible and eat dinner there, cook something none of you have ever cooked with only pantry ingredients, play a video game but the controller gets passed every death/minute, etc. These should feel just as spontaneous and fun as outdoor quests.
 
 OUTPUT FORMAT — for each quest return valid JSON:
 {
   "title": "5-8 word punchy title",
   "description": "2-3 sentences, concrete and specific, Gen Z tone, action-forward. NO 'don't do X' language. NO academic/writing tasks.",
-  "category": one of ["Outdoor", "Food", "Social", "Challenge", "Culture", "Nightlife", "Creative"],
+  "category": one of ["Outdoor", "Food", "Social", "Challenge", "Culture", "Nightlife", "Creative", "Indoor"],
   "duration": "e.g. 1-2 hours",
   "groupSize": "e.g. 2-4 people",
   "spiceLevel": number 1-10,
@@ -230,6 +238,7 @@ const UI_CATEGORIES: QuestCategory[] = [
   "Nature",
   "Tech",
   "Exploration",
+  "Indoor",
 ];
 function isUiCategory(s: string): s is QuestCategory {
   return (UI_CATEGORIES as string[]).includes(s);
@@ -323,6 +332,7 @@ export async function POST(req: NextRequest) {
     typeof body.category === "string" ? body.category.trim() : "";
   const requestedCategory =
     categoryRaw && categoryRaw.toLowerCase() !== "all" ? categoryRaw : null;
+  const canDrive = body.canDrive !== false; // default true
 
   const nearbyStr = nearbyPlaces.length
     ? nearbyPlaces.join(", ")
@@ -339,8 +349,9 @@ export async function POST(req: NextRequest) {
   const categoryPrefix = requestedCategory
     ? `Generate quests in the ${requestedCategory} category. `
     : "";
+  const driveStr = canDrive ? "" : " Constraint: walking distance only, no car.";
 
-  const userMessage = `${categoryPrefix}Generate 3 side quests for someone in ${location}. Nearby places include: ${nearbyStr}. Inputs: spice level ${spiceLevel}/10, group size ${groupSizeHint}, time available ${timeAvailable} minutes.${previousStr}\n\nReturn a JSON array of exactly 3 quest objects following the OUTPUT FORMAT defined in the system prompt. No markdown, no explanation, just the raw JSON array.`;
+  const userMessage = `${categoryPrefix}Generate 3 side quests for someone in ${location}. Nearby places include: ${nearbyStr}. Inputs: spice level ${spiceLevel}/10, group size ${groupSizeHint}, time available ${timeAvailable} minutes.${driveStr}${previousStr}\n\nReturn a JSON array of exactly 3 quest objects following the OUTPUT FORMAT defined in the system prompt. No markdown, no explanation, just the raw JSON array.`;
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const controller = new AbortController();
