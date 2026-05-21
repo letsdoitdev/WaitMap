@@ -30,6 +30,7 @@ const CATEGORY_STYLES: Record<QuestCategory, string> = {
   Nature: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
   Tech: "bg-cyan-500/10 text-cyan-300 border-cyan-500/30",
   Exploration: "bg-orange-500/10 text-orange-300 border-orange-500/30",
+  Indoor: "bg-slate-500/15 text-slate-200 border-slate-500/30",
 };
 
 const ALL_CATEGORIES: QuestCategory[] = [
@@ -44,6 +45,7 @@ const ALL_CATEGORIES: QuestCategory[] = [
   "Nature",
   "Tech",
   "Exploration",
+  "Indoor",
 ];
 
 const SHOWN_KEY = "sqShown";
@@ -210,6 +212,64 @@ export default function Home() {
   const [suggestSelfRating, setSuggestSelfRating] = useState<SelfRating>(null);
   const [suggestSent, setSuggestSent] = useState(false);
   const [suggestBusy, setSuggestBusy] = useState(false);
+  const [prefsOpen, setPrefsOpen] = useState(false);
+  const [canDrive, setCanDrive] = useState(true);
+  const [locBusy, setLocBusy] = useState(false);
+  const [locError, setLocError] = useState<string | null>(null);
+
+  const useMyLocation = () => {
+    if (locBusy) return;
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setLocError("Location unavailable");
+      setTimeout(() => setLocError(null), 1800);
+      return;
+    }
+    setLocBusy(true);
+    setLocError(null);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        try {
+          const { latitude, longitude } = pos.coords;
+          const r = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`,
+            { headers: { "Accept-Language": "en" } },
+          );
+          if (!r.ok) throw new Error("reverse geocode failed");
+          const data = (await r.json()) as {
+            address?: Record<string, string>;
+            display_name?: string;
+          };
+          const a = data.address ?? {};
+          const place =
+            a.city ||
+            a.town ||
+            a.village ||
+            a.suburb ||
+            a.county ||
+            a.state ||
+            (data.display_name ? data.display_name.split(",")[0] : "");
+          if (place) {
+            const region = a.state || a.country;
+            setCity(region && region !== place ? `${place}, ${region}` : place);
+          } else {
+            setLocError("Location unavailable");
+            setTimeout(() => setLocError(null), 1800);
+          }
+        } catch {
+          setLocError("Location unavailable");
+          setTimeout(() => setLocError(null), 1800);
+        } finally {
+          setLocBusy(false);
+        }
+      },
+      () => {
+        setLocBusy(false);
+        setLocError("Location unavailable");
+        setTimeout(() => setLocError(null), 1800);
+      },
+      { timeout: 10_000, maximumAge: 60_000 },
+    );
+  };
 
   useEffect(() => {
     setRatingsHistory(loadRatings());
@@ -302,6 +362,7 @@ export default function Home() {
           excludeIds,
           previousTitles,
           category,
+          canDrive,
         }),
       });
       if (!r.ok) return null;
@@ -504,79 +565,146 @@ export default function Home() {
             <span className="mb-2 block text-xs font-medium uppercase tracking-wider text-white/50">
               Location
             </span>
-            <input
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              placeholder="e.g. Washington DC"
-              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-white/30 outline-none transition focus:border-violet-400/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-violet-500/30"
-            />
+            <div className="flex gap-2">
+              <input
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                placeholder="e.g. Washington DC"
+                className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-white/30 outline-none transition focus:border-violet-400/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-violet-500/30"
+              />
+              <button
+                type="button"
+                onClick={useMyLocation}
+                disabled={locBusy}
+                aria-label="Use my location"
+                title="Use my location"
+                className="flex h-[3.25rem] w-[3.25rem] shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-lg text-white/70 transition hover:border-violet-400/50 hover:bg-violet-500/10 hover:text-violet-200 disabled:opacity-50"
+              >
+                {locBusy ? (
+                  <motion.span
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                    className="inline-block"
+                  >
+                    ✦
+                  </motion.span>
+                ) : (
+                  "📍"
+                )}
+              </button>
+            </div>
+            {locError && (
+              <p className="mt-2 text-xs text-amber-300/80">{locError}</p>
+            )}
           </label>
 
-          <div className="mt-5 grid gap-5 sm:grid-cols-2">
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs font-medium uppercase tracking-wider text-white/50">
-                  Group size
-                </span>
-                <span className="text-sm text-white/80 tabular-nums">
-                  {groupSize}
-                </span>
-              </div>
-              <input
-                type="range"
-                min={1}
-                max={10}
-                value={groupSize}
-                onChange={(e) => setGroupSize(Number(e.target.value))}
-                className="slider-violet w-full"
-              />
-            </div>
-
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs font-medium uppercase tracking-wider text-white/50">
-                  Time
-                </span>
-                <span className="text-sm text-white/80 tabular-nums">
-                  {timeLabel}
-                </span>
-              </div>
-              <input
-                type="range"
-                min={30}
-                max={240}
-                step={15}
-                value={timeMinutes}
-                onChange={(e) => setTimeMinutes(Number(e.target.value))}
-                className="slider-violet w-full"
-              />
-            </div>
-          </div>
-
-          <div className="mt-5">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-medium uppercase tracking-wider text-white/50">
-                Spice
-              </span>
-              <SpiceBar level={spice} />
-            </div>
-            <input
-              type="range"
-              min={1}
-              max={10}
-              value={spice}
-              onChange={(e) => setSpice(Number(e.target.value))}
-              className="slider-violet w-full"
-            />
-            <div className="mt-1 flex justify-between text-[10px] uppercase tracking-[0.2em] text-white/30">
-              <span>Chill</span>
-              <span>Wild</span>
-              <span>Unhinged</span>
-            </div>
-          </div>
+          {/* PREFERENCES TOGGLE + PANEL */}
+          <button
+            type="button"
+            onClick={() => setPrefsOpen((v) => !v)}
+            className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-white/60 transition hover:border-violet-400/40 hover:text-violet-200"
+            aria-expanded={prefsOpen}
+          >
+            ⚙ Preferences {prefsOpen ? "▲" : ""}
+          </button>
+          <AnimatePresence initial={false}>
+            {prefsOpen && (
+              <motion.div
+                key="prefs"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.25, ease: "easeOut" }}
+                className="overflow-hidden"
+              >
+                <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <span className="text-[11px] font-medium uppercase tracking-wider text-white/50">
+                          Group size
+                        </span>
+                        <span className="text-xs text-white/80 tabular-nums">
+                          {groupSize}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={1}
+                        max={10}
+                        value={groupSize}
+                        onChange={(e) => setGroupSize(Number(e.target.value))}
+                        className="slider-violet w-full"
+                      />
+                    </div>
+                    <div>
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <span className="text-[11px] font-medium uppercase tracking-wider text-white/50">
+                          Time
+                        </span>
+                        <span className="text-xs text-white/80 tabular-nums">
+                          {timeLabel}
+                        </span>
+                      </div>
+                      <input
+                        type="range"
+                        min={30}
+                        max={240}
+                        step={15}
+                        value={timeMinutes}
+                        onChange={(e) => setTimeMinutes(Number(e.target.value))}
+                        className="slider-violet w-full"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-4">
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <span className="text-[11px] font-medium uppercase tracking-wider text-white/50">
+                        Spice
+                      </span>
+                      <SpiceBar level={spice} />
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={10}
+                      value={spice}
+                      onChange={(e) => setSpice(Number(e.target.value))}
+                      className="slider-violet w-full"
+                    />
+                    <div className="mt-1 flex justify-between text-[9px] uppercase tracking-[0.2em] text-white/30">
+                      <span>Chill</span>
+                      <span>Wild</span>
+                      <span>Unhinged</span>
+                    </div>
+                  </div>
+                  <div className="mt-4 flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                    <span className="text-xs text-white/70">🚗 Can Drive</span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={canDrive}
+                      onClick={() => setCanDrive((v) => !v)}
+                      className={`relative h-5 w-9 rounded-full border transition-colors ${
+                        canDrive
+                          ? "border-violet-400 bg-violet-500/70"
+                          : "border-white/15 bg-white/10"
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-0.5 h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+                          canDrive ? "translate-x-4" : "translate-x-0.5"
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* GENERATE BUTTON */}
-          <div className="relative mt-7">
+          <div className="relative mt-6">
             <div
               aria-hidden="true"
               className="pointer-events-none absolute inset-x-6 -bottom-3 h-10 rounded-full bg-violet-500/40 blur-2xl"
