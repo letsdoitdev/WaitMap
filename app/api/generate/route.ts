@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { QuestCategory, QuestCost } from "@/lib/quests";
+import { QuestCategory } from "@/lib/quests";
 import { GeneratedQuest } from "@/lib/generate";
 
 export const runtime = "nodejs";
@@ -18,30 +18,39 @@ type GenerateBody = {
   previousTitles?: string[];
 };
 
+// v4 schema as returned by the model
 type ClaudeQuest = {
-  id: string;
+  id?: string;
   title: string;
   description: string;
   category: string;
-  spice: number;
-  duration: number;
-  groupSize: GroupSizeBand;
-  cost: "free" | "$" | "$$";
+  duration: string; // "1-2 hours", "30 minutes"
+  groupSize: string; // "2-4 people", "solo"
+  spiceLevel: number;
+  rating: null;
 };
 
-const VALID_CATEGORIES: QuestCategory[] = [
-  "Chaos",
+const V4_CATEGORIES = [
   "Outdoor",
-  "Social",
-  "Creative",
   "Food",
-  "Late Night",
-  "Chill",
-  "Fitness",
-  "Nature",
-  "Tech",
-  "Exploration",
-];
+  "Social",
+  "Challenge",
+  "Culture",
+  "Nightlife",
+  "Creative",
+] as const;
+
+// Map v4 categories to the QuestCategory union the rest of the app uses
+// (for category chip styling and the filter row).
+const V4_TO_QUEST_CATEGORY: Record<string, QuestCategory> = {
+  Outdoor: "Outdoor",
+  Food: "Food",
+  Social: "Social",
+  Challenge: "Chaos",
+  Culture: "Creative",
+  Nightlife: "Late Night",
+  Creative: "Creative",
+};
 
 const SYSTEM_PROMPT = `You are Side Quest Generator v4 — a skill for generating side quests that friend groups will actually do. Calibrated against real seeds. Organized by spiciness tiers only; vibe variety within each tier is essential.
 
@@ -132,7 +141,6 @@ GENERATION PROCESS:
 3. Within that tier, generate candidates VARYING the vibe. Do not collapse to one vibe.
 4. Score each on universal rubric. Run anti-rubric. Reject below 14/20.
 5. Return exactly 3 quests, all different vibes, all different action types.
-6. Avoid repeating any of these previously shown quest titles: {previousTitles}
 
 VARIETY RULES (enforced):
 - All 3 quests must be from different vibe categories
@@ -152,18 +160,59 @@ OUTPUT FORMAT — for each quest return valid JSON:
 
 Return a JSON array of exactly 3 quest objects. No markdown. No extra text.`;
 
-function isQuestCategory(s: string): s is QuestCategory {
-  return (VALID_CATEGORIES as string[]).includes(s);
-}
-
-function bandToRange(band: GroupSizeBand): { min: number; max: number } {
-  if (band === "solo") return { min: 1, max: 1 };
-  if (band === "2") return { min: 2, max: 2 };
-  return { min: 3, max: 10 };
-}
-
 function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
+}
+
+// Parse "1-2 hours", "30 minutes", "2 hours", "45 min", etc. into a
+// {min,max} minute range. Falls back to 60 if unparseable.
+function parseDuration(s: unknown): { min: number; max: number } {
+  if (typeof s !== "string") return { min: 60, max: 60 };
+  const lower = s.toLowerCase();
+  const hasHours = /hour|\bhr/.test(lower);
+  const hasMinutes = /minute|\bmin/.test(lower);
+  const nums = (lower.match(/\d+(?:\.\d+)?/g) ?? []).map(Number);
+  if (nums.length === 0) return { min: 60, max: 60 };
+  const factor = hasHours ? 60 : hasMinutes ? 1 : 60;
+  const lo = nums[0] * factor;
+  const hi = nums.length > 1 ? nums[1] * factor : lo;
+  const min = clamp(Math.round(Math.min(lo, hi)), 5, 360);
+  const max = clamp(Math.round(Math.max(lo, hi)), 5, 360);
+  return { min, max };
+}
+
+// Parse "2-4 people", "3 people", "solo", "group" into {min,max} people.
+function parseGroupSizeString(s: unknown): { min: number; max: number } {
+  if (typeof s !== "string") return { min: 3, max: 10 };
+  const lower = s.toLowerCase().trim();
+  if (lower.startsWith("solo") || lower === "1" || lower === "1 person") {
+    return { min: 1, max: 1 };
+  }
+  const nums = (lower.match(/\d+/g) ?? []).map(Number);
+  if (nums.length === 0) {
+    if (lower.includes("group")) return { min: 3, max: 10 };
+    return { min: 3, max: 10 };
+  }
+  const lo = nums[0];
+  const hi = nums.length > 1 ? nums[1] : lo;
+  return {
+    min: clamp(Math.min(lo, hi), 1, 20),
+    max: clamp(Math.max(lo, hi), 1, 20),
+  };
+}
+
+function isV4Category(s: string): boolean {
+  return (V4_CATEGORIES as readonly string[]).includes(s);
+}
+
+function makeId(title: string): string {
+  const slug =
+    title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40) || "quest";
+  return `${slug}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
 function normalize(
@@ -172,25 +221,21 @@ function normalize(
 ): GeneratedQuest | null {
   if (
     !q ||
-    typeof q.id !== "string" ||
     typeof q.title !== "string" ||
     typeof q.description !== "string"
   ) {
     return null;
   }
-  const category: QuestCategory = isQuestCategory(q.category) ? q.category : "Chaos";
-  const spice = clamp(Math.round(Number(q.spice) || 5), 1, 10);
-  const duration = clamp(Math.round(Number(q.duration) || 60), 5, 360);
-  const band: GroupSizeBand =
-    q.groupSize === "solo" || q.groupSize === "2" || q.groupSize === "group"
-      ? q.groupSize
-      : "group";
-  const { min, max } = bandToRange(band);
-  const cost: QuestCost =
-    q.cost === "free" || q.cost === "$" || q.cost === "$$" ? q.cost : "free";
+  const v4Cat = isV4Category(q.category) ? q.category : null;
+  const category: QuestCategory = v4Cat
+    ? V4_TO_QUEST_CATEGORY[v4Cat]
+    : "Social";
+  const spice = clamp(Math.round(Number(q.spiceLevel) || 5), 1, 10);
+  const { min: minTime, max: maxTime } = parseDuration(q.duration);
+  const { min: minGroup, max: maxGroup } = parseGroupSizeString(q.groupSize);
 
-  // Ensure ID is unique within this batch and not already shown.
-  let id = q.id.trim() || "ai-quest";
+  // ID is no longer returned by the model — derive from title.
+  let id = (typeof q.id === "string" && q.id.trim()) || makeId(q.title);
   if (excludeIds.has(id)) {
     id = `${id}-${Math.random().toString(36).slice(2, 7)}`;
   }
@@ -202,11 +247,11 @@ function normalize(
     description: q.description.trim(),
     category,
     spice,
-    minGroup: min,
-    maxGroup: max,
-    minTime: duration,
-    maxTime: duration,
-    cost,
+    minGroup,
+    maxGroup,
+    minTime,
+    maxTime,
+    // v4 schema does not include cost — leave undefined so the chip hides.
     nearbyDetected: false,
   };
 }
@@ -254,14 +299,17 @@ export async function POST(req: NextRequest) {
   const nearbyStr = nearbyPlaces.length
     ? nearbyPlaces.join(", ")
     : "(none provided)";
-  const excludeStr = excludeIds.length
-    ? `\nQuest IDs already shown this session (avoid reusing these IDs): ${excludeIds.slice(-30).join(", ")}.`
-    : "";
+  const groupSizeHint =
+    groupSize === "solo"
+      ? "1 person"
+      : groupSize === "2"
+        ? "2 people"
+        : "3+ people";
   const previousStr = previousTitles.length
-    ? `\n\nPreviously generated quest titles to AVOID repeating or closely resembling: ${previousTitles.join(", ")}. Generate quests that are meaningfully different in theme, venue type, and action.`
+    ? `\n\nPreviously generated quest titles to AVOID repeating or closely resembling: ${previousTitles.join("; ")}. Generate quests that are meaningfully different in theme, venue type, and action.`
     : "";
 
-  const userMessage = `Generate 3 side quests for someone in ${location}. Nearby places include: ${nearbyStr}. Filters: spice level ${spiceLevel}/10, group size ${groupSize}, time available ${timeAvailable} minutes.${excludeStr}${previousStr}\n\nReturn ONLY a valid JSON array of 3 quest objects. No markdown, no explanation, just the raw JSON array. Each object must have keys: id (kebab-case unique), title, description, category (one of: Chaos, Outdoor, Social, Creative, Food, Late Night, Chill, Fitness, Nature, Tech, Exploration), spice (1-10), duration (minutes), groupSize ("solo"|"2"|"group"), cost ("free"|"$"|"$$").`;
+  const userMessage = `Generate 3 side quests for someone in ${location}. Nearby places include: ${nearbyStr}. Inputs: spice level ${spiceLevel}/10, group size ${groupSizeHint}, time available ${timeAvailable} minutes.${previousStr}\n\nReturn a JSON array of exactly 3 quest objects following the OUTPUT FORMAT defined in the system prompt. No markdown, no explanation, just the raw JSON array.`;
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const controller = new AbortController();
