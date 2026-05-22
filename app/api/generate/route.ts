@@ -68,6 +68,16 @@ Before finalizing your 3 quests, count how many involve food/restaurants/cafes/e
 
 The nearby restaurant list tells you the user's general area. It does NOT mean the user wants to eat. Generate quests that fit the user's spice level and time window — most of which should have nothing to do with food.
 
+⚠️ VENUE NAMING BAN — READ BEFORE GENERATING ANYTHING:
+
+The nearbyPlaces list is for geographic context ONLY. You are BANNED from naming any specific venue, restaurant, cafe, bar, park, playground, street, institution, or landmark from that list inside any quest title or quest description. Not even non-food venues. No playground names, no street names, no institution names from the list.
+
+Instead, use generic descriptors: "a nearby park", "a local playground", "a community space", "a public square." The user already knows their area — they do not need you to tell them which specific Bleecker Playground or Brass Rail to visit.
+
+HARD RULE: If your quest description contains any proper noun that appears verbatim in the nearbyPlaces list, rewrite it to remove the proper noun.
+
+FOOD-IN-BODY BAN: Even when a quest is NOT categorized as Food, you must not embed food/eating/drinking/purchasing food as a mechanic, outcome, reward, or penalty within the quest description. No "loser buys coffee", no "grab a snack", no "buys dumplings", no "buy a round." If you need a stakes mechanic, use non-food options: "loser picks the next quest," "winner chooses the route home," "take a group photo as proof."
+
 WHAT A SIDE QUEST IS (AND ISN'T)
 
 A side quest is something a friend group does together that makes life feel more alive than a normal evening. It can be:
@@ -145,6 +155,8 @@ Seed examples:
 - Home Depot AI-image roleplay: each person uses an AI image generator to create a photorealistic image of an absurd home emergency for one other group member (car crashed into kitchen, raccoon stuck in dishwasher, hole shaped like a person in the wall, ball pit balls filling basement). The recipient walks into Home Depot with that image on their phone, shows it to an employee, asks for serious advice, and CANNOT break character. The others watch from a distance. Rotate so each person takes a turn.
 - Costco team sample-meal mission: skip lunch and survive entirely off Costco samples. No timer, no efficiency optimization, just keep hitting stations until you're full.
 
+SPICE CEILING — HARD RULE: Every quest you generate must have a spice score AT OR BELOW the user's requested spice level. If user sets spice 2, no quest may exceed 2/10. If user sets spice 5, no quest may exceed 5/10. This is a ceiling, not a target.
+
 UNIVERSAL RUBRIC — score each candidate 0-2 per axis. REJECT below 14/20:
 1. Specificity — named venue, item, action, or count. Generic chains (Starbucks, Target, IKEA) pass. "A coffee shop" fails.
 2. Concrete action — user does a thing. No verbal rules. No writing tasks.
@@ -210,6 +222,8 @@ VARIETY RULES (enforced):
 - No two quests can have the same primary action type
 - Include at least one chill/wholesome option and one that pushes comfort zone (relative to spice tier)
 
+GROUP SIZE HANDLING — HARD RULE: When you write quest descriptions, match pronouns and group language to the actual group size. If groupSize is 1, use "you" not "your group" or "everyone." If groupSize is 2+, you may use "your crew", "everyone", "the group." Never output minGroup == maxGroup for the group range — always give a range like 1-4, 2-5, etc. For groupSize=1, use min:1, max:3. For groupSize=2, use min:2, max:4. Always spread the range.
+
 CALIBRATION NOTES:
 - v4 removed the 14-shape taxonomy after user feedback that it was overfitting generation to formulaic patterns
 - Organized only by spiciness. Vibe variety within each tier is explicit and required
@@ -217,7 +231,7 @@ CALIBRATION NOTES:
 - Watch for failure modes: collapsing to retail repetition; ignoring outdoor/cooperative quests in favor of chaos comedy; solo-with-watchers; bland fake premises
 
 GENERATION PROCESS:
-1. Read the inputs (group size, time available, spice level, location/city, category if specified). NOTE: The nearby places list is context for the area only — do NOT use it as a menu of quest venues. Immediately plan at least 2 of your 3 quests without any named venue from that list.
+1. Read the inputs (group size, time available, spice level, location/city, category if specified). NOTE: The nearby places list is context for the area only — do NOT use it as a menu of quest venues, and do NOT name any venue from it. Immediately plan at least 2 of your 3 quests without any named venue from that list. Also plan your time output: ALWAYS output a range (minTime and maxTime) where minTime < maxTime with at least a 15-minute spread. Never output the same value for both. Example: if a quest takes about 45 min, output minTime:30, maxTime:60. If it takes about 90 min, output minTime:75, maxTime:105.
 2. Pick the spiciness tier from the spice input.
 3. Within that tier, generate candidates VARYING the vibe. Do not collapse to one vibe.
 4. Score each on universal rubric. Run anti-rubric. Reject below 14/20.
