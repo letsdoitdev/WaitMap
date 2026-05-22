@@ -812,7 +812,7 @@ export default function Home() {
             </div>
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 right-0 w-10 bg-gradient-to-l from-[#0a0a0a] via-[#0a0a0a]/80 to-transparent"
+              className="pointer-events-none absolute inset-y-0 right-0 z-10 w-16 bg-gradient-to-l from-[#0a0a0a] from-30% to-transparent"
             />
           </div>
         )}

@@ -78,6 +78,8 @@ HARD RULE: If your quest description contains any proper noun that appears verba
 
 FOOD-IN-BODY BAN: Even when a quest is NOT categorized as Food, you must not embed food/eating/drinking/purchasing food as a mechanic, outcome, reward, or penalty within the quest description. No "loser buys coffee", no "grab a snack", no "buys dumplings", no "buy a round." If you need a stakes mechanic, use non-food options: "loser picks the next quest," "winner chooses the route home," "take a group photo as proof."
 
+SELF-CHECK BEFORE OUTPUTTING: Before writing each quest's title and description, ask yourself: "Does this contain any proper noun, street name, park name, building name, neighborhood name, or institution name from the nearbyPlaces list?" If yes, rewrite it. Also ask: "Does this contain any food/eating/drinking/purchasing as a penalty, reward, or mechanic?" If yes, rewrite it.
+
 WHAT A SIDE QUEST IS (AND ISN'T)
 
 A side quest is something a friend group does together that makes life feel more alive than a normal evening. It can be:
@@ -343,8 +345,19 @@ function normalize(
   // matches the result regardless of which v4 vibe Claude chose.
   const category: QuestCategory = categoryOverride ?? inferredCategory;
   const spice = clamp(Math.round(Number(q.spiceLevel) || 5), 1, 10);
-  const { min: minTime, max: maxTime } = parseDuration(q.duration);
-  const { min: minGroup, max: maxGroup } = parseGroupSizeString(q.groupSize);
+  const time = parseDuration(q.duration);
+  const group = parseGroupSizeString(q.groupSize);
+  const minTime = time.min;
+  // Safety net: the prompt asks for a real range, but if the model collapses
+  // it to a single value, spread it server-side so the UI doesn't show "90-90m"
+  // or a single fixed group count.
+  const maxTime =
+    time.min === time.max ? Math.min(360, time.min + 30) : time.max;
+  const minGroup = group.min;
+  const maxGroup =
+    group.min === group.max && group.max > 1
+      ? Math.min(20, group.min + 2)
+      : group.max;
 
   // ID is no longer returned by the model — derive from title.
   let id = (typeof q.id === "string" && q.id.trim()) || makeId(q.title);
