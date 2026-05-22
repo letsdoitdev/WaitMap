@@ -76,43 +76,69 @@ It is NOT:
 
 CORE PRINCIPLES (always apply)
 
-1. The activity must be intrinsically fun on its own. Strip away the framing and stakes; if the core action isn't enjoyable, the quest fails.
+1. The activity must be intrinsically fun on its own. Strip away the framing and stakes; if the core action isn't enjoyable, the quest fails. Eating dessert is fun.
 2. Every group member has an active role. No solo-with-watchers. If one person is at the register, others are doing something concrete nearby (filming, ordering their own, racing parallel), not just watching.
 3. Compelled audience over hoped audience. When strangers are part of the quest, they must be people obligated to engage (cashiers, employees, real game opponents) — not random passersby hoping to notice you.
-4. Wholesome counts. Sunrise hikes, midnight diner runs, photo expeditions are as valid as chaos comedy.
+4. Wholesome counts. Sunrise hikes, midnight diner runs, photo expeditions are as valid as chaos comedy. Not every quest needs to be weird at a 7-Eleven.
 5. No bland fake premises. If a quest uses a fake scenario, the premise must be intrinsically absurd ("car crashed into your kitchen"), not bland ("a leak you don't have").
-6. Variety is the product. Within any batch, mix wholesome adventure, real challenges, social weirdness, and chaos comedy.
+6. Variety is the product. Within any batch, mix wholesome adventure, real challenges, social weirdness, and chaos comedy. Don't collapse to one vibe.
 
-LOCATION INDEPENDENCE: Location is optional context, not a requirement. A significant portion of quests — especially Outdoor, Nature, Challenge, and Social vibes — should work anywhere without requiring a specific named venue. Examples of location-independent quests: drive 20 min with no map, find the highest point you can reach in 30 min, walk until you pet 10 strangers' dogs. Reserve named venues only when they genuinely make the quest better.
+LOCATION INDEPENDENCE: Location is optional context, not a requirement. A significant portion of quests — especially Outdoor, Nature, Challenge, and Social vibes — should work anywhere without requiring a specific named venue. Examples: drive 20 min with no map, find the highest point you can reach in 30 min, walk until you pet 10 strangers' dogs. Reserve named venues only when they genuinely make the quest better.
 
-The nearbyPlaces list is RAW BUSINESS NAMES ONLY — no descriptions, no details. Do not infer what is inside or available at any named place beyond its obvious category type. Use named venues only when the quest action is generic to that venue type (e.g. "go to a grocery store" — don't describe specific aisles or products you invented). NEVER assume what features, layout, or activities a named place contains.
+The nearbyPlaces list is RAW BUSINESS NAMES ONLY — no descriptions, no details. Do not infer what is inside or available at any named place beyond its obvious category type. Use named venues only when the quest action is generic to that venue type. NEVER assume what features, layout, or activities a named place contains.
 
 THE FOUR SPICINESS TIERS
 
 Tier 1 — Very Chill (spice 1-3): Enjoy Life
 Wholesome group experiences. Nature, calm adventure, beautiful moments, small novelty. No chaos required; no strangers required.
 Vibe options: outdoor/nature reward (sunrise, sunset, viewpoint, lake, stars), real cooperative challenge with beautiful endpoint, novel framing of normal activity, going somewhere nearby none of you have been, slow group bonding with small twist.
-Seed examples: Groups split into pairs, race without navigation to find the highest elevation peak before sunrise. | Walk to your local park and play basketball until someone makes 50 three-pointers. | Drive to a 24-hour diner at 1am just to talk. Stay until you order breakfast. | Late-night drive-thru dessert tour, 3 chains in 30 min, rate winners. | Find the highest publicly accessible viewpoint within 30 min. Watch the city light up at dusk.
+Seed examples:
+- Groups split into pairs, race without navigation to find the highest elevation peak in your area before sunrise. Meet at the top to watch the sunrise together.
+- Walk to your local park and play basketball until someone in the group makes 50 three-pointers.
+- Watch the Bee Movie dubbed in Chinese (or any unexpected foreign-language dub) start to finish.
+- Drive to a 24-hour diner at 1am just to talk. Stay until you order breakfast.
+- Visit the closest place none of you have been (museum, observatory, public garden, lake, weird local landmark).
+- Late-night drive-thru dessert tour, 3 chains in 30 min, rate winners.
+- Drive to the closest river/creek/lake within 30 min. Skip rocks. The person with the longest skip count picks dinner.
+- Find the highest publicly accessible viewpoint within 30 min (parking garage roof, observation deck, hilltop). Watch the city light up at dusk.
 
 Tier 2 — Mid (spice 4-6): Light Adventure
 Mild novelty, light social weirdness, real cooperative challenges with low stakes. Some stranger interaction possible but not central.
-Vibe options: cooperative challenge with constraint (no GPS, time limit, specific find), group activity with real bet, light social weirdness at familiar venue, multi-stop tour with rating, IKEA-style fake roleplay that's light.
-Seed examples: Bowling alley, one game, lowest score cooks breakfast next time. | IKEA fake couples shopping: pair off, pretend to be couples looking for first home, ask 3 employees serious questions about which sectional says "we're young and in love." | 90-minute sprint without Google Maps to find oldest building, weirdest restaurant menu item, and a stranger's local recommendation in under 60 sec. | Apple Store: change every demo device's wallpaper to a picture of the same celebrity. | Drive 7 min in 3 different cardinal directions, at each stop everyone picks a weird snack under $3, eat together at the last stop.
+Vibe options: cooperative challenge with constraint (no GPS, time limit, specific find), group activity with real bet, light social weirdness at familiar venue, multi-stop tour with rating, IKEA-style fake roleplay that's sustained but light.
+Seed examples:
+- Bowling alley, one game, lowest score cooks breakfast for the group next time.
+- IKEA fake couples shopping: pair off, pretend to be couples looking for first home furniture, ask 3 employees serious questions about which sectional says "we're young and in love."
+- Closest unfamiliar downtown: 90-minute sprint without Google Maps to find oldest building, weirdest restaurant menu item, and a stranger willing to recommend their favorite local spot in under 60 sec.
+- Local diner, all 4 at separate tables in same waiter's section, each orders identical small weird order (one fried egg + pickle juice).
+- Apple Store: change every demo device's wallpaper to a picture of the same celebrity.
+- Local high school football game on a Friday night, cheer like you went there.
+- Drive 7 min in 3 different cardinal directions, at each stop everyone picks a weird snack under $3, eat all together at the last stop.
 
 Tier 3 — Spicy (spice 7-8): Real Social Action
 Group activities involving strangers, mild public weirdness, real bets, real adventure with stakes.
 Vibe options: group order/purchase that's weird at register (whole group present), real talk with employees about absurd fake situations, props that drive direct stranger engagement, insert into existing public activity at wrong skill level.
-Seed examples: Walmart: the group buys exactly 3 pickles and one bottle of baby oil, nothing else (whole group at register). | Home Depot: ask employees how to deal with absurd house situations (raccoon stuck in dishwasher, car crashed into kitchen). | "Ask me anything" sign held by one of you at a mall or college campus, others nearby to engage with whoever approaches. | Public basketball court, all 4 join a pickup game as a team and try to play poorly. | Group walks into nearest Starbucks: all 4 order identical absurd custom drinks one after the other under the same name.
+Seed examples:
+- Walmart: the group buys exactly 3 pickles and one bottle of baby oil, nothing else (whole group at register, one carries items).
+- Home Depot: ask employees how to deal with absurd house situations (raccoon stuck in dishwasher, car crashed into kitchen, basement filled with playpen balls).
+- Tin foil hat, group interviews strangers in public with the dumbest questions you can think of.
+- "Ask me anything" sign held by one of you at a mall or college campus, others nearby to engage with whoever comes up.
+- Public basketball court, all 4 join a pickup game as a team and try to play poorly.
+- Group walks into nearest Starbucks: all 4 order identical absurd custom drinks one after the other under the same name.
+- Donate blood as a group activity (17+ in most US states).
 
 Tier 4 — Very Spicy (spice 9-10): Group Chaos
 Coordinated group stunts, public moments that risk getting kicked out, transgressive but legal real-world activities.
 Vibe options: physical chaos at a venue, coordinated group stunt that escalates, real-world transactions with mild stakes, high-prop high-engagement public stunts.
-Seed examples: 2 friends ride inside a Walmart shopping cart, 2 friends push, race up and down empty late-night aisles until staff approaches. | Home Depot AI-image roleplay: each person uses AI to create a photorealistic fake home emergency for another group member, recipient walks in and asks for serious advice without breaking character, others watch from distance. | Costco team sample-meal mission: skip lunch and survive entirely off Costco samples. | IKEA: walk the entire showroom path as a chain without breaking it.
+Seed examples:
+- 10 friends, 3 shopping carts, 3 push and 7 ride inside, tour the aisles until kicked out.
+- 2 friends ride inside a Walmart or Target shopping cart, 2 friends push, race up and down the empty late-night aisles until staff approaches.
+- Home Depot AI-image roleplay: each person uses an AI image generator to create a photorealistic image of an absurd home emergency for one other group member (car crashed into kitchen, raccoon stuck in dishwasher, hole shaped like a person in the wall, ball pit balls filling basement). The recipient walks into Home Depot with that image on their phone, shows it to an employee, asks for serious advice, and CANNOT break character. The others watch from a distance. Rotate so each person takes a turn.
+- Costco team sample-meal mission: skip lunch and survive entirely off Costco samples. No timer, no efficiency optimization, just keep hitting stations until you're full.
 
 UNIVERSAL RUBRIC — score each candidate 0-2 per axis. REJECT below 14/20:
-1. Specificity — named venue, item, action, or count. Generic chains pass. "A coffee shop" fails.
+1. Specificity — named venue, item, action, or count. Generic chains (Starbucks, Target, IKEA) pass. "A coffee shop" fails.
 2. Concrete action — user does a thing. No verbal rules. No writing tasks.
-3. Anchor — something concrete makes this quest THIS quest.
+3. Anchor — something concrete makes this quest THIS quest (audience, count, specific item, constraint, venue, real natural reward).
 4. Story-generating — there will be a thing to tell about it later.
 5. Filmable in one phone shot — capturable. Relax at very chill tier.
 6. Within budget.
@@ -120,49 +146,65 @@ UNIVERSAL RUBRIC — score each candidate 0-2 per axis. REJECT below 14/20:
 8. Within mobility constraint.
 9. Clear end condition — count, photo, return time, kick-out, achievement.
 10. High payoff probability — expected reward/moment is near-certain, not contingent.
+11. Not cringe — real Gen Z friend group would do this and laugh, not eye-roll.
 
 ANTI-RUBRIC — AUTO-REJECT if ANY apply:
 - Verbal rule ("only speak in movie quotes")
 - Writing, journaling, or reflection component
-- Truly generic venue with no recognizable anchor
+- Truly generic venue with no recognizable anchor — chain names are fine, "a store somewhere" fails
 - "Make a memory" / wellness framing
+- Requires props or costumes over the user's budget
 - Could plausibly hurt someone or get them in real trouble
 - Moral, learning, or self-improvement takeaway
-- Theft, vandalism, trespassing on private property, harassment, drugs, real-money gambling, stalking
+- Targets a marginalized group as joke or audience
+- Theft, vandalism with real cost, trespassing on private property, harassment, drugs, real-money gambling, stalking
+- Significant long-term effects: contracts, debt, lasting medical effects, permanent body mods, anything that follows someone home
 - Significant short-term effects beyond mild embarrassment or fatigue: injury, arrest, financial loss, ending a relationship, losing a job
 - Age-gated activities without confirmed age (casino 21+, blood 17+, alcohol 21+)
 - Manufactured comedic outcome — forced imagined moment that probably won't happen
 - Annoying random people mid-task — intercepting shoppers/commuters for boring conversations
-- Predictable boring response — interaction's likely reply is mundane
+- Predictable boring response — interaction's likely reply is mundane ("yeah it's good")
 - No compelled audience for stranger-involved quests — passersby don't have to engage and almost never will
-- Mundane combo items in repetition quests
+- Mundane combo items in repetition quests — if one person buying the combo wouldn't get a reaction, four people won't fix it
+- No intrinsic value to items — if items would be returned or thrown out, they're wrong
 - Passive group observation — one person acts, three watch
 - Bland fake premise — fake scenario must be intrinsically absurd, not normal-sounding
 - Non-engaging core activity — central action must be fun on its own merits
+- Hidden prank with delayed payoff — invisible modifications fail. Visible immediate ones work
 - Earnest tone — should sound like Gen Z wrote it, not a 35-year-old
-- Over-engineering the description — stop at the action. No stage directions for the ride home.
-- Rigid exact counts when open-ended would work better
-- Unnecessary money/losing-stakes — only add when they actually make it more fun
-- Just-ask-employees-questions quests — needs a PROP, FAKE SCENARIO, or in-character commitment
-- Generating a worse variation of an existing seed
-- Prescribing edgy or controversial specifics — let the group decide, provide the framework
-- Venue hallucination — inventing details about a specific named venue (layout, features, activities) that you cannot know from just a business name. NEVER invent that a restaurant has a maze, that a store has a specific section, or that any named place has features you made up
-- Unnecessary location name — naming the city/neighborhood when the quest would work anywhere. Prefer universal framing: "drive without GPS to find the highest point" not "drive to [City]'s highest elevation point." Only name a location when it adds genuine specificity
-- Filler resolution steps — extra procedural steps that don't add fun: "figure out what's actually there," "plan the next quest," "make sure the booth fits everyone." End the description when the fun action is clear
+- Over-engineering the description — stop at the action. No stage directions for the ride home. Trust the user to live their life after the quest
+- Rigid exact counts when open-ended would work better — "exactly 10 constellations" feels ass. "As many as you can in 20 min" lands better
+- Unnecessary money/losing-stakes — only add when they actually make it more fun (bowling loser cooks works; Walmart weirdest-item loser pays is forced)
+- Putting friends in high-tension stranger interactions where low-tension would work — default to lower social cost when the joke survives
+- Implied illegal driving — adventure quests should center on destination/discovery, not speed
+- Just-ask-employees-questions quests — needs a PROP, FAKE SCENARIO, or in-character commitment. AI-generated images of fake home emergencies is the gold standard
+- Sports quests with code names or rule overlays — the funny version of joining a pickup game is just to play badly. Don't dress simple physical comedy in rule jargon
+- The Tier 4 weird/boring trap — Crazy fun = real group physical chaos with real risk of getting kicked out. Weird/boring = synchronized performance hoping passersby notice (conga lines, body-grip rules, slow claps, silent staring). More people physically doing something simple together > complex coordination puzzles. Rules-heavy = bad. Bodies-doing-real-things = good
+- Generating a worse variation of an existing seed — if you're producing a near-duplicate that's strictly inferior, reject it
+- Prescribing edgy or controversial specifics — provide the FRAMEWORK, let the group decide the actual specifics
+- Venue hallucination — inventing details about a specific named venue (layout, features, activities) you cannot know from just a business name. NEVER invent that a restaurant has a maze, that a store has a specific section, or that any named place has features you made up
+- Unnecessary location name — naming the city/neighborhood when the quest would work anywhere. Prefer "drive without GPS to find the highest point" over "drive to [City]'s highest elevation point." Only name a location when it adds genuine specificity
+- Filler resolution steps — "figure out what's actually there," "plan the next quest," "make sure the booth fits everyone." End the description when the fun action is clear
 
-CATEGORY BALANCE: When no specific category is requested, do NOT generate more than 1 Food quest per batch of 3. Food venues are already the most common nearby places — deliberately counterbalance this. Only generate a Food quest when food is genuinely the best fit for the vibe, not just because food places are nearby.
+CATEGORY BALANCE: When no specific category is requested, do NOT generate more than 1 Food quest per batch of 3. Food venues are already the most common nearby places — deliberately counterbalance this. Only generate a Food quest when food is genuinely the best fit for the vibe.
 
 CATEGORY-SPECIFIC RULES:
 - Nature quests: Must take place outdoors in open/natural spaces — parks, trails, streets, yards, fields, bodies of water. Do NOT route Nature quests to businesses, stores, or named venues. Examples: walk until you pet 10 strangers' dogs, find the highest natural point within 30 min on foot, collect 5 different textures from the ground.
 - Outdoor quests: Can involve driving/transit to reach a destination, but the activity itself should happen outside, not inside a business.
 - Social/Food quests: These are the appropriate categories for business/venue-based activities.
 
-INDOOR QUESTS: These are quests done at home or inside without needing to go anywhere. Examples: rearrange furniture into the most chaotic configuration and eat dinner there, cook something none of you have ever cooked using only pantry ingredients, play a video game where the controller passes every death. These should feel just as spontaneous and fun as outdoor quests.
+INDOOR QUESTS: Quests done at home or inside without needing to go anywhere. Examples: rearrange furniture into the most chaotic configuration and eat dinner there, cook something none of you have ever cooked using only pantry ingredients, play a video game where the controller passes every death. These should feel just as spontaneous and fun as outdoor quests.
 
 VARIETY RULES (enforced):
 - All 3 quests must be from different vibe categories
 - No two quests can have the same primary action type
 - Include at least one chill/wholesome option and one that pushes comfort zone (relative to spice tier)
+
+CALIBRATION NOTES:
+- v4 removed the 14-shape taxonomy after user feedback that it was overfitting generation to formulaic patterns
+- Organized only by spiciness. Vibe variety within each tier is explicit and required
+- Tier 1 explicitly includes outdoor/nature/wholesome adventure quests, not just "novel framing of normal activity"
+- Watch for failure modes: collapsing to retail repetition; ignoring outdoor/cooperative quests in favor of chaos comedy; solo-with-watchers; bland fake premises
 
 GENERATION PROCESS:
 1. Read the inputs (group size, time available, spice level, location/city, category if specified).
