@@ -355,7 +355,9 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           location: city,
-          nearbyPlaces: places.map((p) => p.name).slice(0, 20),
+          nearbyPlaces: places
+            .map((p) => ({ name: p.name, type: p.type, bucket: p.bucket }))
+            .slice(0, 20),
           spiceLevel: spice,
           groupSize: groupBand,
           timeAvailable: timeMinutes,
