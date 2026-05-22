@@ -327,22 +327,25 @@ export default function Home() {
 
   const canGenerate = city.trim().length > 0;
 
-  async function fetchNearby(loc: string): Promise<NearbyPlace[]> {
+  async function fetchNearby(
+    loc: string,
+  ): Promise<{ places: NearbyPlace[]; typeCounts: Record<string, number> }> {
     try {
       const r = await fetch(
         `/api/nearby-places?location=${encodeURIComponent(loc)}`,
       );
-      if (!r.ok) return [];
+      if (!r.ok) return { places: [], typeCounts: {} };
       const data = (await r.json()) as NearbyResponse;
-      if (!data.ok) return [];
-      return data.places;
+      if (!data.ok) return { places: [], typeCounts: {} };
+      return { places: data.places, typeCounts: data.typeCounts ?? {} };
     } catch {
-      return [];
+      return { places: [], typeCounts: {} };
     }
   }
 
   async function fetchAiQuests(
     places: NearbyPlace[],
+    typeCounts: Record<string, number>,
     excludeIds: string[],
     previousTitles: string[],
     category: QuestCategory | null,
@@ -355,7 +358,10 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           location: city,
-          nearbyPlaces: places.map((p) => p.name).slice(0, 20),
+          nearbyPlaces: places
+            .map((p) => ({ name: p.name, type: p.type, bucket: p.bucket }))
+            .slice(0, 20),
+          typeCounts,
           spiceLevel: spice,
           groupSize: groupBand,
           timeAvailable: timeMinutes,
@@ -383,11 +389,13 @@ export default function Home() {
     overrideCategory?: QuestCategory | null,
   ) => {
     if (!canGenerate) return;
+    setPrefsOpen(false);
+    setQuests(null);
     setRolling(true);
     setNearbyStatus("loading");
     setView("results");
 
-    const places = await fetchNearby(city);
+    const { places, typeCounts } = await fetchNearby(city);
     setNearbyStatus(places.length > 0 ? "ok" : "fallback");
 
     let shown = loadShown();
@@ -403,7 +411,7 @@ export default function Home() {
 
     const cat =
       overrideCategory !== undefined ? overrideCategory : categoryFilter;
-    let picked = await fetchAiQuests(places, shown, shownTitles, cat);
+    let picked = await fetchAiQuests(places, typeCounts, shown, shownTitles, cat);
     let resetShown = false;
     if (!picked) {
       const count = 3 + Math.floor(Math.random() * 3);
@@ -479,7 +487,7 @@ export default function Home() {
     ? sourceList.filter((q) => q.category === categoryFilter)
     : sourceList;
 
-  const showResultsArea = view === "saved" || quests !== null;
+  const showResultsArea = view === "saved" || quests !== null || rolling;
 
   return (
     <main className="relative min-h-screen overflow-x-hidden bg-[#0a0a0a] text-white">
@@ -761,8 +769,9 @@ export default function Home() {
 
         {/* FILTER CHIPS */}
         {showResultsArea && (
-          <div className="no-scrollbar mt-8 -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
-            <FilterPill
+          <div className="relative mt-8">
+            <div className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+              <FilterPill
               active={view === "results" && categoryFilter === null}
               onClick={() => {
                 setView("results");
@@ -806,13 +815,35 @@ export default function Home() {
                 </FilterPill>
               );
             })}
+            </div>
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-y-0 right-0 z-10 w-16 bg-gradient-to-l from-[#0a0a0a] from-30% to-transparent"
+            />
           </div>
         )}
 
         {/* QUEST CARDS */}
         {showResultsArea && (
           <section className="mt-4 space-y-4">
-            {displayedQuests.length === 0 ? (
+            {rolling ? (
+              <div className="space-y-4">
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    className="relative h-44 overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl"
+                  >
+                    <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.6s_infinite] bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
+                    <div className="space-y-3">
+                      <div className="h-4 w-24 rounded-full bg-white/10" />
+                      <div className="h-5 w-3/4 rounded bg-white/10" />
+                      <div className="h-3 w-full rounded bg-white/[0.07]" />
+                      <div className="h-3 w-5/6 rounded bg-white/[0.07]" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : displayedQuests.length === 0 ? (
               <div className="rounded-2xl border border-white/10 bg-white/5 p-10 text-center text-sm text-white/40 backdrop-blur-xl">
                 {view === "saved"
                   ? bookmarks.length === 0
@@ -876,10 +907,10 @@ export default function Home() {
 
                       <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/45">
                         <span className="inline-flex items-center gap-1.5">
-                          👥 {q.minGroup}-{q.maxGroup}
+                          👥 {q.minGroup === q.maxGroup ? q.minGroup : `${q.minGroup}-${q.maxGroup}`}
                         </span>
                         <span className="inline-flex items-center gap-1.5">
-                          ⏱ {q.minTime}-{q.maxTime}m
+                          ⏱ {q.minTime === q.maxTime ? `${q.minTime}m` : `${q.minTime}-${q.maxTime}m`}
                         </span>
                         {q.cost && (
                           <span className="inline-flex items-center gap-1.5">

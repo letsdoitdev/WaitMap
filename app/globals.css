@@ -40,6 +40,15 @@ body {
   }
 }
 
+@keyframes shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
 .quest-card-enter {
   animation: fadeInUp 0.4s ease forwards;
   opacity: 0;
