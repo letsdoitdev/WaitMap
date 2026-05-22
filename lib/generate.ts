@@ -2,6 +2,30 @@ import { QUESTS, QuestTemplate } from "./quests";
 import { NearbyPlace, pickVenue } from "./nearby";
 import { Rating } from "./ratings";
 
+/**
+ * Map an OSM type to a generic, non-identifying placeholder. We deliberately
+ * never substitute the real venue name into a quest title/description.
+ */
+function placeholderForType(osmType: string | undefined): string {
+  if (!osmType) return "a nearby spot";
+  if (["fast_food", "restaurant", "cafe", "bar"].includes(osmType))
+    return "a nearby spot";
+  if (osmType === "park") return "a nearby park";
+  if (osmType === "playground") return "a local playground";
+  if (osmType === "sports_centre") return "a nearby sports centre";
+  if (osmType === "stadium") return "a nearby stadium";
+  if (osmType === "viewpoint") return "a nearby viewpoint";
+  if (osmType === "museum") return "a local museum";
+  if (osmType === "attraction") return "a nearby attraction";
+  if (osmType === "cinema") return "a local cinema";
+  if (osmType === "theatre") return "a local theatre";
+  if (osmType === "library") return "a local library";
+  if (osmType === "gym") return "a nearby gym";
+  if (["supermarket", "mall"].includes(osmType)) return "a nearby store";
+  if (osmType === "hardware") return "a hardware store";
+  return "a nearby spot";
+}
+
 export type GenerateInput = {
   city: string;
   groupSize: number;
@@ -97,15 +121,20 @@ export function generateQuests(
   const picked = shuffled.slice(0, count);
 
   // 5. Resolve venues + templating.
+  // We deliberately do NOT inject real venue names into quest text, even when
+  // a nearby match exists. The quest body always renders a generic
+  // category-appropriate placeholder ("a nearby park") so the offline fallback
+  // honors the same venue-naming ban as the AI path. We still report
+  // nearbyDetected + matchedVenue so the UI can show a chip.
   const quests = picked.map((q): GeneratedQuest => {
     const venue = pickVenue(nearby, q.venueQuery);
-    const venueName = venue?.name ?? "a spot you choose";
+    const placeholder = placeholderForType(venue?.type ?? q.venueQuery?.[0]);
     return {
       ...q,
-      title: q.title.replaceAll("{city}", city).replaceAll("{venue}", venueName),
+      title: q.title.replaceAll("{city}", city).replaceAll("{venue}", placeholder),
       description: q.description
         .replaceAll("{city}", city)
-        .replaceAll("{venue}", venueName),
+        .replaceAll("{venue}", placeholder),
       nearbyDetected: Boolean(venue),
       matchedVenue: venue ? { name: venue.name, type: venue.type } : undefined,
     };

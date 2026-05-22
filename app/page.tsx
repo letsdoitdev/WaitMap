@@ -327,22 +327,25 @@ export default function Home() {
 
   const canGenerate = city.trim().length > 0;
 
-  async function fetchNearby(loc: string): Promise<NearbyPlace[]> {
+  async function fetchNearby(
+    loc: string,
+  ): Promise<{ places: NearbyPlace[]; typeCounts: Record<string, number> }> {
     try {
       const r = await fetch(
         `/api/nearby-places?location=${encodeURIComponent(loc)}`,
       );
-      if (!r.ok) return [];
+      if (!r.ok) return { places: [], typeCounts: {} };
       const data = (await r.json()) as NearbyResponse;
-      if (!data.ok) return [];
-      return data.places;
+      if (!data.ok) return { places: [], typeCounts: {} };
+      return { places: data.places, typeCounts: data.typeCounts ?? {} };
     } catch {
-      return [];
+      return { places: [], typeCounts: {} };
     }
   }
 
   async function fetchAiQuests(
     places: NearbyPlace[],
+    typeCounts: Record<string, number>,
     excludeIds: string[],
     previousTitles: string[],
     category: QuestCategory | null,
@@ -358,6 +361,7 @@ export default function Home() {
           nearbyPlaces: places
             .map((p) => ({ name: p.name, type: p.type, bucket: p.bucket }))
             .slice(0, 20),
+          typeCounts,
           spiceLevel: spice,
           groupSize: groupBand,
           timeAvailable: timeMinutes,
@@ -391,7 +395,7 @@ export default function Home() {
     setNearbyStatus("loading");
     setView("results");
 
-    const places = await fetchNearby(city);
+    const { places, typeCounts } = await fetchNearby(city);
     setNearbyStatus(places.length > 0 ? "ok" : "fallback");
 
     let shown = loadShown();
@@ -407,7 +411,7 @@ export default function Home() {
 
     const cat =
       overrideCategory !== undefined ? overrideCategory : categoryFilter;
-    let picked = await fetchAiQuests(places, shown, shownTitles, cat);
+    let picked = await fetchAiQuests(places, typeCounts, shown, shownTitles, cat);
     let resetShown = false;
     if (!picked) {
       const count = 3 + Math.floor(Math.random() * 3);

@@ -13,11 +13,15 @@ type GroupSizeBand = "solo" | "2" | "group";
 
 type GenerateBody = {
   location?: string;
-  /** Full place objects (preferred). Server uses .name for the leak detector
-   * and .type for the histogram + scrub-time category placeholder. */
+  /** Full place objects (still needed for the venue-leak detector and the
+   * scrub-time category placeholder). Histogram is built from typeCounts,
+   * not from this list. */
   nearbyPlaces?: Array<Pick<NearbyPlace, "name" | "type"> & { bucket?: NearbyBucket }>;
-  /** Per-bucket counts pre-computed by /api/nearby-places. */
+  /** Per-bucket counts pre-computed by /api/nearby-places (post-cap). */
   categoryCounts?: Partial<Record<NearbyBucket, number>>;
+  /** Per-OSM-type counts pre-computed by /api/nearby-places (post-cap).
+   * This is the canonical source for the histogram so caps are honored. */
+  typeCounts?: Record<string, number>;
   spiceLevel?: number;
   groupSize?: GroupSizeBand;
   timeAvailable?: number;
@@ -301,15 +305,18 @@ const TYPE_LABELS: Record<string, string> = {
   hardware: "hardware stores",
 };
 
-function buildHistogram(
-  places: Array<{ type: string }>,
-): string {
-  const counts: Record<string, number> = {};
-  for (const p of places) {
-    const label = TYPE_LABELS[p.type] ?? p.type;
-    counts[label] = (counts[label] ?? 0) + 1;
+/**
+ * Build the histogram string from the capped typeCounts returned by
+ * /api/nearby-places. Source of truth is the capped counts — we do NOT
+ * recount from raw place objects here.
+ */
+function buildHistogram(typeCounts: Record<string, number>): string {
+  const labeled: Record<string, number> = {};
+  for (const [type, n] of Object.entries(typeCounts)) {
+    const label = TYPE_LABELS[type] ?? type;
+    labeled[label] = (labeled[label] ?? 0) + n;
   }
-  const parts = Object.entries(counts)
+  const parts = Object.entries(labeled)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
     .map(([label, n]) => `${n} ${label}`);
@@ -506,6 +513,17 @@ export async function POST(req: NextRequest) {
         .filter((p) => p && typeof p.name === "string" && typeof p.type === "string")
         .slice(0, 20)
     : [];
+  // Histogram is built from the pre-capped typeCounts the place-fetch route
+  // computed. If the client didn't send it, derive a fallback from places
+  // (which are already capped by /api/nearby-places).
+  const typeCounts: Record<string, number> =
+    body.typeCounts && typeof body.typeCounts === "object"
+      ? body.typeCounts
+      : (() => {
+          const tc: Record<string, number> = {};
+          for (const p of places) tc[p.type] = (tc[p.type] ?? 0) + 1;
+          return tc;
+        })();
   const spiceLevel = clamp(Math.round(Number(body.spiceLevel) || 5), 1, 10);
   const groupSize: GroupSizeBand =
     body.groupSize === "solo" || body.groupSize === "2" || body.groupSize === "group"
@@ -537,7 +555,7 @@ export async function POST(req: NextRequest) {
     ? `Generate quests in the ${requestedCategory} category. `
     : "";
   const driveStr = canDrive ? "" : " Constraint: walking distance only, no car.";
-  const histogram = buildHistogram(places);
+  const histogram = buildHistogram(typeCounts);
   const fewShot = pickFewShot(groupSize, spiceLevel, requestedCategory, 6);
   const fewShotStr = renderFewShot(fewShot);
 
@@ -600,6 +618,13 @@ Return a JSON array of exactly 3 quest objects following the OUTPUT FORMAT defin
       const report = detectViolations(arr, rawNames, spiceLevel, requestedCategory);
       lastParsed = arr;
       lastViolations = report.violations;
+      console.log("[generate] attempt", attempt + 1, {
+        questCount: arr.length,
+        rawNames: rawNames.length,
+        violations: report.violations.length,
+        violationList: report.violations,
+        leaked: report.leakedNames,
+      });
 
       if (report.violations.length === 0 || attempt === MAX_RETRIES) break;
 

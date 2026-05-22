@@ -29,6 +29,8 @@ export type NearbyResponse = {
   places: NearbyPlace[];
   /** Count of places by balance bucket after capping/shuffling. */
   categoryCounts?: Partial<Record<NearbyBucket, number>>;
+  /** Count of places by raw OSM type after capping (e.g. {restaurant:3, park:2}). */
+  typeCounts?: Record<string, number>;
   error?: string;
 };
 
