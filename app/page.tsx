@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { generateQuests, GeneratedQuest } from "@/lib/generate";
@@ -224,81 +224,153 @@ export default function Home() {
   const [lowCostOnly, setLowCostOnly] = useState(false);
   const [locBusy, setLocBusy] = useState(false);
   const [locError, setLocError] = useState<string | null>(null);
+  const [locHint, setLocHint] = useState<string | null>(null);
+  const [lastKnownLabel, setLastKnownLabel] = useState<string | null>(null);
+  const progressTimersRef = useRef<number[]>([]);
 
   // Auto-fill the location input from the browser's geolocation. Only ever
   // fires on explicit tap of the crosshair button — never on mount, never
-  // via a "first-visit" flag. Uses Mapbox v5 places reverse geocoding so we
-  // stay on a single geocoder for the whole app.
+  // via a "first-visit" flag. Two-tier strategy: a fast low-accuracy attempt
+  // first, then a slower high-accuracy retry if the first tier times out.
+  // Surfaces progress + precise error messages so the user is never left
+  // wondering whether the button did anything.
+  const reverseGeocode = async (
+    lat: number,
+    lng: number,
+  ): Promise<string | null> => {
+    const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+    if (!token) return null;
+    try {
+      const r = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?types=place,locality,neighborhood&limit=1&access_token=${token}`,
+      );
+      if (!r.ok) return null;
+      const data = (await r.json()) as {
+        features?: {
+          text?: string;
+          context?: { id?: string; short_code?: string; text?: string }[];
+        }[];
+      };
+      const feature = data.features?.[0];
+      if (!feature?.text) return null;
+      const region = feature.context?.find((c) =>
+        c.id?.startsWith("region"),
+      );
+      const regionShort = region?.short_code
+        ?.replace(/^us-/i, "")
+        .toUpperCase();
+      const regionText =
+        region?.short_code?.toLowerCase().startsWith("us-") && region.text
+          ? region.text
+          : regionShort ?? region?.text ?? "";
+      return regionText ? `${feature.text} ${regionText}` : feature.text;
+    } catch {
+      return null;
+    }
+  };
+
   const useMyLocation = () => {
     if (locBusy) return;
     if (typeof navigator === "undefined" || !navigator.geolocation) {
-      setLocError("Couldn't get your location — type it instead.");
+      setLocError("Location blocked. Type your city instead.");
       return;
     }
     setLocBusy(true);
     setLocError(null);
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        try {
-          const { latitude, longitude } = pos.coords;
-          const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
-          if (!token) {
-            setLocError("Couldn't get your location — type it instead.");
-            return;
-          }
-          const r = await fetch(
-            `https://api.mapbox.com/geocoding/v5/mapbox.places/${longitude},${latitude}.json?types=place,locality,neighborhood&limit=1&access_token=${token}`,
-          );
-          if (!r.ok) throw new Error("reverse geocode failed");
-          const data = (await r.json()) as {
-            features?: {
-              text?: string;
-              context?: { id?: string; short_code?: string; text?: string }[];
-            }[];
-          };
-          const feature = data.features?.[0];
-          if (!feature?.text) {
-            setLocError("Couldn't get your location — type it instead.");
-            return;
-          }
-          const region = feature.context?.find((c) =>
-            c.id?.startsWith("region"),
-          );
-          const regionShort = region?.short_code
-            ?.replace(/^us-/i, "")
-            .toUpperCase();
-          // US localities get just the state name (e.g. "Ashburn Virginia");
-          // outside the US we fall back to "Place, Country" via context.text.
-          const regionText =
-            region?.short_code?.toLowerCase().startsWith("us-") &&
-            region.text
-              ? region.text
-              : regionShort ?? region?.text ?? "";
-          const next = regionText
-            ? `${feature.text} ${regionText}`
-            : feature.text;
-          setCity(next);
-          try {
-            localStorage.setItem("sqLocation", next);
-          } catch {
-            // ignore quota errors
-          }
-        } catch {
-          setLocError("Couldn't get your location — type it instead.");
-        } finally {
-          setLocBusy(false);
-        }
-      },
-      () => {
-        setLocBusy(false);
+
+    // Schedule progress messages — cleared on resolve/reject.
+    const progress1500 = window.setTimeout(() => {
+      setLocHint("Finding you…");
+    }, 1500);
+    const progress4000 = window.setTimeout(() => {
+      setLocHint("Still trying — may take a few more seconds…");
+    }, 4000);
+    progressTimersRef.current = [progress1500, progress4000];
+
+    const cleanup = () => {
+      for (const t of progressTimersRef.current) window.clearTimeout(t);
+      progressTimersRef.current = [];
+      setLocBusy(false);
+      setLocHint(null);
+    };
+
+    const handleSuccess = async (pos: GeolocationPosition) => {
+      const { latitude, longitude } = pos.coords;
+      const label = await reverseGeocode(latitude, longitude);
+      if (!label) {
+        cleanup();
+        setLocError(
+          "Couldn't read your location — type your city instead.",
+        );
+        return;
+      }
+      setCity(label);
+      try {
+        localStorage.setItem("sqLocation", label);
+        localStorage.setItem(
+          "lastKnownGeo",
+          JSON.stringify({
+            lat: latitude,
+            lng: longitude,
+            label,
+            timestamp: Date.now(),
+          }),
+        );
+        setLastKnownLabel(label);
+      } catch {
+        // ignore quota errors
+      }
+      cleanup();
+    };
+
+    const handleError = (err: GeolocationPositionError) => {
+      // TIMEOUT on the fast tier → retry once with high-accuracy.
+      if (err.code === err.TIMEOUT) {
+        navigator.geolocation.getCurrentPosition(
+          handleSuccess,
+          (err2) => {
+            cleanup();
+            if (err2.code === err2.PERMISSION_DENIED) {
+              setLocError(
+                "Location blocked. Type your city, or enable location in your browser settings.",
+              );
+            } else if (err2.code === err2.POSITION_UNAVAILABLE) {
+              setLocError(
+                "Your device couldn't find a location signal. Type your city instead.",
+              );
+            } else {
+              setLocError(
+                "Couldn't get a fix in time. Type your city, or try again with stronger GPS/Wi-Fi.",
+              );
+            }
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 8_000,
+            maximumAge: 5 * 60 * 1000,
+          },
+        );
+        return;
+      }
+      cleanup();
+      if (err.code === err.PERMISSION_DENIED) {
+        setLocError(
+          "Location blocked. Type your city, or enable location in your browser settings.",
+        );
+      } else if (err.code === err.POSITION_UNAVAILABLE) {
+        setLocError(
+          "Your device couldn't find a location signal. Type your city instead.",
+        );
+      } else {
         setLocError("Couldn't get your location — type it instead.");
-      },
-      {
-        enableHighAccuracy: false,
-        timeout: 8_000,
-        maximumAge: 5 * 60 * 1000,
-      },
-    );
+      }
+    };
+
+    navigator.geolocation.getCurrentPosition(handleSuccess, handleError, {
+      enableHighAccuracy: false,
+      timeout: 3_500,
+      maximumAge: 5 * 60 * 1000,
+    });
   };
 
   useEffect(() => {
@@ -307,6 +379,25 @@ export default function Home() {
     try {
       const saved = localStorage.getItem("sqLocation");
       if (saved) setCity(saved);
+      // Pre-fill from lastKnownGeo if it's under 24h old — returning users
+      // skip the geolocation roulette. Tap the chip to clear and re-search.
+      const lastRaw = localStorage.getItem("lastKnownGeo");
+      if (lastRaw) {
+        const last = JSON.parse(lastRaw) as {
+          lat?: number;
+          lng?: number;
+          label?: string;
+          timestamp?: number;
+        };
+        if (
+          last?.label &&
+          last.timestamp &&
+          Date.now() - last.timestamp < 24 * 60 * 60 * 1000
+        ) {
+          setLastKnownLabel(last.label);
+          if (!saved) setCity(last.label);
+        }
+      }
     } catch {
       // ignore
     }
@@ -666,14 +757,34 @@ export default function Home() {
                 )}
               </button>
             </div>
-            {locError && (
-              <p
-                className="mt-2 text-xs"
-                style={{ color: "var(--warning)" }}
-              >
-                {locError}
-              </p>
-            )}
+            {/* Progress + error helpers — amber for errors, tertiary for the
+              * in-flight hints. Only one shows at a time. */}
+            {locError ? (
+              <span className="ds-loc-helper" role="status">{locError}</span>
+            ) : locHint ? (
+              <span className="ds-loc-helper" data-info="true" role="status">
+                {locHint}
+              </span>
+            ) : lastKnownLabel && city === lastKnownLabel ? (
+              <span style={{ display: "inline-flex", marginTop: 8, gap: 6 }}>
+                <button
+                  type="button"
+                  className="ds-loc-chip-ghost"
+                  onClick={() => {
+                    setCity("");
+                    setLastKnownLabel(null);
+                    try {
+                      localStorage.removeItem("sqLocation");
+                    } catch {
+                      // ignore
+                    }
+                  }}
+                  aria-label="Clear last known location and re-search"
+                >
+                  Last known · clear
+                </button>
+              </span>
+            ) : null}
           </label>
 
           {/* PREFERENCES + QUICK-ACTION PILLS — Last quest, Saved.

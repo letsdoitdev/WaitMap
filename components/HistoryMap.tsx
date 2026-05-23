@@ -10,15 +10,12 @@ import {
 } from "@phosphor-icons/react/dist/ssr";
 import { formatDistanceToNow } from "date-fns";
 import type { Map as MapboxMap, Marker as MapboxMarker, GeoJSONSource } from "mapbox-gl";
-import { useAuth } from "@/lib/auth-context";
 import { useStats } from "@/lib/stats-context";
-import { createClient } from "@/lib/supabase/client";
 import {
   geocodeLocation,
   hasMapboxToken,
   upsertQuestCoords,
 } from "@/lib/geocode";
-import { getSignedMediaUrls } from "@/lib/upload";
 import type { Quest, QuestMedia } from "@/lib/database.types";
 
 type PinQuest = Quest & {
@@ -42,12 +39,22 @@ type Props = {
    * the component mounted in both modes so Mapbox doesn't re-initialize on
    * every toggle; when this flips back to true we call map.resize(). */
   visible?: boolean;
+  /** Hoisted media + signed URLs so we don't double-fetch quest_media on
+   * every /history mount (M7.3 dedupe — the list view already pulls these). */
+  media?: QuestMedia[];
+  signedUrls?: Record<string, string>;
+  /** When set, non-matching markers fade to 0.15 opacity instead of being
+   * removed — keeps the map from flashing on category filter changes. */
+  categoryFilter?: string | null;
 };
 
-export default function HistoryMap({ visible = true }: Props) {
-  const { user } = useAuth();
+export default function HistoryMap({
+  visible = true,
+  media: mediaProp,
+  signedUrls: signedUrlsProp,
+  categoryFilter = null,
+}: Props) {
   const { quests, completedEvents, refresh: refreshStats } = useStats();
-  const supabase = useMemo(() => createClient(), []);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapboxMap | null>(null);
   const markersRef = useRef<Map<string, MapboxMarker>>(new Map());
@@ -56,13 +63,29 @@ export default function HistoryMap({ visible = true }: Props) {
   const [initError, setInitError] = useState<string | null>(null);
   const [pendingCoords, setPendingCoords] = useState(0);
   const [popover, setPopover] = useState<PopoverState | null>(null);
-  const [media, setMedia] = useState<QuestMedia[]>([]);
-  const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+  const media = useMemo(() => mediaProp ?? [], [mediaProp]);
+  const signedUrls = useMemo(
+    () => signedUrlsProp ?? {},
+    [signedUrlsProp],
+  );
   const [geocodedPatch, setGeocodedPatch] = useState<
     Record<string, { lat: number; lng: number }>
   >({});
 
   const tokenPresent = hasMapboxToken();
+
+  // Category dim — fade non-matching markers instead of removing them so
+  // filtering doesn't visibly re-layout the canvas.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    document
+      .querySelectorAll<HTMLElement>(".ds-map-pin[data-category]")
+      .forEach((node) => {
+        const cat = node.getAttribute("data-category") ?? "";
+        node.style.opacity =
+          categoryFilter && cat !== categoryFilter ? "0.15" : "1";
+      });
+  }, [categoryFilter]);
 
   // When the container flips from hidden → visible, Mapbox needs a resize
   // pass; otherwise the canvas keeps its zero-width layout from when the
@@ -77,34 +100,8 @@ export default function HistoryMap({ visible = true }: Props) {
     return () => cancelAnimationFrame(id);
   }, [visible]);
 
-  // Fetch media so each pin can show the first thumbnail.
-  useEffect(() => {
-    if (!user || quests.length === 0) {
-      setMedia([]);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      const { data } = await supabase
-        .from("quest_media")
-        .select("*")
-        .in(
-          "quest_id",
-          quests.map((q) => q.id),
-        )
-        .order("created_at", { ascending: true });
-      if (cancelled) return;
-      const list = data ?? [];
-      setMedia(list);
-      if (list.length > 0) {
-        const urls = await getSignedMediaUrls(list);
-        if (!cancelled) setSignedUrls(urls);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [supabase, user, quests]);
+  // Media + signed URLs are now hoisted to the /history page level (M7.3
+  // dedupe) — no per-mount fetch here.
 
   // Lazy geocode any quests with a location but no coords.
   useEffect(() => {
@@ -415,6 +412,11 @@ export default function HistoryMap({ visible = true }: Props) {
             el.type = "button";
             el.className = "ds-map-pin";
             el.setAttribute("aria-label", props.title as string);
+            el.setAttribute(
+              "data-category",
+              (props.category as string) ?? "",
+            );
+            el.style.transition = "opacity 200ms ease-out";
             const thumbUrl = (props.thumbUrl as string) ?? "";
             if (thumbUrl) {
               const img = document.createElement("img");

@@ -75,6 +75,16 @@ type Row = {
   media: QuestMedia[];
 };
 
+/** SWR cache keyed by user id — surviving across History mounts within a
+ * session. We render from cache instantly on mount and revalidate in the
+ * background when the entry is older than 30s. */
+const ROW_CACHE_TTL_MS = 30_000;
+type RowCacheEntry = {
+  rows: Row[];
+  signedUrls: Record<string, string>;
+  fetchedAt: number;
+};
+const rowCache = new Map<string, RowCacheEntry>();
 
 type ViewMode = "list" | "map";
 
@@ -95,8 +105,21 @@ export default function HistoryPage() {
   };
   const filter = searchParams?.get("filter") ?? null;
   const savedView = filter === "saved";
-  const [rows, setRows] = useState<Row[] | null>(null);
-  const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+  const catFilter = searchParams?.get("cat") ?? null;
+  const setCatFilter = (next: string | null) => {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    if (next) params.set("cat", next);
+    else params.delete("cat");
+    const qs = params.toString();
+    router.replace(qs ? `/history?${qs}` : "/history", { scroll: false });
+  };
+  // Hydrate from the module-level SWR cache so repeat-visits paint instantly.
+  const cached = user ? rowCache.get(user.id) : undefined;
+  const [rows, setRows] = useState<Row[] | null>(cached?.rows ?? null);
+  const [signedUrls, setSignedUrls] = useState<Record<string, string>>(
+    cached?.signedUrls ?? {},
+  );
+  const [revalidating, setRevalidating] = useState(false);
   const [savedBookmarks, setSavedBookmarks] = useState<
     { id: string; title: string; category: string; description: string }[]
   >([]);
@@ -122,7 +145,15 @@ export default function HistoryPage() {
 
   useEffect(() => {
     if (!user) return;
+    // SWR window: a fresh-enough cache entry skips the network round-trip.
+    const entry = rowCache.get(user.id);
+    if (entry && Date.now() - entry.fetchedAt < ROW_CACHE_TTL_MS) {
+      return;
+    }
     let cancelled = false;
+    // Background-revalidate indicator only fires when we already have a
+    // cached render — otherwise the skeleton + first-paint covers it.
+    if (entry) setRevalidating(true);
 
     (async () => {
       const { data: completedEvents } = await supabase
@@ -137,6 +168,12 @@ export default function HistoryPage() {
         if (!cancelled) {
           setRows([]);
           setSignedUrls({});
+          setRevalidating(false);
+          rowCache.set(user.id, {
+            rows: [],
+            signedUrls: {},
+            fetchedAt: Date.now(),
+          });
         }
         return;
       }
@@ -200,15 +237,30 @@ export default function HistoryPage() {
       startTransition(() => {
         setRows(built);
       });
+      setRevalidating(false);
 
-      const allMedia = built.flatMap((r) => r.media);
-      if (allMedia.length === 0) {
-        if (!cancelled) setSignedUrls({});
+      const allMediaForFetch = built.flatMap((r) => r.media);
+      if (allMediaForFetch.length === 0) {
+        if (!cancelled) {
+          setSignedUrls({});
+          rowCache.set(user.id, {
+            rows: built,
+            signedUrls: {},
+            fetchedAt: Date.now(),
+          });
+        }
         return;
       }
       const fillUrls = async () => {
-        const urls = await getSignedMediaUrls(allMedia);
-        if (!cancelled) setSignedUrls(urls);
+        const urls = await getSignedMediaUrls(allMediaForFetch);
+        if (!cancelled) {
+          setSignedUrls(urls);
+          rowCache.set(user.id, {
+            rows: built,
+            signedUrls: urls,
+            fetchedAt: Date.now(),
+          });
+        }
       };
       const w = window as Window & {
         requestIdleCallback?: (cb: () => void) => number;
@@ -227,6 +279,31 @@ export default function HistoryPage() {
       cancelled = true;
     };
   }, [supabase, user, version, statsQuests]);
+
+  // Single hoisted media set so HistoryMap doesn't refetch the same rows.
+  const allMedia = useMemo(
+    () => (rows ?? []).flatMap((r) => r.media),
+    [rows],
+  );
+
+  // Category pill data — categories that actually appear in the user's
+  // completed quests, ordered by count desc. Empty categories don't render.
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of rows ?? []) {
+      counts.set(
+        r.quest.category,
+        (counts.get(r.quest.category) ?? 0) + 1,
+      );
+    }
+    return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    if (!rows) return rows;
+    if (!catFilter) return rows;
+    return rows.filter((r) => r.quest.category === catFilter);
+  }, [rows, catFilter]);
 
   if (!user || rows === null) {
     return (
@@ -329,52 +406,99 @@ export default function HistoryPage() {
         padding: "var(--space-7) var(--space-4) var(--space-9)",
       }}
     >
+      {revalidating && (
+        <div className="ds-revalidate-bar" aria-hidden="true" />
+      )}
       <h1 className="ds-page-title">History</h1>
       <StatsStrip />
 
-      <div
-        className="ds-view-toggle"
-        role="tablist"
-        aria-label="History view"
-      >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={view === "list"}
-          onClick={() => setView("list")}
-          className="ds-view-toggle-btn"
-          data-active={view === "list" ? "true" : "false"}
+      <div className="ds-history-toolbar">
+        <div
+          className="ds-view-toggle"
+          role="tablist"
+          aria-label="History view"
         >
-          <ListIcon
-            weight={view === "list" ? "fill" : "duotone"}
-            size={16}
-            aria-hidden="true"
-          />
-          <span>List</span>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={view === "map"}
-          onClick={() => setView("map")}
-          className="ds-view-toggle-btn"
-          data-active={view === "map" ? "true" : "false"}
-          data-accent={view === "map" ? "true" : "false"}
-        >
-          <MapTrifold
-            weight={view === "map" ? "fill" : "duotone"}
-            size={16}
-            aria-hidden="true"
-          />
-          <span>Map</span>
-        </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "list"}
+            onClick={() => setView("list")}
+            className="ds-view-toggle-btn"
+            data-active={view === "list" ? "true" : "false"}
+          >
+            <ListIcon
+              weight={view === "list" ? "fill" : "duotone"}
+              size={16}
+              aria-hidden="true"
+            />
+            <span>List</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={view === "map"}
+            onClick={() => setView("map")}
+            className="ds-view-toggle-btn"
+            data-active={view === "map" ? "true" : "false"}
+            data-accent={view === "map" ? "true" : "false"}
+          >
+            <MapTrifold
+              weight={view === "map" ? "fill" : "duotone"}
+              size={16}
+              aria-hidden="true"
+            />
+            <span>Map</span>
+          </button>
+        </div>
+
+        {categoryCounts.length > 0 && (
+          <div
+            className="ds-history-cat-pills"
+            role="tablist"
+            aria-label="Filter by category"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={!catFilter}
+              onClick={() => setCatFilter(null)}
+              className="ds-history-cat-pill"
+              data-active={!catFilter ? "true" : "false"}
+            >
+              All
+            </button>
+            {categoryCounts.map(([cat]) => {
+              const Icon = CATEGORY_ICONS[cat] ?? Sparkle;
+              const selected = catFilter === cat;
+              return (
+                <button
+                  key={cat}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => setCatFilter(selected ? null : cat)}
+                  className="ds-history-cat-pill"
+                  data-active={selected ? "true" : "false"}
+                >
+                  <Icon weight="duotone" size={14} aria-hidden="true" />
+                  <span>{cat}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* HistoryMap stays mounted across List/Map toggles so Mapbox doesn't
         * re-initialize on every flip. Hidden via the `hidden` attribute when
         * the user is in List mode. */}
       <div style={{ marginTop: "var(--space-5)" }}>
-        <HistoryMap visible={view === "map"} />
+        <HistoryMap
+          visible={view === "map"}
+          media={allMedia}
+          signedUrls={signedUrls}
+          categoryFilter={catFilter}
+        />
       </div>
 
       {view === "list" &&
@@ -409,12 +533,19 @@ export default function HistoryPage() {
               <span>Generate quests</span>
             </Link>
           </div>
+        ) : (filteredRows ?? []).length === 0 ? (
+          <p
+            className="ds-history-filter-empty"
+            style={{ marginTop: "var(--space-5)" }}
+          >
+            No {catFilter} quests yet — try one from Home.
+          </p>
         ) : (
           <div
-            className="flex flex-col"
+            className="ds-history-list ds-fade-in"
             style={{ gap: "var(--space-3)", marginTop: "var(--space-5)" }}
           >
-            {rows.map((row, idx) => {
+            {(filteredRows ?? []).map((row, idx) => {
               const firstMedia = row.media[0];
               const thumbUrl = firstMedia
                 ? signedUrls[firstMedia.id] ?? null
@@ -482,6 +613,7 @@ const HistoryRow = memo(
         <div
           className="ds-history-row-thumb"
           aria-hidden={thumbUrl ? "false" : "true"}
+          style={{ viewTransitionName: `quest-thumb-${row.quest.id}` }}
         >
           {thumbUrl ? (
             isVideo ? (

@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import Link from "next/link";
 import {
   ArrowLeft,
   CircleNotch,
@@ -207,16 +206,28 @@ export default function QuestDetailPage() {
         padding: "var(--space-6) var(--space-4) var(--space-7)",
       }}
     >
-      <Link
-        href="/history"
+      <button
+        type="button"
         className="ds-secondary-pill"
         style={{ marginBottom: "var(--space-5)" }}
+        onClick={() => {
+          // Prefer the previous history entry so the user lands at the same
+          // scroll position; fall back to /history if there's no back stack.
+          if (window.history.length > 1) router.back();
+          else router.push("/history");
+        }}
       >
         <ArrowLeft weight="duotone" size={16} aria-hidden="true" />
         <span>Back to history</span>
-      </Link>
+      </button>
 
-      <div className="glass" style={{ padding: "var(--space-6)" }}>
+      <div
+        className="glass ds-quest-detail-card ds-fade-in"
+        style={{
+          padding: "var(--space-6)",
+          viewTransitionName: `quest-card-${quest.id}`,
+        }}
+      >
         <span className="ds-cat-chip">
           <span className="ds-cat-chip-icon" aria-hidden="true">
             <CategoryIcon weight="duotone" size={12} />
@@ -293,6 +304,11 @@ export default function QuestDetailPage() {
                   className="ds-history-thumb"
                   onClick={() => setLightboxIndex(i)}
                   aria-label={isVideo ? "Open video" : "Open photo"}
+                  style={
+                    i === 0
+                      ? { viewTransitionName: `quest-thumb-${quest.id}` }
+                      : undefined
+                  }
                 >
                   {url ? (
                     isVideo ? (

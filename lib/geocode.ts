@@ -86,6 +86,28 @@ export type UpsertResult =
   | { ok: true; lat: number; lng: number }
   | { ok: false; lat?: undefined; lng?: undefined };
 
+const GEO_CIRCUIT_KEY = "__geo_columns_missing";
+
+function circuitOpen(): boolean {
+  if (typeof sessionStorage === "undefined") return false;
+  try {
+    return sessionStorage.getItem(GEO_CIRCUIT_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function tripCircuit(): void {
+  if (typeof sessionStorage === "undefined") return;
+  try {
+    sessionStorage.setItem(GEO_CIRCUIT_KEY, "true");
+  } catch {
+    // ignore
+  }
+}
+
+let warnedCircuit = false;
+
 /**
  * Write the resolved lat/lng back to the quests row. We call .select() so
  * the response carries the updated row — that's the only way to detect an
@@ -101,6 +123,18 @@ export async function upsertQuestCoords(
   questId: string,
   coords: Coords,
 ): Promise<UpsertResult> {
+  // Circuit breaker: if a previous call this session already failed with
+  // PGRST204 (schema cache missing lat/lng), skip the network roundtrip
+  // entirely until the user applies the migration + reloads.
+  if (circuitOpen()) {
+    if (!warnedCircuit) {
+      warnedCircuit = true;
+      console.info(
+        "[geocode] skipping persistence — schema columns missing. Apply migration 0003_geo.sql in Supabase SQL editor.",
+      );
+    }
+    return { ok: false };
+  }
   const supabase = createClient();
   const { data, error } = await supabase
     .from("quests")
@@ -108,6 +142,13 @@ export async function upsertQuestCoords(
     .eq("id", questId)
     .select("id, lat, lng");
   if (error) {
+    if (error.code === "PGRST204") {
+      tripCircuit();
+      console.info(
+        "[geocode] schema cache missing lat/lng (PGRST204) — opening circuit until next reload. Apply migration 0003_geo.sql.",
+      );
+      return { ok: false };
+    }
     console.info(
       "[geocode] upsert error for",
       questId,
