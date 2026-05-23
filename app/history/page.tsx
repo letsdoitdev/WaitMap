@@ -2,12 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
   Clock,
   Flame,
   ForkKnife,
+  List as ListIcon,
+  MapTrifold,
   Hand,
   Lightning,
   MapPinSimpleArea,
@@ -36,6 +38,8 @@ import type {
   QuestReaction,
 } from "@/lib/database.types";
 import Lightbox, { type LightboxItem } from "@/components/Lightbox";
+import StatsStrip from "@/components/StatsStrip";
+import HistoryMap from "@/components/HistoryMap";
 import {
   useQuestUploadJob,
   useUploadQueue,
@@ -66,11 +70,22 @@ type Row = {
 
 const MAX_VISIBLE_THUMBS = 3;
 
+type ViewMode = "list" | "map";
+
 export default function HistoryPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, loading: authLoading } = useAuth();
   const supabase = useMemo(() => createClient(), []);
   const { version } = useUploadQueue();
+  const view: ViewMode = searchParams?.get("view") === "map" ? "map" : "list";
+  const setView = (next: ViewMode) => {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    if (next === "map") params.set("view", "map");
+    else params.delete("view");
+    const qs = params.toString();
+    router.replace(qs ? `/history?${qs}` : "/history", { scroll: false });
+  };
   const [rows, setRows] = useState<Row[] | null>(null);
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
   const [lightboxQuest, setLightboxQuest] = useState<string | null>(null);
@@ -197,17 +212,64 @@ export default function HistoryPage() {
     );
   }
 
-  if (rows.length === 0) {
-    return (
-      <main
-        style={{
-          maxWidth: 720,
-          margin: "0 auto",
-          padding: "var(--space-7) var(--space-4) var(--space-9)",
-        }}
+  return (
+    <main
+      style={{
+        maxWidth: 720,
+        margin: "0 auto",
+        padding: "var(--space-7) var(--space-4) var(--space-9)",
+      }}
+    >
+      <h1 className="ds-page-title">History</h1>
+      <StatsStrip />
+
+      <div
+        className="ds-view-toggle"
+        role="tablist"
+        aria-label="History view"
       >
-        <h1 className="ds-page-title">History</h1>
-        <div className="glass ds-empty-state">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === "list"}
+          onClick={() => setView("list")}
+          className="ds-view-toggle-btn"
+          data-active={view === "list" ? "true" : "false"}
+        >
+          <ListIcon
+            weight={view === "list" ? "fill" : "duotone"}
+            size={16}
+            aria-hidden="true"
+          />
+          <span>List</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={view === "map"}
+          onClick={() => setView("map")}
+          className="ds-view-toggle-btn"
+          data-active={view === "map" ? "true" : "false"}
+          data-accent={view === "map" ? "true" : "false"}
+        >
+          <MapTrifold
+            weight={view === "map" ? "fill" : "duotone"}
+            size={16}
+            aria-hidden="true"
+          />
+          <span>Map</span>
+        </button>
+      </div>
+
+      {view === "map" ? (
+        <div style={{ marginTop: "var(--space-5)" }}>
+          <HistoryMap />
+        </div>
+      ) : rows.length === 0 ? (
+        <div
+          className="glass ds-empty-state"
+          style={{ marginTop: "var(--space-5)" }}
+        >
           <MapPinSimpleArea
             weight="duotone"
             size={36}
@@ -234,35 +296,24 @@ export default function HistoryPage() {
             <span>Generate quests</span>
           </Link>
         </div>
-      </main>
-    );
-  }
-
-  return (
-    <main
-      style={{
-        maxWidth: 720,
-        margin: "0 auto",
-        padding: "var(--space-7) var(--space-4) var(--space-9)",
-      }}
-    >
-      <h1 className="ds-page-title">History</h1>
-      <div
-        className="flex flex-col"
-        style={{ gap: "var(--space-3)" }}
-      >
-        {rows.map((row) => (
-          <HistoryRow
-            key={row.quest.id}
-            row={row}
-            signedUrls={signedUrls}
-            onOpenLightbox={(idx) => {
-              setLightboxQuest(row.quest.id);
-              setLightboxIndex(idx);
-            }}
-          />
-        ))}
-      </div>
+      ) : (
+        <div
+          className="flex flex-col"
+          style={{ gap: "var(--space-3)", marginTop: "var(--space-5)" }}
+        >
+          {rows.map((row) => (
+            <HistoryRow
+              key={row.quest.id}
+              row={row}
+              signedUrls={signedUrls}
+              onOpenLightbox={(idx) => {
+                setLightboxQuest(row.quest.id);
+                setLightboxIndex(idx);
+              }}
+            />
+          ))}
+        </div>
+      )}
 
       {lightboxQuest && lightboxItems.length > 0 && (
         <Lightbox
@@ -339,6 +390,12 @@ function HistoryRow({
               aria-label={`Rated ${row.quest.reaction}`}
             />
           )}
+          {row.quest.location_text &&
+            (row.quest.lat == null || row.quest.lng == null) && (
+              <span className="ds-pin-pending" aria-label="Pin pending">
+                Pin pending
+              </span>
+            )}
         </div>
       </Link>
 

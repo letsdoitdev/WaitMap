@@ -1881,3 +1881,489 @@
   font-size: 13px;
   color: var(--text-tertiary);
 }
+
+/* -----------------------------------------------------------------------------
+ * M7 — map, stats strip, streak ring
+ * --------------------------------------------------------------------------- */
+
+/* Stats strip — 4 horizontal cells above the history list. */
+.ds-stats-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.ds-stat-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+  padding: var(--space-4) var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  min-height: 88px;
+}
+
+.ds-stat-cell[data-accent="true"] {
+  border-color: var(--border-strong);
+  background: var(--bg-glass-strong);
+}
+
+.ds-stat-cell[data-accent="true"] .ds-stat-number {
+  background: var(--accent-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.ds-stat-number {
+  font-family: var(--font-display, serif);
+  font-weight: 400;
+  font-size: clamp(28px, 6vw, 36px);
+  line-height: 1;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.ds-stat-label {
+  font-family: var(--font-body, inherit);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  line-height: 1.2;
+}
+
+@media (max-width: 540px) {
+  .ds-stats-strip {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .ds-stat-cell {
+    min-height: 76px;
+    padding: var(--space-3) var(--space-4);
+  }
+}
+
+/* Streak ring — sits centered above the hero on home. */
+.ds-streak-ring-wrap {
+  display: flex;
+  justify-content: center;
+  padding: var(--space-6) var(--space-4) 0;
+}
+
+.ds-streak-ring {
+  position: relative;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ds-streak-ring-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  box-shadow: var(--shadow-card);
+}
+
+.ds-streak-ring-number {
+  font-family: var(--font-display, serif);
+  font-weight: 400;
+  font-size: 44px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-streak-ring-sub {
+  font-family: var(--font-body, inherit);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+/* Bottom-nav Map tab accent on the active state. */
+.ds-bottom-nav-tab[data-active="true"][data-accent="true"] {
+  background: var(--bg-glass-strong);
+  position: relative;
+}
+
+.ds-bottom-nav-tab[data-active="true"][data-accent="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--accent-grad);
+  opacity: 0.18;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.ds-bottom-nav-tab[data-active="true"][data-accent="true"] > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* History → Map mode: View toggle pill row. */
+.ds-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  margin-top: var(--space-5);
+  border-radius: var(--radius-pill);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+}
+
+.ds-view-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: 0 var(--space-5);
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-tertiary);
+  font-family: var(--font-body, inherit);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 200ms ease, color 200ms ease;
+}
+
+.ds-view-toggle-btn:hover {
+  color: var(--text-secondary);
+}
+
+.ds-view-toggle-btn[data-active="true"] {
+  background: var(--bg-glass-strong);
+  color: var(--text-primary);
+}
+
+.ds-view-toggle-btn[data-active="true"][data-accent="true"] {
+  position: relative;
+  overflow: hidden;
+}
+
+.ds-view-toggle-btn[data-active="true"][data-accent="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--accent-grad);
+  opacity: 0.18;
+  mix-blend-mode: screen;
+  pointer-events: none;
+}
+
+.ds-view-toggle-btn[data-active="true"][data-accent="true"] > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* History map — embedded inside /history, ~60vh tall, glass surround. */
+.ds-history-map-wrap {
+  position: relative;
+  width: 100%;
+  height: 60vh;
+  min-height: 360px;
+  overflow: hidden;
+  padding: 0;
+}
+
+.ds-history-map-canvas {
+  position: absolute;
+  inset: 0;
+  background: var(--bg);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.ds-history-map-canvas .mapboxgl-canvas {
+  outline: none;
+}
+
+.ds-history-map-canvas .mapboxgl-ctrl-attrib {
+  background: rgba(0, 0, 0, 0.4) !important;
+  color: var(--text-tertiary) !important;
+}
+.ds-history-map-canvas .mapboxgl-ctrl-attrib a {
+  color: var(--text-secondary) !important;
+}
+
+.ds-map-empty-inline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-7) var(--space-5);
+  text-align: center;
+  width: 100%;
+}
+
+.ds-map-empty-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.ds-map-empty-card {
+  pointer-events: auto;
+  max-width: 360px;
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  text-align: center;
+}
+
+.ds-map-pending {
+  position: absolute;
+  top: var(--space-3);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: var(--font-body, inherit);
+  font-size: 12px;
+}
+
+/* Custom HTML pin — opal ring around the first media thumb. */
+.ds-map-pin {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  padding: 2px;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  background: var(--accent-grad);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.ds-map-pin:hover {
+  transform: scale(1.05);
+}
+
+.ds-map-pin[data-active="true"] {
+  transform: scale(1.1);
+  box-shadow:
+    0 8px 28px rgba(0, 0, 0, 0.7),
+    0 0 0 4px rgba(255, 255, 255, 0.12),
+    0 0 24px rgba(245, 201, 138, 0.35);
+}
+
+.ds-map-pin-thumb {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  z-index: 1;
+  background: var(--bg-elevated);
+}
+
+.ds-map-pin-fallback {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ds-map-pin-fallback::before {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent-grad);
+  background-size: 100% 100%;
+}
+
+/* Cluster bubble — photos.app-style stacked thumbs + count badge. */
+.ds-map-cluster {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  filter: drop-shadow(0 4px 16px rgba(0, 0, 0, 0.55));
+  transition: transform 150ms ease;
+}
+
+.ds-map-cluster:hover {
+  transform: scale(1.05);
+}
+
+.ds-map-cluster-stack {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.ds-map-cluster-stack-tile {
+  position: absolute;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--bg-elevated);
+  border: 2px solid var(--bg);
+  overflow: hidden;
+  display: block;
+}
+
+.ds-map-cluster-stack-tile:nth-child(1) {
+  top: 0;
+  left: 0;
+  z-index: 3;
+  border-image: var(--accent-grad) 1;
+  box-shadow: 0 0 0 2px rgba(125, 211, 192, 0.35);
+}
+.ds-map-cluster-stack-tile:nth-child(2) {
+  top: 8px;
+  left: 12px;
+  z-index: 2;
+  opacity: 0.92;
+}
+.ds-map-cluster-stack-tile:nth-child(3) {
+  top: 16px;
+  left: 4px;
+  z-index: 1;
+  opacity: 0.8;
+}
+
+.ds-map-cluster-stack-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ds-map-cluster-badge {
+  position: absolute;
+  bottom: -4px;
+  right: -4px;
+  z-index: 4;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  font-family: var(--font-body, inherit);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Pin popover — small card pinned bottom of the map (above bottom nav). */
+.ds-map-popover {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: var(--space-4);
+  width: calc(100% - var(--space-5));
+  max-width: 360px;
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  z-index: 6;
+}
+
+.ds-map-popover-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 44px;
+  height: 44px;
+  margin: -8px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ds-map-popover-close:hover {
+  color: var(--text-primary);
+}
+
+.ds-map-popover-title {
+  font-family: var(--font-display, serif);
+  font-weight: 400;
+  font-size: 22px;
+  line-height: 1.15;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.ds-map-popover-sub {
+  font-family: var(--font-body, inherit);
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: 0;
+}
+
+/* "Pin pending" badge used on history meta when a quest has location_text
+ * but hasn't been geocoded yet. */
+.ds-pin-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-body, inherit);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-style: italic;
+}

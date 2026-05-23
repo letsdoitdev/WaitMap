@@ -21,6 +21,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useActiveQuest } from "@/lib/active-quest-context";
 import { createClient } from "@/lib/supabase/client";
 import SignInModal, { SignInIntent } from "@/components/SignInModal";
+import StreakRing from "@/components/StreakRing";
 import {
   ArrowRight,
   BookmarkSimple,
@@ -532,6 +533,7 @@ export default function Home() {
 
   return (
     <main className="relative min-h-screen overflow-x-hidden">
+      <StreakRing />
       {/* HERO — design v2 milestone 1 */}
       <section className="relative w-full overflow-visible px-6 pt-20 pb-12 sm:pt-28 md:pb-16">
         <div className="relative z-10 mx-auto flex max-w-3xl flex-col items-center text-center">
