@@ -21,25 +21,54 @@ import {
   CaretDown,
   Check,
   CircleNotch,
+  Clock,
+  CurrencyDollar,
+  Flame,
+  ForkKnife,
+  Hand,
+  Lightning,
   MapPin,
+  Minus,
+  Moon,
+  PaintBrush,
   Sliders,
+  Snowflake,
   Sparkle,
+  Tree,
+  UsersThree,
 } from "@phosphor-icons/react/dist/ssr";
+import type { Icon } from "@phosphor-icons/react";
 
-const CATEGORY_STYLES: Record<QuestCategory, string> = {
-  Chaos: "bg-red-500/10 text-red-300 border-red-500/30",
-  Outdoor: "bg-green-500/10 text-green-300 border-green-500/30",
-  Social: "bg-sky-500/10 text-sky-300 border-sky-500/30",
-  Creative: "bg-purple-500/10 text-purple-300 border-purple-500/30",
-  Food: "bg-amber-500/10 text-amber-300 border-amber-500/30",
-  "Late Night": "bg-indigo-500/10 text-indigo-300 border-indigo-500/30",
-  Chill: "bg-teal-500/10 text-teal-300 border-teal-500/30",
-  Fitness: "bg-lime-500/10 text-lime-300 border-lime-500/30",
-  Nature: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30",
-  Tech: "bg-cyan-500/10 text-cyan-300 border-cyan-500/30",
-  Exploration: "bg-orange-500/10 text-orange-300 border-orange-500/30",
-  Indoor: "bg-slate-500/15 text-slate-200 border-slate-500/30",
+const CATEGORY_ICONS: Record<QuestCategory, Icon> = {
+  Social: UsersThree,
+  Outdoor: Tree,
+  Chaos: Lightning,
+  Creative: PaintBrush,
+  Food: ForkKnife,
+  "Late Night": Moon,
+  Chill: Sparkle,
+  Fitness: Sparkle,
+  Nature: Sparkle,
+  Tech: Sparkle,
+  Exploration: Sparkle,
+  Indoor: Sparkle,
 };
+
+const REACTION_ICONS: Record<Rating, Icon> = {
+  cooked: Snowflake,
+  mid: Minus,
+  tuff: Hand,
+  fire: Flame,
+};
+
+const REACTION_LABELS: Record<Rating, string> = {
+  cooked: "Cooked",
+  mid: "Mid",
+  tuff: "Tuff",
+  fire: "Fire",
+};
+
+const RATING_ORDER: Rating[] = ["cooked", "mid", "tuff", "fire"];
 
 const ALL_CATEGORIES: QuestCategory[] = [
   "Chaos",
@@ -134,69 +163,6 @@ function saveRatings(records: RatingRecord[]) {
   } catch {
     // ignore
   }
-}
-
-const RATING_STYLES: {
-  key: Rating;
-  label: string;
-  icon: string;
-  hover: string;
-  active: string;
-}[] = [
-  {
-    key: "cooked",
-    label: "Cooked",
-    icon: "🗑️",
-    hover: "hover:bg-red-500/20 hover:text-red-300 hover:border-red-500/40",
-    active: "bg-red-500/30 text-red-200 border-red-400/60",
-  },
-  {
-    key: "mid",
-    label: "Mid",
-    icon: "😐",
-    hover: "hover:bg-yellow-500/20 hover:text-yellow-300 hover:border-yellow-500/40",
-    active: "bg-yellow-500/30 text-yellow-200 border-yellow-400/60",
-  },
-  {
-    key: "tuff",
-    label: "Tuff",
-    icon: "💪",
-    hover: "hover:bg-blue-500/20 hover:text-blue-300 hover:border-blue-500/40",
-    active: "bg-blue-500/30 text-blue-200 border-blue-400/60",
-  },
-  {
-    key: "fire",
-    label: "Fire",
-    icon: "🔥",
-    hover: "hover:bg-orange-500/20 hover:text-orange-300 hover:border-orange-500/40",
-    active: "bg-orange-500/30 text-orange-200 border-orange-400/60",
-  },
-];
-
-function SpiceBar({ level }: { level: number }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <div className="flex gap-0.5">
-        {Array.from({ length: 10 }).map((_, i) => (
-          <span
-            key={i}
-            className={`h-2 w-1.5 rounded-sm transition-colors ${
-              i < level
-                ? level >= 8
-                  ? "bg-red-400"
-                  : level >= 5
-                    ? "bg-orange-400"
-                    : "bg-emerald-400"
-                : "bg-white/10"
-            }`}
-          />
-        ))}
-      </div>
-      <span className="text-xs font-medium text-white/60 tabular-nums">
-        {level}/10
-      </span>
-    </div>
-  );
 }
 
 type View = "results" | "saved";
@@ -887,7 +853,7 @@ export default function Home() {
               <div className="rounded-2xl border border-white/10 bg-white/5 p-10 text-center text-sm text-white/40 backdrop-blur-xl">
                 {view === "saved"
                   ? bookmarks.length === 0
-                    ? "No bookmarks yet. Tap 🔖 on any quest to save it."
+                    ? "No bookmarks yet. Tap the bookmark on any quest to save it."
                     : `No saved quests in ${categoryFilter}. Try another category.`
                   : `No quests in ${categoryFilter}. Try another filter or reroll.`}
               </div>
@@ -896,6 +862,12 @@ export default function Home() {
                 {displayedQuests.map((q, i) => {
                   const userRating = ratingByQuest[q.id];
                   const bookmarked = bookmarkIds.has(q.id);
+                  const CategoryIcon =
+                    CATEGORY_ICONS[q.category] ?? Sparkle;
+                  const spicePct = Math.max(
+                    0,
+                    Math.min(100, (q.spice / 10) * 100),
+                  );
                   return (
                     <motion.article
                       key={q.id + "-" + i}
@@ -908,79 +880,124 @@ export default function Home() {
                         delay: i * 0.06,
                         ease: "easeOut",
                       }}
-                      className="group relative rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl transition-all duration-300 hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/[0.07] hover:shadow-[0_8px_30px_rgba(139,92,246,0.15)] sm:p-6"
+                      className="glass ds-card"
                     >
                       <button
+                        type="button"
                         onClick={() => toggleBookmark(q)}
                         aria-label={
                           bookmarked ? "Remove bookmark" : "Bookmark quest"
                         }
                         aria-pressed={bookmarked}
-                        className={`absolute right-4 top-4 rounded-lg border px-2 py-1 text-base transition active:scale-90 ${
-                          bookmarked
-                            ? "border-amber-400/60 bg-amber-500/20 text-amber-300 shadow-[0_0_16px_rgba(245,158,11,0.3)]"
-                            : "border-white/10 bg-white/5 text-white/40 hover:border-amber-400/40 hover:text-amber-300"
-                        }`}
+                        className="ds-bookmark"
+                        data-saved={bookmarked ? "true" : "false"}
                       >
-                        🔖
+                        <BookmarkSimple
+                          size={20}
+                          weight={bookmarked ? "fill" : "duotone"}
+                          aria-hidden="true"
+                        />
                       </button>
 
-                      <div className="mb-3 flex flex-wrap items-center gap-2 pr-12">
-                        <span
-                          className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${CATEGORY_STYLES[q.category]}`}
-                        >
+                      <div className="flex flex-wrap items-center gap-2 pr-12">
+                        <span className="ds-cat-chip">
+                          <span
+                            className="ds-cat-chip-icon"
+                            aria-hidden="true"
+                          >
+                            <CategoryIcon weight="duotone" size={12} />
+                          </span>
                           {q.category}
                         </span>
                         {q.nearbyDetected && (
-                          <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-300">
-                            📍 Nearby
+                          <span className="ds-cat-chip">
+                            <span
+                              className="ds-cat-chip-icon"
+                              aria-hidden="true"
+                            >
+                              <MapPin weight="duotone" size={12} />
+                            </span>
+                            Nearby
                           </span>
                         )}
                       </div>
 
-                      <h3 className="text-lg font-semibold leading-snug text-white sm:text-xl">
-                        {q.title}
-                      </h3>
-                      <p className="mt-2 text-sm leading-relaxed text-white/70 sm:text-[15px]">
-                        {q.description}
-                      </p>
+                      <h3 className="ds-card-title mt-3">{q.title}</h3>
+                      <p className="ds-card-desc">{q.description}</p>
 
-                      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/45">
-                        <span className="inline-flex items-center gap-1.5">
-                          👥 {q.minGroup === q.maxGroup ? q.minGroup : `${q.minGroup}-${q.maxGroup}`}
+                      <div className="ds-meta-row">
+                        <span className="ds-meta-item">
+                          <UsersThree
+                            weight="duotone"
+                            size={14}
+                            aria-hidden="true"
+                          />
+                          {q.minGroup === q.maxGroup
+                            ? q.minGroup
+                            : `${q.minGroup}-${q.maxGroup}`}
                         </span>
-                        <span className="inline-flex items-center gap-1.5">
-                          ⏱ {q.minTime === q.maxTime ? `${q.minTime}m` : `${q.minTime}-${q.maxTime}m`}
+                        <span className="ds-meta-item">
+                          <Clock
+                            weight="duotone"
+                            size={14}
+                            aria-hidden="true"
+                          />
+                          {q.minTime === q.maxTime
+                            ? `${q.minTime}m`
+                            : `${q.minTime}-${q.maxTime}m`}
                         </span>
                         {q.cost && (
-                          <span className="inline-flex items-center gap-1.5">
-                            💵 {q.cost}
+                          <span className="ds-meta-item">
+                            <CurrencyDollar
+                              weight="duotone"
+                              size={14}
+                              aria-hidden="true"
+                            />
+                            {q.cost}
                           </span>
                         )}
-                        <span className="ml-auto">
-                          <SpiceBar level={q.spice} />
+                      </div>
+
+                      <div className="ds-spice">
+                        <div
+                          className="ds-spice-track"
+                          role="img"
+                          aria-label={`Spice ${q.spice} of 10`}
+                        >
+                          <div
+                            className="ds-spice-fill"
+                            style={{ width: `${spicePct}%` }}
+                          />
+                        </div>
+                        <span className="ds-spice-label">
+                          Spice · {q.spice}/10
                         </span>
                       </div>
 
-                      <div className="mt-4 grid grid-cols-4 gap-1.5 sm:gap-2">
-                        {RATING_STYLES.map((r) => {
-                          const active = userRating === r.key;
+                      <div
+                        className="ds-reactions"
+                        role="radiogroup"
+                        aria-label="Rate this quest"
+                      >
+                        {RATING_ORDER.map((r) => {
+                          const active = userRating === r;
+                          const ReactionIcon = REACTION_ICONS[r];
                           return (
                             <button
-                              key={r.key}
-                              onClick={() => rateQuest(q, r.key)}
-                              aria-pressed={active}
-                              aria-label={`Rate ${r.label}`}
-                              className={`inline-flex items-center justify-center gap-1.5 rounded-full border px-2 py-1.5 text-xs font-semibold transition-all active:scale-95 ${
-                                active
-                                  ? r.active
-                                  : `border-white/10 bg-white/[0.03] text-white/50 ${r.hover}`
-                              }`}
+                              key={r}
+                              type="button"
+                              role="radio"
+                              aria-checked={active}
+                              onClick={() => rateQuest(q, r)}
+                              className="ds-reaction"
+                              data-active={active ? "true" : "false"}
                             >
-                              <span>{r.icon}</span>
-                              <span className="hidden xs:inline sm:inline">
-                                {r.label}
-                              </span>
+                              <ReactionIcon
+                                weight={active ? "fill" : "duotone"}
+                                size={14}
+                                aria-hidden="true"
+                              />
+                              <span>{REACTION_LABELS[r]}</span>
                             </button>
                           );
                         })}

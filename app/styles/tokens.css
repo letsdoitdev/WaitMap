@@ -604,3 +604,208 @@
 .ds-loc-pin[data-busy="true"] {
   animation: ds-spin 1s linear infinite;
 }
+
+/* -----------------------------------------------------------------------------
+ * Quest cards — Milestone 3.
+ *
+ * One glass card per quest. Editorial serif title, unified category chip,
+ * naked bookmark glyph, Phosphor meta-row icons, slim opal spice bar (the
+ * card's one accent moment), and a segmented reaction control replacing the
+ * four ghost buttons.
+ * --------------------------------------------------------------------------- */
+
+.ds-card {
+  position: relative;
+  padding: var(--space-6);
+  margin-bottom: var(--space-4);
+  transition:
+    transform 200ms ease,
+    box-shadow 200ms ease;
+}
+
+.ds-card:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 32px 64px -16px rgba(0, 0, 0, 0.7);
+}
+
+.ds-card-title {
+  font-family: var(--font-display, serif);
+  font-weight: 400;
+  font-size: 24px;
+  line-height: 1.15;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.ds-card-desc {
+  font-family: var(--font-body, inherit);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin: var(--space-2) 0 0;
+}
+
+/* Unified category chip — same treatment regardless of category. */
+.ds-cat-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-glass-strong);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: var(--font-body, inherit);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.ds-cat-chip-icon {
+  display: inline-flex;
+  color: var(--text-tertiary);
+}
+
+/* Naked bookmark glyph — no filled square, 44×44 tap wrapper. */
+.ds-bookmark {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: 0;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: color 200ms ease, transform 100ms ease;
+}
+
+.ds-bookmark:hover {
+  color: var(--text-primary);
+}
+
+.ds-bookmark[data-saved="true"] {
+  color: var(--warning);
+}
+
+.ds-bookmark:active {
+  transform: scale(0.92);
+}
+
+/* Meta row — Phosphor icons, caption scale, tertiary text. */
+.ds-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.ds-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-body, inherit);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-tertiary);
+}
+
+.ds-meta-item svg {
+  flex-shrink: 0;
+}
+
+/* Slim opal spice bar — the card's one accent moment. */
+.ds-spice {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: var(--space-4);
+}
+
+.ds-spice-track {
+  position: relative;
+  width: 80px;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-glass-strong);
+  overflow: hidden;
+}
+
+.ds-spice-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--accent-grad);
+}
+
+.ds-spice-label {
+  font-family: var(--font-body, inherit);
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Segmented reaction control. */
+.ds-reactions {
+  display: flex;
+  gap: 6px;
+  margin-top: var(--space-5);
+}
+
+.ds-reaction {
+  flex: 1 1 0;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: var(--font-body, inherit);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+}
+
+.ds-reaction:hover {
+  background: var(--bg-glass-strong);
+  color: var(--text-primary);
+}
+
+.ds-reaction[data-active="true"] {
+  background: var(--bg-glass-strong);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.ds-reaction svg {
+  flex-shrink: 0;
+}
+
+@media (min-width: 640px) {
+  .ds-reaction {
+    flex: 0 1 auto;
+    min-width: 96px;
+  }
+}
