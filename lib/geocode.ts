@@ -43,12 +43,19 @@ export async function geocodeLocation(text: string): Promise<Coords | null> {
   // subsequent requests.
   const next = queue.then(async () => {
     try {
+      console.info("[geocode] resolving:", text);
       const url = new URL("https://api.mapbox.com/search/geocode/v6/forward");
       url.searchParams.set("q", text);
       url.searchParams.set("limit", "1");
       url.searchParams.set("access_token", token);
       const res = await fetch(url.toString());
       if (!res.ok) {
+        console.info(
+          "[geocode] mapbox returned",
+          res.status,
+          "for",
+          text,
+        );
         cache.set(key, null);
         return null;
       }
@@ -57,13 +64,16 @@ export async function geocodeLocation(text: string): Promise<Coords | null> {
       };
       const coords = data.features?.[0]?.geometry?.coordinates;
       if (!coords) {
+        console.info("[geocode] no features for", text);
         cache.set(key, null);
         return null;
       }
       const result: Coords = { lat: coords[1], lng: coords[0] };
+      console.info("[geocode] resolved:", text, "→", result);
       cache.set(key, result);
       return result;
-    } catch {
+    } catch (err) {
+      console.info("[geocode] error for", text, err);
       cache.set(key, null);
       return null;
     }

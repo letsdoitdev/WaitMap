@@ -2367,3 +2367,68 @@
   color: var(--text-tertiary);
   font-style: italic;
 }
+
+/* -----------------------------------------------------------------------------
+ * M7.1 — home chip row, primary CTA, perf shells
+ * --------------------------------------------------------------------------- */
+
+/* Home quick-action chip row — horizontally scrollable on small screens. */
+.ds-home-chip-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  margin-inline: calc(var(--space-4) * -1);
+  padding-inline: var(--space-4);
+}
+
+.ds-home-chip-row::-webkit-scrollbar {
+  display: none;
+}
+
+.ds-home-chip-row > * {
+  flex-shrink: 0;
+}
+
+/* Primary CTA — full-width pill, glass body, opal gradient confined to the
+ * play icon inside a small chip. Used by /quest/[id] "Do this quest again". */
+.ds-redo-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 48px;
+  margin-top: var(--space-5);
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-pill);
+  background: var(--bg-glass-strong);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  font-family: var(--font-body, inherit);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 200ms ease, border-color 200ms ease;
+}
+
+.ds-redo-cta:hover:not(:disabled) {
+  background: var(--bg-elevated);
+}
+
+.ds-redo-cta:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ds-redo-cta > svg:first-child {
+  flex-shrink: 0;
+  padding: 6px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--accent-grad);
+  color: #1a1614;
+}

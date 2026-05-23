@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { useStats } from "@/lib/stats-context";
 
 function formatHours(h: number): string {
@@ -12,7 +13,7 @@ function formatHours(h: number): string {
   return `${Math.round(h)}h`;
 }
 
-export default function StatsStrip() {
+function StatsStrip() {
   const { totals, streaks, completedEvents } = useStats();
 
   // Hide entirely until the user has at least one completion — empty zeros
@@ -44,3 +45,5 @@ export default function StatsStrip() {
     </div>
   );
 }
+
+export default memo(StatsStrip);

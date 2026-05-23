@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
+  CircleNotch,
   Clock,
   Flame,
   ForkKnife,
@@ -14,6 +15,7 @@ import {
   Minus,
   Moon,
   PaintBrush,
+  Play,
   Snowflake,
   Sparkle,
   Tree,
@@ -23,6 +25,7 @@ import {
 import { formatDistanceToNow } from "date-fns";
 import type { Icon } from "@phosphor-icons/react";
 import { useAuth } from "@/lib/auth-context";
+import { useActiveQuest } from "@/lib/active-quest-context";
 import { createClient } from "@/lib/supabase/client";
 import {
   computeElapsedMs,
@@ -65,7 +68,10 @@ export default function QuestDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
+  const { active, refresh: refreshActive } = useActiveQuest();
   const supabase = useMemo(() => createClient(), []);
+  const [redoing, setRedoing] = useState(false);
+  const [redoError, setRedoError] = useState<string | null>(null);
   const [quest, setQuest] = useState<Quest | null>(null);
   const [events, setEvents] = useState<QuestEvent[]>([]);
   const [media, setMedia] = useState<QuestMedia[]>([]);
@@ -110,6 +116,38 @@ export default function QuestDetailPage() {
       cancelled = true;
     };
   }, [params?.id, supabase, user]);
+
+  const doAgain = async () => {
+    if (!user || !quest || redoing) return;
+    if (active) {
+      setRedoError("Finish your current quest first.");
+      setTimeout(() => router.push("/quest/active"), 600);
+      return;
+    }
+    setRedoing(true);
+    setRedoError(null);
+    const { data, error } = await supabase.rpc("start_quest", {
+      p_title: quest.title,
+      p_description: quest.description,
+      p_category: quest.category,
+      p_spice: quest.spice,
+      p_estimated_minutes: quest.estimated_minutes,
+      p_location_text: quest.location_text,
+      p_source: quest.source,
+    });
+    if (error || !data) {
+      setRedoing(false);
+      if (error?.message?.includes("active_quest_exists")) {
+        setRedoError("Finish your current quest first.");
+        setTimeout(() => router.push("/quest/active"), 600);
+        return;
+      }
+      setRedoError(error?.message ?? "Couldn't restart quest. Try again.");
+      return;
+    }
+    await refreshActive();
+    router.push("/quest/active");
+  };
 
   const state = getQuestState(events);
   const completedEvent = [...events]
@@ -287,6 +325,45 @@ export default function QuestDetailPage() {
           </div>
         )}
       </div>
+
+      <button
+        type="button"
+        onClick={doAgain}
+        disabled={redoing}
+        className="ds-redo-cta"
+        aria-label="Do this quest again"
+      >
+        {redoing ? (
+          <>
+            <CircleNotch
+              weight="duotone"
+              size={18}
+              aria-hidden="true"
+              className="animate-spin"
+            />
+            <span>Starting…</span>
+          </>
+        ) : (
+          <>
+            <Play weight="duotone" size={18} aria-hidden="true" />
+            <span>Do this quest again</span>
+          </>
+        )}
+      </button>
+      {redoError && (
+        <p
+          role="alert"
+          style={{
+            color: "var(--warning)",
+            fontFamily: "var(--font-body, inherit)",
+            fontSize: 13,
+            margin: "var(--space-3) 0 0",
+            textAlign: "center",
+          }}
+        >
+          {redoError}
+        </p>
+      )}
 
       {lightboxIndex !== null && media.length > 0 && (
         <Lightbox
