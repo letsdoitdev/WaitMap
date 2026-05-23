@@ -7,6 +7,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -46,6 +47,7 @@ import type {
 } from "@/lib/database.types";
 import StatsStrip from "@/components/StatsStrip";
 import HistoryMap from "@/components/HistoryMap";
+import GeoSetupBanner from "@/components/GeoSetupBanner";
 import { useStats } from "@/lib/stats-context";
 import {
   useQuestUploadJob,
@@ -411,6 +413,7 @@ export default function HistoryPage() {
       )}
       <h1 className="ds-page-title">History</h1>
       <StatsStrip />
+      <GeoSetupBanner />
 
       <div className="ds-history-toolbar">
         <div
@@ -542,26 +545,39 @@ export default function HistoryPage() {
           </p>
         ) : (
           <div
-            className="ds-history-list ds-fade-in"
+            className="ds-history-list"
             style={{ gap: "var(--space-3)", marginTop: "var(--space-5)" }}
           >
-            {(filteredRows ?? []).map((row, idx) => {
-              const firstMedia = row.media[0];
-              const thumbUrl = firstMedia
-                ? signedUrls[firstMedia.id] ?? null
-                : null;
-              const isVideo =
-                firstMedia?.mime_type.startsWith("video/") ?? false;
-              return (
-                <HistoryRow
-                  key={row.quest.id}
-                  row={row}
-                  thumbUrl={thumbUrl}
-                  isVideo={isVideo}
-                  priority={idx < 2}
-                />
-              );
-            })}
+            <AnimatePresence mode="popLayout" initial={false}>
+              {(filteredRows ?? []).map((row, idx) => {
+                const firstMedia = row.media[0];
+                const thumbUrl = firstMedia
+                  ? signedUrls[firstMedia.id] ?? null
+                  : null;
+                const isVideo =
+                  firstMedia?.mime_type.startsWith("video/") ?? false;
+                return (
+                  <motion.div
+                    key={row.quest.id}
+                    layout
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{
+                      duration: 0.22,
+                      ease: [0.22, 1, 0.36, 1],
+                    }}
+                  >
+                    <HistoryRow
+                      row={row}
+                      thumbUrl={thumbUrl}
+                      isVideo={isVideo}
+                      priority={idx < 2}
+                    />
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
           </div>
         ))}
 
