@@ -18,8 +18,11 @@ import {
 } from "@/lib/suggestions";
 import {
   BookmarkSimple,
+  CaretDown,
   Check,
+  CircleNotch,
   MapPin,
+  Sliders,
   Sparkle,
 } from "@phosphor-icons/react/dist/ssr";
 
@@ -576,12 +579,12 @@ export default function Home() {
             <span className="mb-2 block text-xs font-medium uppercase tracking-wider text-white/50">
               Location
             </span>
-            <div className="flex gap-2">
+            <div className="ds-loc-field">
               <input
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
                 placeholder="e.g. Washington DC"
-                className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-white/30 outline-none transition focus:border-violet-400/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-violet-500/30"
+                className="ds-loc-input"
               />
               <button
                 type="button"
@@ -589,18 +592,17 @@ export default function Home() {
                 disabled={locBusy}
                 aria-label="Use my location"
                 title="Use my location"
-                className="flex h-[3.25rem] w-[3.25rem] shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-lg text-white/70 transition hover:border-violet-400/50 hover:bg-violet-500/10 hover:text-violet-200 disabled:opacity-50"
+                className="ds-loc-pin"
+                data-busy={locBusy ? "true" : "false"}
               >
                 {locBusy ? (
-                  <motion.span
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                    className="inline-block"
-                  >
-                    ✦
-                  </motion.span>
+                  <CircleNotch
+                    weight="duotone"
+                    size={18}
+                    aria-hidden="true"
+                  />
                 ) : (
-                  "📍"
+                  <MapPin weight="duotone" size={18} aria-hidden="true" />
                 )}
               </button>
             </div>
@@ -609,130 +611,22 @@ export default function Home() {
             )}
           </label>
 
-          {/* PREFERENCES TOGGLE + PANEL */}
-          <button
-            type="button"
-            onClick={() => setPrefsOpen((v) => !v)}
-            className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-white/60 transition hover:border-violet-400/40 hover:text-violet-200"
-            aria-expanded={prefsOpen}
-          >
-            ⚙ Preferences {prefsOpen ? "▲" : ""}
-          </button>
-          <AnimatePresence initial={false}>
-            {prefsOpen && (
-              <motion.div
-                key="prefs"
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: "auto", opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.25, ease: "easeOut" }}
-                className="overflow-hidden"
-              >
-                <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] p-4">
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div>
-                      <div className="mb-1.5 flex items-center justify-between">
-                        <span className="text-[11px] font-medium uppercase tracking-wider text-white/50">
-                          Group size
-                        </span>
-                        <span className="text-xs text-white/80 tabular-nums">
-                          {groupSize}
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min={1}
-                        max={10}
-                        value={groupSize}
-                        onChange={(e) => setGroupSize(Number(e.target.value))}
-                        className="slider-violet w-full"
-                      />
-                    </div>
-                    <div>
-                      <div className="mb-1.5 flex items-center justify-between">
-                        <span className="text-[11px] font-medium uppercase tracking-wider text-white/50">
-                          Time
-                        </span>
-                        <span className="text-xs text-white/80 tabular-nums">
-                          {timeLabel}
-                        </span>
-                      </div>
-                      <input
-                        type="range"
-                        min={30}
-                        max={240}
-                        step={15}
-                        value={timeMinutes}
-                        onChange={(e) => setTimeMinutes(Number(e.target.value))}
-                        className="slider-violet w-full"
-                      />
-                    </div>
-                  </div>
-                  <div className="mt-4">
-                    <div className="mb-1.5 flex items-center justify-between">
-                      <span className="text-[11px] font-medium uppercase tracking-wider text-white/50">
-                        Spice
-                      </span>
-                      <SpiceBar level={spice} />
-                    </div>
-                    <input
-                      type="range"
-                      min={1}
-                      max={10}
-                      value={spice}
-                      onChange={(e) => setSpice(Number(e.target.value))}
-                      className="slider-violet w-full"
-                    />
-                    <div className="mt-1 flex justify-between text-[9px] uppercase tracking-[0.2em] text-white/30">
-                      <span>Chill</span>
-                      <span>Wild</span>
-                      <span>Unhinged</span>
-                    </div>
-                  </div>
-                  <div className="mt-4 flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
-                    <span className="text-xs text-white/70">🚗 Can Drive</span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={canDrive}
-                      onClick={() => setCanDrive((v) => !v)}
-                      className={`relative h-5 w-9 rounded-full border transition-colors ${
-                        canDrive
-                          ? "border-violet-400 bg-violet-500/70"
-                          : "border-white/15 bg-white/10"
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-0.5 h-3.5 w-3.5 rounded-full bg-white transition-transform ${
-                          canDrive ? "translate-x-4" : "translate-x-0.5"
-                        }`}
-                      />
-                    </button>
-                  </div>
-                  <div className="mt-2 flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
-                    <span className="text-xs text-white/70">💸 Low / No Cost</span>
-                    <button
-                      type="button"
-                      role="switch"
-                      aria-checked={lowCostOnly}
-                      onClick={() => setLowCostOnly((v) => !v)}
-                      className={`relative h-5 w-9 rounded-full border transition-colors ${
-                        lowCostOnly
-                          ? "border-violet-400 bg-violet-500/70"
-                          : "border-white/15 bg-white/10"
-                      }`}
-                    >
-                      <span
-                        className={`absolute top-0.5 h-3.5 w-3.5 rounded-full bg-white transition-transform ${
-                          lowCostOnly ? "translate-x-4" : "translate-x-0.5"
-                        }`}
-                      />
-                    </button>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {/* PREFERENCES PILL — toggles the sibling panel below the location card. */}
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={() => setPrefsOpen((v) => !v)}
+              className="ds-prefs-pill"
+              data-open={prefsOpen ? "true" : "false"}
+              aria-expanded={prefsOpen}
+            >
+              <Sliders weight="duotone" size={14} aria-hidden="true" />
+              <span>Preferences</span>
+              <span className="ds-prefs-caret" aria-hidden="true">
+                <CaretDown weight="duotone" size={12} />
+              </span>
+            </button>
+          </div>
 
           {/* GENERATE BUTTON — design v2 CTA */}
           <div className="mt-6 flex flex-col items-center">
@@ -782,6 +676,128 @@ export default function Home() {
             )}
           </div>
         </motion.section>
+
+        {/* PREFERENCES PANEL — sibling card, flush with the location card above. */}
+        <AnimatePresence initial={false}>
+          {prefsOpen && (
+            <motion.div
+              key="prefs-panel"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25, ease: "easeOut" }}
+              className="overflow-hidden"
+              style={{ marginTop: "var(--space-4)" }}
+            >
+              <div className="glass ds-prefs-panel">
+                <div className="ds-prefs-grid">
+                  <div className="ds-prefs-row">
+                    <div className="ds-prefs-label">
+                      <span>Group size</span>
+                      <span className="ds-prefs-value">{groupSize}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={10}
+                      value={groupSize}
+                      onChange={(e) => setGroupSize(Number(e.target.value))}
+                      className="ds-slider"
+                      data-fill="success"
+                      style={
+                        {
+                          ["--fill-pct" as string]: `${((groupSize - 1) / 9) * 100}%`,
+                        } as React.CSSProperties
+                      }
+                      aria-label="Group size"
+                    />
+                  </div>
+                  <div className="ds-prefs-row">
+                    <div className="ds-prefs-label">
+                      <span>Time</span>
+                      <span className="ds-prefs-value">{timeLabel}</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={30}
+                      max={240}
+                      step={15}
+                      value={timeMinutes}
+                      onChange={(e) => setTimeMinutes(Number(e.target.value))}
+                      className="ds-slider"
+                      data-fill="success"
+                      style={
+                        {
+                          ["--fill-pct" as string]: `${((timeMinutes - 30) / 210) * 100}%`,
+                        } as React.CSSProperties
+                      }
+                      aria-label="Time"
+                    />
+                  </div>
+                  <div className="ds-prefs-row">
+                    <div className="ds-prefs-label">
+                      <span>Spice</span>
+                      <span className="ds-prefs-value">{spice}/10</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={10}
+                      value={spice}
+                      onChange={(e) => setSpice(Number(e.target.value))}
+                      className="ds-slider"
+                      data-fill="warning"
+                      style={
+                        {
+                          ["--fill-pct" as string]: `${((spice - 1) / 9) * 100}%`,
+                        } as React.CSSProperties
+                      }
+                      aria-label="Spice"
+                    />
+                  </div>
+                  <div className="ds-prefs-row">
+                    <div className="ds-prefs-label">
+                      <span>Can drive</span>
+                    </div>
+                    <div className="ds-toggle-row">
+                      <span className="ds-toggle-label">Yes, we can drive</span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={canDrive}
+                        aria-label="Can drive"
+                        onClick={() => setCanDrive((v) => !v)}
+                        className="ds-toggle"
+                        data-on={canDrive ? "true" : "false"}
+                      >
+                        <span className="ds-toggle-thumb" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="ds-prefs-row">
+                    <div className="ds-prefs-label">
+                      <span>Low / no cost</span>
+                    </div>
+                    <div className="ds-toggle-row">
+                      <span className="ds-toggle-label">Free or cheap only</span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={lowCostOnly}
+                        aria-label="Low or no cost only"
+                        onClick={() => setLowCostOnly((v) => !v)}
+                        className="ds-toggle"
+                        data-on={lowCostOnly ? "true" : "false"}
+                      >
+                        <span className="ds-toggle-thumb" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* FILTER CHIPS — design v2 milestone 1 */}
         {showResultsArea && (

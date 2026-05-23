@@ -318,3 +318,289 @@
   margin-top: 12px;
   text-align: center;
 }
+
+/* -----------------------------------------------------------------------------
+ * Preferences — Milestone 2.
+ *
+ * Pill toggle (Sliders + label + CaretDown), glass panel container, unified
+ * row grid, solid sliders, iOS-style toggles, location input with absolutely-
+ * positioned MapPin glyph inside the field.
+ * --------------------------------------------------------------------------- */
+
+/* Preferences pill — toggle to open/close the panel. */
+.ds-prefs-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: var(--text-secondary);
+  font-family: var(--font-body, inherit);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 200ms ease,
+    border-color 200ms ease,
+    color 200ms ease;
+}
+
+.ds-prefs-pill:hover {
+  background: var(--bg-glass-strong);
+  color: var(--text-primary);
+}
+
+.ds-prefs-pill[data-open="true"] {
+  background: var(--bg-glass-strong);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.ds-prefs-caret {
+  display: inline-flex;
+  transition: transform 200ms ease;
+}
+
+.ds-prefs-pill[data-open="true"] .ds-prefs-caret {
+  transform: rotate(180deg);
+}
+
+/* Preferences panel — flush sibling card under the location card. */
+.ds-prefs-panel {
+  padding: var(--space-6);
+}
+
+.ds-prefs-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  row-gap: var(--space-5);
+  column-gap: var(--space-4);
+}
+
+@media (min-width: 640px) {
+  .ds-prefs-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.ds-prefs-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ds-prefs-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-family: var(--font-body, inherit);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.ds-prefs-value {
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Solid sliders — kill the violet styling entirely. */
+.ds-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 16px;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  display: block;
+}
+
+.ds-slider:focus {
+  outline: none;
+}
+
+.ds-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-glass-strong);
+}
+
+.ds-slider::-moz-range-track {
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-glass-strong);
+}
+
+.ds-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text-primary);
+  border: 0;
+  box-shadow: var(--shadow-card);
+  margin-top: -6px;
+  cursor: pointer;
+}
+
+.ds-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--text-primary);
+  border: 0;
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
+}
+
+/* Solid fill colors — driven by --fill-color CSS var on the input. */
+.ds-slider[data-fill="success"] {
+  --fill-color: var(--success);
+}
+.ds-slider[data-fill="warning"] {
+  --fill-color: var(--warning);
+}
+
+.ds-slider {
+  background-image: linear-gradient(
+    to right,
+    var(--fill-color, var(--text-primary)) 0%,
+    var(--fill-color, var(--text-primary)) var(--fill-pct, 0%),
+    transparent var(--fill-pct, 0%),
+    transparent 100%
+  );
+  background-repeat: no-repeat;
+  background-size: 100% 4px;
+  background-position: 0 50%;
+}
+
+/* iOS-style toggle. */
+.ds-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 44px;
+}
+
+.ds-toggle-label {
+  font-family: var(--font-body, inherit);
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.ds-toggle {
+  position: relative;
+  flex-shrink: 0;
+  width: 44px;
+  height: 26px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-glass-strong);
+  border: 1px solid var(--border);
+  padding: 0;
+  cursor: pointer;
+  transition:
+    background-color 200ms ease,
+    border-color 200ms ease;
+}
+
+.ds-toggle[data-on="true"] {
+  background: var(--success);
+  border-color: var(--success);
+}
+
+.ds-toggle-thumb {
+  position: absolute;
+  top: 50%;
+  left: 2px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #f5f1ed;
+  box-shadow: var(--shadow-card);
+  transform: translate(0, -50%);
+  transition: transform 200ms ease;
+}
+
+.ds-toggle[data-on="true"] .ds-toggle-thumb {
+  /* Track 44, thumb 22, 2px inset on each side. */
+  transform: translate(18px, -50%);
+}
+
+/* Location input wrapper — MapPin glyph absolutely positioned inside. */
+.ds-loc-field {
+  position: relative;
+  display: block;
+}
+
+.ds-loc-input {
+  width: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px 48px 14px 16px;
+  font-family: var(--font-body, inherit);
+  font-size: 16px;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 200ms ease;
+}
+
+.ds-loc-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.ds-loc-input:focus {
+  border-color: var(--border-strong);
+}
+
+.ds-loc-pin {
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  padding: 4px;
+  margin: 0;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: color 200ms ease;
+}
+
+.ds-loc-pin:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.ds-loc-pin:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@keyframes ds-spin {
+  to {
+    transform: translateY(-50%) rotate(360deg);
+  }
+}
+
+.ds-loc-pin[data-busy="true"] {
+  animation: ds-spin 1s linear infinite;
+}
