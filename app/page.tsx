@@ -26,6 +26,7 @@ import {
   Flame,
   ForkKnife,
   Hand,
+  Lightbulb,
   Lightning,
   MapPin,
   Minus,
@@ -36,6 +37,7 @@ import {
   Sparkle,
   Tree,
   UsersThree,
+  X,
 } from "@phosphor-icons/react/dist/ssr";
 import type { Icon } from "@phosphor-icons/react";
 
@@ -466,37 +468,7 @@ export default function Home() {
   const showResultsArea = view === "saved" || quests !== null || rolling;
 
   return (
-    <main className="relative min-h-screen overflow-x-hidden bg-[#0a0a0a] text-white">
-      {/* Hidden SVG filter for glass distortion accents */}
-      <svg className="hidden" aria-hidden="true">
-        <defs>
-          <filter
-            id="glass-distortion"
-            x="0%"
-            y="0%"
-            width="100%"
-            height="100%"
-            filterUnits="objectBoundingBox"
-          >
-            <feTurbulence
-              type="fractalNoise"
-              baseFrequency="0.001 0.005"
-              numOctaves="1"
-              seed="17"
-              result="turbulence"
-            />
-            <feGaussianBlur in="turbulence" stdDeviation="3" result="softMap" />
-            <feDisplacementMap
-              in="SourceGraphic"
-              in2="softMap"
-              scale="200"
-              xChannelSelector="R"
-              yChannelSelector="G"
-            />
-          </filter>
-        </defs>
-      </svg>
-
+    <main className="relative min-h-screen overflow-x-hidden">
       {/* HERO — design v2 milestone 1 */}
       <section className="relative w-full overflow-visible px-6 pt-20 pb-12 sm:pt-28 md:pb-16">
         <div className="relative z-10 mx-auto flex max-w-3xl flex-col items-center text-center">
@@ -533,17 +505,20 @@ export default function Home() {
         </div>
       </section>
 
-      <div className="relative z-10 mx-auto -mt-12 max-w-3xl px-4 pb-24 sm:px-6">
+      <div className="relative z-10 mx-auto -mt-12 max-w-3xl px-4 sm:px-6">
         {/* INPUTS */}
         <motion.section
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.15 }}
-          className="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-2xl shadow-black/40 backdrop-blur-xl sm:p-7"
+          className="glass p-5 sm:p-7"
         >
           <label className="block">
-            <span className="mb-2 block text-xs font-medium uppercase tracking-wider text-white/50">
-              Location
+            <span
+              className="ds-prefs-label"
+              style={{ marginBottom: "var(--space-2)" }}
+            >
+              <span>Location</span>
             </span>
             <div className="ds-loc-field">
               <input
@@ -573,7 +548,12 @@ export default function Home() {
               </button>
             </div>
             {locError && (
-              <p className="mt-2 text-xs text-amber-300/80">{locError}</p>
+              <p
+                className="mt-2 text-xs"
+                style={{ color: "var(--warning)" }}
+              >
+                {locError}
+              </p>
             )}
           </label>
 
@@ -837,7 +817,7 @@ export default function Home() {
                 {[0, 1, 2].map((i) => (
                   <div
                     key={i}
-                    className="relative h-44 overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-5 backdrop-blur-xl"
+                    className="glass relative h-44 overflow-hidden p-6"
                   >
                     <div className="absolute inset-0 -translate-x-full animate-[shimmer_1.6s_infinite] bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
                     <div className="space-y-3">
@@ -850,7 +830,10 @@ export default function Home() {
                 ))}
               </div>
             ) : displayedQuests.length === 0 ? (
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-10 text-center text-sm text-white/40 backdrop-blur-xl">
+              <div
+                className="glass p-10 text-center text-sm"
+                style={{ color: "var(--text-tertiary)" }}
+              >
                 {view === "saved"
                   ? bookmarks.length === 0
                     ? "No bookmarks yet. Tap the bookmark on any quest to save it."
@@ -1010,15 +993,26 @@ export default function Home() {
           </section>
         )}
 
-        {/* FOOTER */}
-        <div className="mt-16 flex flex-col items-center gap-4">
+        {/* FOOTER — Suggest pill + tagline. */}
+        <div
+          className="flex flex-col items-center"
+          style={{
+            marginTop: "var(--space-7)",
+            paddingBottom: "var(--space-7)",
+          }}
+        >
           <button
+            type="button"
             onClick={() => setSuggestOpen(true)}
-            className="rounded-full border border-white/15 bg-white/[0.03] px-5 py-2 text-sm text-white/60 backdrop-blur transition hover:border-violet-400/40 hover:bg-violet-500/10 hover:text-violet-200"
+            className="ds-suggest-pill"
           >
-            💡 Suggest a Quest
+            <Lightbulb weight="duotone" size={14} aria-hidden="true" />
+            <span>Suggest a quest</span>
           </button>
-          <p className="text-xs text-white/30">
+          <p
+            className="ds-footer-line"
+            style={{ marginTop: "var(--space-6)" }}
+          >
             Stay safe. Be kind. Take photos.
           </p>
         </div>
@@ -1032,7 +1026,7 @@ export default function Home() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-50 flex items-end justify-center bg-black/80 p-4 backdrop-blur-md sm:items-center"
+            className="ds-modal-overlay"
             onClick={() =>
               !suggestBusy && !suggestSent && setSuggestOpen(false)
             }
@@ -1042,21 +1036,28 @@ export default function Home() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 16, scale: 0.97 }}
               transition={{ duration: 0.25 }}
-              className="w-full max-w-md rounded-2xl border border-white/10 bg-[#0f0f10]/90 p-6 shadow-2xl backdrop-blur-xl"
+              className="glass ds-modal-card"
               onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="suggest-title"
             >
-              <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-lg font-semibold">💡 Suggest a Quest</h3>
+              <div className="flex items-center justify-between">
+                <h3 id="suggest-title" className="ds-modal-title">
+                  <Lightbulb weight="duotone" size={20} aria-hidden="true" />
+                  Suggest a quest
+                </h3>
                 <button
+                  type="button"
                   onClick={() => setSuggestOpen(false)}
                   disabled={suggestBusy}
-                  className="text-white/40 transition hover:text-white"
+                  className="ds-modal-close"
                   aria-label="Close"
                 >
-                  ✕
+                  <X weight="duotone" size={16} aria-hidden="true" />
                 </button>
               </div>
-              <p className="mb-3 text-xs text-white/50">
+              <p className="ds-modal-hint">
                 Got an idea for a quest? Drop it here.
               </p>
               <textarea
@@ -1068,58 +1069,76 @@ export default function Home() {
                 rows={4}
                 maxLength={500}
                 disabled={suggestBusy || suggestSent}
-                className="w-full rounded-xl border border-white/10 bg-white/5 p-3 text-sm text-white placeholder-white/30 outline-none focus:border-violet-400/60 focus:ring-2 focus:ring-violet-500/30 disabled:opacity-60"
+                className="ds-textarea"
+                aria-label="Quest idea"
               />
-              <div className="mt-1 text-right text-[10px] text-white/40">
-                {suggestText.length}/500
-              </div>
+              <p className="ds-modal-counter">{suggestText.length}/500</p>
 
-              <div className="mt-3">
-                <div className="mb-2 text-xs uppercase tracking-wider text-white/50">
-                  Your self-rating (optional)
-                </div>
-                <div className="grid grid-cols-4 gap-1.5">
-                  {(["cooked", "mid", "tuff", "fire"] as const).map((r) => {
-                    const active = suggestSelfRating === r;
-                    const icon =
-                      r === "cooked"
-                        ? "🗑️"
-                        : r === "mid"
-                          ? "😐"
-                          : r === "tuff"
-                            ? "💪"
-                            : "🔥";
-                    return (
-                      <button
-                        key={r}
-                        onClick={() =>
-                          setSuggestSelfRating((cur) => (cur === r ? null : r))
-                        }
-                        disabled={suggestBusy || suggestSent}
-                        className={`rounded-full border px-2 py-1.5 text-xs font-semibold capitalize transition ${
-                          active
-                            ? "border-violet-400 bg-violet-500/30 text-violet-100"
-                            : "border-white/10 text-white/50 hover:border-violet-400/40 hover:text-violet-200"
-                        }`}
-                      >
-                        <span className="mr-1">{icon}</span>
-                        {r}
-                      </button>
-                    );
-                  })}
-                </div>
+              <p className="ds-modal-section-label">
+                Your self-rating (optional)
+              </p>
+              <div
+                className="ds-reactions"
+                role="radiogroup"
+                aria-label="Self-rating"
+              >
+                {RATING_ORDER.map((r) => {
+                  const active = suggestSelfRating === r;
+                  const ReactionIcon = REACTION_ICONS[r];
+                  return (
+                    <button
+                      key={r}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      onClick={() =>
+                        setSuggestSelfRating((cur) => (cur === r ? null : r))
+                      }
+                      disabled={suggestBusy || suggestSent}
+                      className="ds-reaction"
+                      data-active={active ? "true" : "false"}
+                    >
+                      <ReactionIcon
+                        weight={active ? "fill" : "duotone"}
+                        size={14}
+                        aria-hidden="true"
+                      />
+                      <span>{REACTION_LABELS[r]}</span>
+                    </button>
+                  );
+                })}
               </div>
 
               <button
+                type="button"
                 onClick={submitSuggestion}
                 disabled={!suggestText.trim() || suggestBusy || suggestSent}
-                className="mt-5 w-full rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-[0_0_24px_rgba(139,92,246,0.35)] transition hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                className="ds-cta ds-modal-submit"
               >
-                {suggestSent
-                  ? "✓ Thanks! Sent."
-                  : suggestBusy
-                    ? "Sending..."
-                    : "Submit Suggestion"}
+                {suggestSent ? (
+                  <>
+                    <Check
+                      weight="duotone"
+                      size={16}
+                      color="#1a1614"
+                      aria-hidden="true"
+                    />
+                    <span>Thanks! Sent.</span>
+                  </>
+                ) : suggestBusy ? (
+                  <>
+                    <CircleNotch
+                      weight="duotone"
+                      size={16}
+                      color="#1a1614"
+                      aria-hidden="true"
+                      className="animate-spin"
+                    />
+                    <span>Sending…</span>
+                  </>
+                ) : (
+                  <span>Submit suggestion</span>
+                )}
               </button>
             </motion.div>
           </motion.div>
