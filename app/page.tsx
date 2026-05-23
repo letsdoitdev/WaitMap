@@ -16,7 +16,12 @@ import {
   Suggestion,
   SelfRating,
 } from "@/lib/suggestions";
-import { ShaderAnimation } from "@/components/ui/shader-animation";
+import {
+  BookmarkSimple,
+  Check,
+  MapPin,
+  Sparkle,
+} from "@phosphor-icons/react/dist/ssr";
 
 const CATEGORY_STYLES: Record<QuestCategory, string> = {
   Chaos: "bg-red-500/10 text-red-300 border-red-500/30",
@@ -523,40 +528,36 @@ export default function Home() {
         </defs>
       </svg>
 
-      {/* HERO */}
-      <section className="relative h-[42vh] min-h-[320px] w-full overflow-hidden">
-        <ShaderAnimation className="absolute inset-0 h-full w-full opacity-30" />
-        {/* Dark gradient overlay for legibility */}
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-[#0a0a0a]/40 via-[#0a0a0a]/40 to-[#0a0a0a]" />
-        {/* Glow blob behind text */}
-        <div className="pointer-events-none absolute left-1/2 top-1/2 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/10 blur-3xl" />
-        <div className="pointer-events-none absolute left-1/2 top-1/2 h-40 w-[36rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-violet-500/10 blur-3xl" />
-
-        <div className="relative z-10 flex h-full flex-col items-center justify-center px-6 text-center">
+      {/* HERO — design v2 milestone 1 */}
+      <section className="relative w-full overflow-visible px-6 pt-20 pb-12 sm:pt-28 md:pb-16">
+        <div className="relative z-10 mx-auto flex max-w-3xl flex-col items-center text-center">
           <motion.div
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.25em] text-white/60 backdrop-blur"
+            className="ds-hero-badge"
           >
-            <span className="h-1.5 w-1.5 rounded-full bg-violet-400 shadow-[0_0_8px_rgba(139,92,246,0.8)]" />
-            IRL Adventure Generator
+            <MapPin
+              weight="duotone"
+              size={14}
+              color="var(--text-secondary)"
+              aria-hidden="true"
+            />
+            IRL adventure generator
           </motion.div>
           <motion.h1
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.05 }}
-            className="text-balance text-5xl font-bold tracking-tight text-white md:text-7xl"
+            className="ds-hero-title mt-6"
           >
-            <span className="bg-gradient-to-br from-violet-300 via-fuchsia-300 to-amber-200 bg-clip-text text-transparent">
-              Unemployment
-            </span>
+            Unemployment
           </motion.h1>
           <motion.p
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.12 }}
-            className="mt-4 max-w-xl text-balance text-sm text-white/55 md:text-base"
+            className="ds-hero-subhead"
           >
             Spontaneous real-world quests. Pick your vibe, go cause some delight.
           </motion.p>
@@ -733,67 +734,62 @@ export default function Home() {
             )}
           </AnimatePresence>
 
-          {/* GENERATE BUTTON */}
-          <div className="relative mt-6">
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-x-6 -bottom-3 h-10 rounded-full bg-violet-500/40 blur-2xl"
-            />
+          {/* GENERATE BUTTON — design v2 CTA */}
+          <div className="mt-6 flex flex-col items-center">
             <button
+              type="button"
               onClick={() => generate()}
               disabled={!canGenerate || rolling}
-              className="group relative w-full overflow-hidden rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 px-6 py-4 text-base font-semibold text-white shadow-[0_0_30px_rgba(139,92,246,0.4)] transition-all duration-200 hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:text-lg"
+              className="ds-cta"
             >
-              {/* Liquid glass overlay */}
-              <span
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 rounded-full bg-white/10 opacity-0 backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-100"
-              />
-              <span className="relative inline-flex items-center justify-center gap-2">
-                {rolling ? (
-                  <>
-                    <motion.span
-                      animate={{ rotate: 360 }}
-                      transition={{
-                        duration: 1.4,
-                        repeat: Infinity,
-                        ease: "linear",
-                      }}
-                      className="inline-block"
-                    >
-                      ✦
-                    </motion.span>
-                    <span className="animate-pulse">
-                      {nearbyStatus === "loading"
-                        ? "Finding nearby spots..."
-                        : "Generating..."}
-                    </span>
-                  </>
-                ) : quests ? (
-                  <>🎲 Reroll Quests</>
-                ) : (
-                  <>Generate Quests</>
-                )}
-              </span>
+              {rolling ? (
+                <>
+                  <motion.span
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1.4, repeat: Infinity, ease: "linear" }}
+                    className="inline-flex"
+                    aria-hidden="true"
+                  >
+                    <Sparkle weight="duotone" size={18} color="#1a1614" />
+                  </motion.span>
+                  <span>
+                    {nearbyStatus === "loading"
+                      ? "Finding nearby spots…"
+                      : "Generating…"}
+                  </span>
+                </>
+              ) : quests ? (
+                <>
+                  <Sparkle weight="duotone" size={18} color="#1a1614" aria-hidden="true" />
+                  <span>Reroll quests</span>
+                </>
+              ) : (
+                <>
+                  <Sparkle weight="duotone" size={18} color="#1a1614" aria-hidden="true" />
+                  <span>Generate quests</span>
+                </>
+              )}
             </button>
             {!canGenerate && (
-              <p className="mt-3 text-center text-xs text-white/40">
+              <p className="ds-hero-helper">
                 Add a location to begin your adventure.
               </p>
             )}
             {nearbyStatus === "fallback" && quests && (
-              <p className="mt-3 text-center text-xs text-amber-300/70">
+              <p className="ds-hero-helper" style={{ color: "var(--warning)" }}>
                 Couldn&apos;t reach nearby venue data — using generic quests.
               </p>
             )}
           </div>
         </motion.section>
 
-        {/* FILTER CHIPS */}
+        {/* FILTER CHIPS — design v2 milestone 1 */}
         {showResultsArea && (
-          <div className="relative mt-8">
-            <div className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
-              <FilterPill
+          <nav
+            aria-label="Filter quests"
+            className="ds-filter-scroll relative mt-8 -mx-4 sm:-mx-6"
+          >
+            <DsChip
               active={view === "results" && categoryFilter === null}
               onClick={() => {
                 setView("results");
@@ -801,48 +797,54 @@ export default function Home() {
               }}
             >
               All
-            </FilterPill>
-            <FilterPill
+            </DsChip>
+            <DsChip
               active={view === "saved"}
-              gold
               onClick={() => setView("saved")}
+              leadingIcon={
+                <BookmarkSimple
+                  weight="duotone"
+                  size={14}
+                  color="var(--text-tertiary)"
+                  aria-hidden="true"
+                />
+              }
             >
-              🔖 Saved
-              <span className="ml-1.5 rounded-full bg-white/15 px-1.5 py-0.5 text-[10px] font-bold tabular-nums">
+              Saved
+              <span
+                className="ml-1 inline-flex items-center justify-center rounded-full px-1.5 py-0.5 text-[11px] font-semibold tabular-nums"
+                style={{
+                  background: "var(--bg-glass-strong)",
+                  color: "var(--text-secondary)",
+                }}
+              >
                 {bookmarks.length}
               </span>
-            </FilterPill>
+            </DsChip>
             {ALL_CATEGORIES.map((c) => {
               const active = categoryFilter === c;
               return (
-                <FilterPill
+                <DsChip
                   key={c}
                   active={active}
                   onClick={() => {
                     if (active) {
-                      // Toggling off — clear filter, no regenerate.
                       setCategoryFilter(null);
                       if (view === "saved") setView("results");
                       return;
                     }
                     setCategoryFilter(c);
                     setView("results");
-                    // Trigger a fresh generation targeted at this category.
                     if (canGenerate && !rolling) {
                       generate(c);
                     }
                   }}
                 >
                   {c}
-                </FilterPill>
+                </DsChip>
               );
             })}
-            </div>
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 right-0 z-10 w-16 bg-gradient-to-l from-[#0a0a0a] from-30% to-transparent"
-            />
-          </div>
+          </nav>
         )}
 
         {/* QUEST CARDS */}
@@ -1094,39 +1096,35 @@ export default function Home() {
   );
 }
 
-function FilterPill({
+function DsChip({
   children,
   active,
   onClick,
-  gold,
+  leadingIcon,
 }: {
   children: React.ReactNode;
   active: boolean;
   onClick: () => void;
-  gold?: boolean;
+  leadingIcon?: React.ReactNode;
 }) {
-  const base =
-    "shrink-0 inline-flex items-center rounded-full border px-4 py-1.5 text-sm whitespace-nowrap transition-all backdrop-blur";
-  if (active) {
-    return (
-      <button
-        onClick={onClick}
-        className={`${base} ${
-          gold
-            ? "border-amber-400/60 bg-amber-500/20 text-amber-200 shadow-[0_0_18px_rgba(245,158,11,0.25)]"
-            : "border-violet-500 bg-violet-600/80 text-white shadow-[0_0_18px_rgba(139,92,246,0.45)]"
-        }`}
-      >
-        {children}
-      </button>
-    );
-  }
   return (
     <button
+      type="button"
       onClick={onClick}
-      className={`${base} border-white/10 bg-white/5 text-white/60 hover:border-white/20 hover:bg-white/10 hover:text-white`}
+      data-active={active ? "true" : "false"}
+      aria-pressed={active}
+      className="ds-chip"
     >
-      {children}
+      {active && (
+        <Check
+          weight="duotone"
+          size={14}
+          color="var(--text-primary)"
+          aria-hidden="true"
+        />
+      )}
+      {!active && leadingIcon}
+      <span>{children}</span>
     </button>
   );
 }
