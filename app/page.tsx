@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { generateQuests, GeneratedQuest } from "@/lib/generate";
 import { QuestCategory } from "@/lib/quests";
@@ -132,9 +132,6 @@ const RATING_STYLES: {
   key: Rating;
   label: string;
   icon: string;
-  /** Subtle resting tint on the icon disc, ramped cool→warm so the row reads
-   * as an ordered sentiment scale instead of four independent buttons. */
-  iconBg: string;
   hover: string;
   active: string;
 }[] = [
@@ -142,35 +139,57 @@ const RATING_STYLES: {
     key: "cooked",
     label: "Cooked",
     icon: "🗑️",
-    iconBg: "bg-slate-500/20",
-    hover: "hover:bg-slate-500/20 hover:text-slate-200 hover:border-slate-400/40",
-    active: "bg-slate-500/30 text-slate-100 border-slate-400/60",
+    hover: "hover:bg-red-500/20 hover:text-red-300 hover:border-red-500/40",
+    active: "bg-red-500/30 text-red-200 border-red-400/60",
   },
   {
     key: "mid",
     label: "Mid",
     icon: "😐",
-    iconBg: "bg-amber-500/20",
-    hover: "hover:bg-amber-500/15 hover:text-amber-200 hover:border-amber-500/40",
-    active: "bg-amber-500/30 text-amber-100 border-amber-400/60",
+    hover: "hover:bg-yellow-500/20 hover:text-yellow-300 hover:border-yellow-500/40",
+    active: "bg-yellow-500/30 text-yellow-200 border-yellow-400/60",
   },
   {
     key: "tuff",
     label: "Tuff",
     icon: "💪",
-    iconBg: "bg-orange-500/25",
-    hover: "hover:bg-orange-500/15 hover:text-orange-200 hover:border-orange-500/40",
-    active: "bg-orange-500/30 text-orange-100 border-orange-400/60",
+    hover: "hover:bg-blue-500/20 hover:text-blue-300 hover:border-blue-500/40",
+    active: "bg-blue-500/30 text-blue-200 border-blue-400/60",
   },
   {
     key: "fire",
     label: "Fire",
     icon: "🔥",
-    iconBg: "bg-red-500/30",
-    hover: "hover:bg-red-500/15 hover:text-red-200 hover:border-red-500/40",
-    active: "bg-red-500/30 text-red-100 border-red-400/60",
+    hover: "hover:bg-orange-500/20 hover:text-orange-300 hover:border-orange-500/40",
+    active: "bg-orange-500/30 text-orange-200 border-orange-400/60",
   },
 ];
+
+function SpiceBar({ level }: { level: number }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className="flex gap-0.5">
+        {Array.from({ length: 10 }).map((_, i) => (
+          <span
+            key={i}
+            className={`h-2 w-1.5 rounded-sm transition-colors ${
+              i < level
+                ? level >= 8
+                  ? "bg-red-400"
+                  : level >= 5
+                    ? "bg-orange-400"
+                    : "bg-emerald-400"
+                : "bg-white/10"
+            }`}
+          />
+        ))}
+      </div>
+      <span className="text-xs font-medium text-white/60 tabular-nums">
+        {level}/10
+      </span>
+    </div>
+  );
+}
 
 type View = "results" | "saved";
 
@@ -198,29 +217,6 @@ export default function Home() {
   const [lowCostOnly, setLowCostOnly] = useState(false);
   const [locBusy, setLocBusy] = useState(false);
   const [locError, setLocError] = useState<string | null>(null);
-  const filterScrollRef = useRef<HTMLDivElement | null>(null);
-  const [filterScroll, setFilterScroll] = useState({ left: false, right: false });
-
-  // Track scroll position on the filter row so the left/right fade overlays
-  // only render when there's actually overflow to scroll toward.
-  useEffect(() => {
-    const el = filterScrollRef.current;
-    if (!el) return;
-    const update = () => {
-      const left = el.scrollLeft > 4;
-      const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
-      setFilterScroll((cur) => (cur.left === left && cur.right === right ? cur : { left, right }));
-    };
-    update();
-    el.addEventListener("scroll", update, { passive: true });
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => {
-      el.removeEventListener("scroll", update);
-      ro.disconnect();
-    };
-    // Re-evaluate when the chip set or visibility changes.
-  }, [view, rolling, quests, bookmarks.length]);
 
   const useMyLocation = () => {
     if (locBusy) return;
@@ -550,10 +546,9 @@ export default function Home() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.05 }}
-            className="text-balance font-bold tracking-tight text-white"
-            style={{ fontSize: "clamp(2.25rem, 12vw, 4.75rem)" }}
+            className="text-balance text-5xl font-bold tracking-tight text-white md:text-7xl"
           >
-            <span className="bg-gradient-to-r from-violet-300 from-10% via-fuchsia-300 via-50% to-amber-300 to-90% bg-clip-text text-transparent">
+            <span className="bg-gradient-to-br from-violet-300 via-fuchsia-300 to-amber-200 bg-clip-text text-transparent">
               Unemployment
             </span>
           </motion.h1>
@@ -561,7 +556,7 @@ export default function Home() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.12 }}
-            className="mt-7 max-w-xl text-balance text-sm text-white/55 md:text-base"
+            className="mt-4 max-w-xl text-balance text-sm text-white/55 md:text-base"
           >
             Spontaneous real-world quests. Pick your vibe, go cause some delight.
           </motion.p>
@@ -580,12 +575,12 @@ export default function Home() {
             <span className="mb-2 block text-xs font-medium uppercase tracking-wider text-white/50">
               Location
             </span>
-            <div className="relative">
+            <div className="flex gap-2">
               <input
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
                 placeholder="e.g. Washington DC"
-                className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 pr-12 text-white placeholder-white/30 outline-none transition focus:border-violet-400/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-violet-500/30"
+                className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-white/30 outline-none transition focus:border-violet-400/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-violet-500/30"
               />
               <button
                 type="button"
@@ -593,7 +588,7 @@ export default function Home() {
                 disabled={locBusy}
                 aria-label="Use my location"
                 title="Use my location"
-                className="absolute right-1.5 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-base text-white/60 transition hover:bg-violet-500/15 hover:text-violet-200 disabled:opacity-50"
+                className="flex h-[3.25rem] w-[3.25rem] shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-lg text-white/70 transition hover:border-violet-400/50 hover:bg-violet-500/10 hover:text-violet-200 disabled:opacity-50"
               >
                 {locBusy ? (
                   <motion.span
@@ -617,21 +612,10 @@ export default function Home() {
           <button
             type="button"
             onClick={() => setPrefsOpen((v) => !v)}
+            className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-white/60 transition hover:border-violet-400/40 hover:text-violet-200"
             aria-expanded={prefsOpen}
-            className={`mt-4 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors duration-150 ${
-              prefsOpen
-                ? "border-violet-400/60 bg-violet-500/15 text-violet-100"
-                : "border-white/10 bg-white/[0.03] text-white/60 hover:border-violet-400/40 hover:text-violet-200"
-            }`}
           >
-            ⚙ Preferences
-            <span
-              aria-hidden="true"
-              className="inline-block text-[10px] transition-transform duration-150"
-              style={{ transform: prefsOpen ? "rotate(180deg)" : "rotate(0deg)" }}
-            >
-              ▾
-            </span>
+            ⚙ Preferences {prefsOpen ? "▲" : ""}
           </button>
           <AnimatePresence initial={false}>
             {prefsOpen && (
@@ -688,9 +672,7 @@ export default function Home() {
                       <span className="text-[11px] font-medium uppercase tracking-wider text-white/50">
                         Spice
                       </span>
-                      <span className="text-xs text-white/80 tabular-nums">
-                        {spice}/10
-                      </span>
+                      <SpiceBar level={spice} />
                     </div>
                     <input
                       type="range"
@@ -706,7 +688,7 @@ export default function Home() {
                       <span>Unhinged</span>
                     </div>
                   </div>
-                  <div className="mt-4 flex items-center justify-between py-1.5">
+                  <div className="mt-4 flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
                     <span className="text-xs text-white/70">🚗 Can Drive</span>
                     <button
                       type="button"
@@ -726,7 +708,7 @@ export default function Home() {
                       />
                     </button>
                   </div>
-                  <div className="flex items-center justify-between py-1.5">
+                  <div className="mt-2 flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
                     <span className="text-xs text-white/70">💸 Low / No Cost</span>
                     <button
                       type="button"
@@ -755,12 +737,12 @@ export default function Home() {
           <div className="relative mt-6">
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute inset-x-8 -bottom-2 h-8 rounded-full bg-violet-500/15 blur-2xl transition-opacity duration-200 group-hover:bg-violet-500/40"
+              className="pointer-events-none absolute inset-x-6 -bottom-3 h-10 rounded-full bg-violet-500/40 blur-2xl"
             />
             <button
               onClick={() => generate()}
               disabled={!canGenerate || rolling}
-              className="group relative w-full overflow-hidden rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 px-6 py-4 text-base font-semibold text-white shadow-[0_0_14px_rgba(139,92,246,0.18)] transition-all duration-200 hover:shadow-[0_0_36px_rgba(139,92,246,0.5)] hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:text-lg"
+              className="group relative w-full overflow-hidden rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 px-6 py-4 text-base font-semibold text-white shadow-[0_0_30px_rgba(139,92,246,0.4)] transition-all duration-200 hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:text-lg"
             >
               {/* Liquid glass overlay */}
               <span
@@ -800,18 +782,9 @@ export default function Home() {
               </p>
             )}
             {nearbyStatus === "fallback" && quests && (
-              <div
-                role="status"
-                className="mt-4 flex items-start gap-2.5 rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-100/90"
-              >
-                <span aria-hidden="true" className="mt-0.5 text-base leading-none">
-                  ⚠️
-                </span>
-                <span>
-                  Couldn&apos;t reach nearby venue data — these quests are using
-                  generic placeholders, not your actual area.
-                </span>
-              </div>
+              <p className="mt-3 text-center text-xs text-amber-300/70">
+                Couldn&apos;t reach nearby venue data — using generic quests.
+              </p>
             )}
           </div>
         </motion.section>
@@ -819,10 +792,7 @@ export default function Home() {
         {/* FILTER CHIPS */}
         {showResultsArea && (
           <div className="relative mt-8">
-            <div
-              ref={filterScrollRef}
-              className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [-webkit-overflow-scrolling:touch]"
-            >
+            <div className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
               <FilterPill
               active={view === "results" && categoryFilter === null}
               onClick={() => {
@@ -838,7 +808,7 @@ export default function Home() {
               onClick={() => setView("saved")}
             >
               🔖 Saved
-              <span className="ml-1.5 rounded-full bg-white/25 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-current/90">
+              <span className="ml-1.5 rounded-full bg-white/15 px-1.5 py-0.5 text-[10px] font-bold tabular-nums">
                 {bookmarks.length}
               </span>
             </FilterPill>
@@ -870,15 +840,7 @@ export default function Home() {
             </div>
             <div
               aria-hidden="true"
-              className={`pointer-events-none absolute inset-y-0 left-0 z-10 w-12 bg-gradient-to-r from-[#0a0a0a] from-20% to-transparent transition-opacity duration-200 ${
-                filterScroll.left ? "opacity-100" : "opacity-0"
-              }`}
-            />
-            <div
-              aria-hidden="true"
-              className={`pointer-events-none absolute inset-y-0 right-0 z-10 w-16 bg-gradient-to-l from-[#0a0a0a] from-30% to-transparent transition-opacity duration-200 ${
-                filterScroll.right ? "opacity-100" : "opacity-0"
-              }`}
+              className="pointer-events-none absolute inset-y-0 right-0 z-10 w-16 bg-gradient-to-l from-[#0a0a0a] from-30% to-transparent"
             />
           </div>
         )}
@@ -936,10 +898,10 @@ export default function Home() {
                           bookmarked ? "Remove bookmark" : "Bookmark quest"
                         }
                         aria-pressed={bookmarked}
-                        className={`absolute right-3 top-3 rounded-lg px-2 py-1 text-base transition active:scale-90 ${
+                        className={`absolute right-4 top-4 rounded-lg border px-2 py-1 text-base transition active:scale-90 ${
                           bookmarked
-                            ? "border border-amber-400/60 bg-amber-500/20 text-amber-300 shadow-[0_0_16px_rgba(245,158,11,0.3)]"
-                            : "border border-transparent bg-transparent text-white/40 hover:border-amber-400/40 hover:bg-amber-500/10 hover:text-amber-300"
+                            ? "border-amber-400/60 bg-amber-500/20 text-amber-300 shadow-[0_0_16px_rgba(245,158,11,0.3)]"
+                            : "border-white/10 bg-white/5 text-white/40 hover:border-amber-400/40 hover:text-amber-300"
                         }`}
                       >
                         🔖
@@ -977,22 +939,8 @@ export default function Home() {
                             💵 {q.cost}
                           </span>
                         )}
-                        <span className="ml-auto inline-flex items-center gap-2">
-                          <span className="relative h-[3px] w-20 overflow-hidden rounded-full bg-white/10">
-                            <span
-                              className={`absolute inset-y-0 left-0 rounded-full ${
-                                q.spice >= 8
-                                  ? "bg-red-400"
-                                  : q.spice >= 5
-                                    ? "bg-orange-400"
-                                    : "bg-emerald-400"
-                              }`}
-                              style={{ width: `${q.spice * 10}%` }}
-                            />
-                          </span>
-                          <span className="text-xs font-medium tabular-nums text-white/70">
-                            {q.spice}/10
-                          </span>
+                        <span className="ml-auto">
+                          <SpiceBar level={q.spice} />
                         </span>
                       </div>
 
@@ -1008,15 +956,10 @@ export default function Home() {
                               className={`inline-flex items-center justify-center gap-1.5 rounded-full border px-2 py-1.5 text-xs font-semibold transition-all active:scale-95 ${
                                 active
                                   ? r.active
-                                  : `border-white/10 bg-white/[0.03] text-white/55 ${r.hover}`
+                                  : `border-white/10 bg-white/[0.03] text-white/50 ${r.hover}`
                               }`}
                             >
-                              <span
-                                aria-hidden="true"
-                                className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${r.iconBg}`}
-                              >
-                                {r.icon}
-                              </span>
+                              <span>{r.icon}</span>
                               <span className="hidden xs:inline sm:inline">
                                 {r.label}
                               </span>
@@ -1033,7 +976,7 @@ export default function Home() {
         )}
 
         {/* FOOTER */}
-        <div className="mt-12 flex flex-col items-center gap-4 pt-12">
+        <div className="mt-16 flex flex-col items-center gap-4">
           <button
             onClick={() => setSuggestOpen(true)}
             className="rounded-full border border-white/15 bg-white/[0.03] px-5 py-2 text-sm text-white/60 backdrop-blur transition hover:border-violet-400/40 hover:bg-violet-500/10 hover:text-violet-200"
