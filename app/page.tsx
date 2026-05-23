@@ -214,6 +214,7 @@ export default function Home() {
   const [suggestBusy, setSuggestBusy] = useState(false);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [canDrive, setCanDrive] = useState(true);
+  const [lowCostOnly, setLowCostOnly] = useState(false);
   const [locBusy, setLocBusy] = useState(false);
   const [locError, setLocError] = useState<string | null>(null);
 
@@ -369,6 +370,7 @@ export default function Home() {
           previousTitles,
           category,
           canDrive,
+          lowCostOnly,
         }),
       });
       if (!r.ok) return null;
@@ -702,6 +704,26 @@ export default function Home() {
                       <span
                         className={`absolute top-0.5 h-3.5 w-3.5 rounded-full bg-white transition-transform ${
                           canDrive ? "translate-x-4" : "translate-x-0.5"
+                        }`}
+                      />
+                    </button>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                    <span className="text-xs text-white/70">💸 Low / No Cost</span>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={lowCostOnly}
+                      onClick={() => setLowCostOnly((v) => !v)}
+                      className={`relative h-5 w-9 rounded-full border transition-colors ${
+                        lowCostOnly
+                          ? "border-violet-400 bg-violet-500/70"
+                          : "border-white/15 bg-white/10"
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-0.5 h-3.5 w-3.5 rounded-full bg-white transition-transform ${
+                          lowCostOnly ? "translate-x-4" : "translate-x-0.5"
                         }`}
                       />
                     </button>

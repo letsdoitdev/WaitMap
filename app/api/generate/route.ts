@@ -29,6 +29,7 @@ type GenerateBody = {
   previousTitles?: string[];
   category?: string | null;
   canDrive?: boolean;
+  lowCostOnly?: boolean;
 };
 
 // v4 schema as returned by the model
@@ -541,6 +542,7 @@ export async function POST(req: NextRequest) {
   const requestedCategory =
     categoryRaw && categoryRaw.toLowerCase() !== "all" ? categoryRaw : null;
   const canDrive = body.canDrive !== false;
+  const lowCostOnly = body.lowCostOnly === true;
 
   const groupSizeHint =
     groupSize === "solo"
@@ -555,6 +557,9 @@ export async function POST(req: NextRequest) {
     ? `Generate quests in the ${requestedCategory} category. `
     : "";
   const driveStr = canDrive ? "" : " Constraint: walking distance only, no car.";
+  const costStr = lowCostOnly
+    ? " Constraint: free or very low cost only — each quest must cost under $5 per person, ideally $0. No paid venues, ticketed events, or quests that require any meaningful purchase."
+    : "";
   const histogram = buildHistogram(typeCounts);
   const fewShot = pickFewShot(groupSize, spiceLevel, requestedCategory, 6);
   const fewShotStr = renderFewShot(fewShot);
@@ -565,7 +570,7 @@ Venue TYPES available nearby (use as type-hints, NEVER name specific places): ${
 
 For example, if they have parks, your quest can say "a nearby park" — do NOT name the park.${fewShotStr}
 
-Inputs: spice level ${spiceLevel}/10, group size ${groupSizeHint}, time available ${timeAvailable} minutes.${driveStr}${previousStr}
+Inputs: spice level ${spiceLevel}/10, group size ${groupSizeHint}, time available ${timeAvailable} minutes.${driveStr}${costStr}${previousStr}
 
 Return a JSON array of exactly 3 quest objects following the OUTPUT FORMAT defined in the system prompt. No markdown, no explanation, just the raw JSON array.`;
 
