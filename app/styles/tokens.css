@@ -327,12 +327,16 @@
  * positioned MapPin glyph inside the field.
  * --------------------------------------------------------------------------- */
 
-/* Preferences pill — toggle to open/close the panel. */
-.ds-prefs-pill {
+/* Glass-style pill — shared by the Preferences toggle and the Suggest a Quest
+ * footer link. The base treatment is the same; only the Preferences pill
+ * adds an open-state and a CaretDown rotation hook on top. */
+.ds-prefs-pill,
+.ds-suggest-pill {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 14px;
+  min-height: 44px;
+  padding: 8px 16px;
   border-radius: var(--radius-pill);
   background: var(--bg-glass);
   border: 1px solid var(--border);
@@ -350,7 +354,8 @@
     color 200ms ease;
 }
 
-.ds-prefs-pill:hover {
+.ds-prefs-pill:hover,
+.ds-suggest-pill:hover {
   background: var(--bg-glass-strong);
   color: var(--text-primary);
 }
@@ -572,14 +577,16 @@
 .ds-loc-pin {
   position: absolute;
   top: 50%;
-  right: 16px;
+  right: 4px;
   transform: translateY(-50%);
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  width: 44px;
+  height: 44px;
   background: transparent;
   border: 0;
-  padding: 4px;
+  padding: 0;
   margin: 0;
   color: var(--text-tertiary);
   cursor: pointer;
@@ -641,7 +648,7 @@
 
 .ds-card-desc {
   font-family: var(--font-body, inherit);
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.5;
   color: var(--text-secondary);
   margin: var(--space-2) 0 0;
@@ -808,4 +815,137 @@
     flex: 0 1 auto;
     min-width: 96px;
   }
+}
+
+/* -----------------------------------------------------------------------------
+ * Final pass — Milestone 4.
+ *
+ * Footer text, modal surfaces, and shared input styling for the Suggest
+ * textarea. Anything not explicitly themed before now lands here.
+ * --------------------------------------------------------------------------- */
+
+.ds-footer-line {
+  font-family: var(--font-body, inherit);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-tertiary);
+  text-align: center;
+  margin: 0;
+}
+
+.ds-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgba(0, 0, 0, 0.72);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+@media (min-width: 640px) {
+  .ds-modal-overlay {
+    align-items: center;
+  }
+}
+
+.ds-modal-card {
+  width: 100%;
+  max-width: 440px;
+  padding: var(--space-6);
+}
+
+.ds-modal-title {
+  font-family: var(--font-display, serif);
+  font-weight: 400;
+  font-size: 22px;
+  line-height: 1.15;
+  color: var(--text-primary);
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ds-modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: -8px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-pill);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: color 200ms ease, background-color 200ms ease;
+}
+
+.ds-modal-close:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-glass-strong);
+}
+
+.ds-modal-hint {
+  font-family: var(--font-body, inherit);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin: var(--space-3) 0 var(--space-4);
+}
+
+.ds-textarea {
+  width: 100%;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  font-family: var(--font-body, inherit);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  outline: none;
+  resize: vertical;
+  transition: border-color 200ms ease;
+}
+
+.ds-textarea::placeholder {
+  color: var(--text-tertiary);
+}
+
+.ds-textarea:focus {
+  border-color: var(--border-strong);
+}
+
+.ds-textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ds-modal-counter {
+  font-family: var(--font-body, inherit);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-align: right;
+  margin: var(--space-2) 0 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-modal-section-label {
+  font-family: var(--font-body, inherit);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin: var(--space-5) 0 var(--space-3);
+}
+
+.ds-modal-submit {
+  margin-top: var(--space-5);
 }
