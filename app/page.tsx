@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { generateQuests, GeneratedQuest } from "@/lib/generate";
 import { QuestCategory } from "@/lib/quests";
@@ -217,6 +217,29 @@ export default function Home() {
   const [lowCostOnly, setLowCostOnly] = useState(false);
   const [locBusy, setLocBusy] = useState(false);
   const [locError, setLocError] = useState<string | null>(null);
+  const filterScrollRef = useRef<HTMLDivElement | null>(null);
+  const [filterScroll, setFilterScroll] = useState({ left: false, right: false });
+
+  // Track scroll position on the filter row so the left/right fade overlays
+  // only render when there's actually overflow to scroll toward.
+  useEffect(() => {
+    const el = filterScrollRef.current;
+    if (!el) return;
+    const update = () => {
+      const left = el.scrollLeft > 4;
+      const right = el.scrollLeft + el.clientWidth < el.scrollWidth - 4;
+      setFilterScroll((cur) => (cur.left === left && cur.right === right ? cur : { left, right }));
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", update);
+      ro.disconnect();
+    };
+    // Re-evaluate when the chip set or visibility changes.
+  }, [view, rolling, quests, bookmarks.length]);
 
   const useMyLocation = () => {
     if (locBusy) return;
@@ -546,9 +569,10 @@ export default function Home() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.05 }}
-            className="text-balance text-5xl font-bold tracking-tight text-white md:text-7xl"
+            className="text-balance font-bold tracking-tight text-white"
+            style={{ fontSize: "clamp(2.25rem, 12vw, 4.75rem)" }}
           >
-            <span className="bg-gradient-to-br from-violet-300 via-fuchsia-300 to-amber-200 bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-violet-300 from-10% via-fuchsia-300 via-50% to-amber-300 to-90% bg-clip-text text-transparent">
               Unemployment
             </span>
           </motion.h1>
@@ -556,7 +580,7 @@ export default function Home() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, delay: 0.12 }}
-            className="mt-4 max-w-xl text-balance text-sm text-white/55 md:text-base"
+            className="mt-7 max-w-xl text-balance text-sm text-white/55 md:text-base"
           >
             Spontaneous real-world quests. Pick your vibe, go cause some delight.
           </motion.p>
@@ -575,12 +599,12 @@ export default function Home() {
             <span className="mb-2 block text-xs font-medium uppercase tracking-wider text-white/50">
               Location
             </span>
-            <div className="flex gap-2">
+            <div className="relative">
               <input
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
                 placeholder="e.g. Washington DC"
-                className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white placeholder-white/30 outline-none transition focus:border-violet-400/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-violet-500/30"
+                className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 pr-12 text-white placeholder-white/30 outline-none transition focus:border-violet-400/60 focus:bg-white/[0.07] focus:ring-2 focus:ring-violet-500/30"
               />
               <button
                 type="button"
@@ -588,7 +612,7 @@ export default function Home() {
                 disabled={locBusy}
                 aria-label="Use my location"
                 title="Use my location"
-                className="flex h-[3.25rem] w-[3.25rem] shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 text-lg text-white/70 transition hover:border-violet-400/50 hover:bg-violet-500/10 hover:text-violet-200 disabled:opacity-50"
+                className="absolute right-1.5 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-base text-white/60 transition hover:bg-violet-500/15 hover:text-violet-200 disabled:opacity-50"
               >
                 {locBusy ? (
                   <motion.span
@@ -782,9 +806,18 @@ export default function Home() {
               </p>
             )}
             {nearbyStatus === "fallback" && quests && (
-              <p className="mt-3 text-center text-xs text-amber-300/70">
-                Couldn&apos;t reach nearby venue data — using generic quests.
-              </p>
+              <div
+                role="status"
+                className="mt-4 flex items-start gap-2.5 rounded-xl border border-amber-400/30 bg-amber-500/10 px-3 py-2.5 text-sm text-amber-100/90"
+              >
+                <span aria-hidden="true" className="mt-0.5 text-base leading-none">
+                  ⚠️
+                </span>
+                <span>
+                  Couldn&apos;t reach nearby venue data — these quests are using
+                  generic placeholders, not your actual area.
+                </span>
+              </div>
             )}
           </div>
         </motion.section>
@@ -792,7 +825,10 @@ export default function Home() {
         {/* FILTER CHIPS */}
         {showResultsArea && (
           <div className="relative mt-8">
-            <div className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+            <div
+              ref={filterScrollRef}
+              className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1 [-webkit-overflow-scrolling:touch]"
+            >
               <FilterPill
               active={view === "results" && categoryFilter === null}
               onClick={() => {
@@ -840,7 +876,15 @@ export default function Home() {
             </div>
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute inset-y-0 right-0 z-10 w-16 bg-gradient-to-l from-[#0a0a0a] from-30% to-transparent"
+              className={`pointer-events-none absolute inset-y-0 left-0 z-10 w-12 bg-gradient-to-r from-[#0a0a0a] from-20% to-transparent transition-opacity duration-200 ${
+                filterScroll.left ? "opacity-100" : "opacity-0"
+              }`}
+            />
+            <div
+              aria-hidden="true"
+              className={`pointer-events-none absolute inset-y-0 right-0 z-10 w-16 bg-gradient-to-l from-[#0a0a0a] from-30% to-transparent transition-opacity duration-200 ${
+                filterScroll.right ? "opacity-100" : "opacity-0"
+              }`}
             />
           </div>
         )}
