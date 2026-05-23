@@ -18,6 +18,7 @@ export default function BottomNav() {
       <div className="glass ds-bottom-nav-inner">
         <Link
           href="/"
+          prefetch
           className="ds-bottom-nav-tab"
           data-active={isHome ? "true" : "false"}
         >
@@ -30,6 +31,7 @@ export default function BottomNav() {
         </Link>
         <Link
           href="/history"
+          prefetch
           className="ds-bottom-nav-tab"
           data-active={isHistory ? "true" : "false"}
         >

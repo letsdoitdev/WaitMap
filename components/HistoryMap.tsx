@@ -37,15 +37,23 @@ type PopoverState = {
 
 const CONTINENTAL_US_CENTER: [number, number] = [-98.5795, 39.8283];
 
-export default function HistoryMap() {
+type Props = {
+  /** Pass true when the map mode is the visible mode on /history. We keep
+   * the component mounted in both modes so Mapbox doesn't re-initialize on
+   * every toggle; when this flips back to true we call map.resize(). */
+  visible?: boolean;
+};
+
+export default function HistoryMap({ visible = true }: Props) {
   const { user } = useAuth();
-  const { quests, completedEvents } = useStats();
+  const { quests, completedEvents, refresh: refreshStats } = useStats();
   const supabase = useMemo(() => createClient(), []);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapboxMap | null>(null);
   const markersRef = useRef<Map<string, MapboxMarker>>(new Map());
   const fittedRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
   const [pendingCoords, setPendingCoords] = useState(0);
   const [popover, setPopover] = useState<PopoverState | null>(null);
   const [media, setMedia] = useState<QuestMedia[]>([]);
@@ -55,6 +63,19 @@ export default function HistoryMap() {
   >({});
 
   const tokenPresent = hasMapboxToken();
+
+  // When the container flips from hidden → visible, Mapbox needs a resize
+  // pass; otherwise the canvas keeps its zero-width layout from when the
+  // container was display:none.
+  useEffect(() => {
+    if (!visible || !mapRef.current) return;
+    // Defer one frame so the container has its real size after the CSS
+    // toggle has flushed.
+    const id = requestAnimationFrame(() => {
+      mapRef.current?.resize();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [visible]);
 
   // Fetch media so each pin can show the first thumbnail.
   useEffect(() => {
@@ -114,11 +135,14 @@ export default function HistoryMap() {
         }
         setPendingCoords((n) => Math.max(0, n - 1));
       }
+      // Pull the freshly-written lat/lng into the StatsProvider so the
+      // /history list row drops its "Pin pending" badge.
+      if (!cancelled) await refreshStats();
     })();
     return () => {
       cancelled = true;
     };
-  }, [quests, tokenPresent]);
+  }, [quests, tokenPresent, refreshStats]);
 
   const mediaByQuest = useMemo(() => {
     const map = new Map<string, QuestMedia[]>();
@@ -154,47 +178,62 @@ export default function HistoryMap() {
     return out;
   }, [quests, geocodedPatch, mediaByQuest, signedUrls]);
 
-  // Mount Mapbox once with the cluster source pre-wired.
+  // Mount Mapbox the first time the container becomes visible. Once
+  // initialized, it persists across List/Map toggles via the `hidden`
+  // attribute on the wrapper — we just call resize() when flipping back.
   useEffect(() => {
-    if (!tokenPresent || !containerRef.current || mapRef.current) return;
+    if (!tokenPresent || !visible || !containerRef.current || mapRef.current)
+      return;
     let cancelled = false;
     (async () => {
-      // @ts-expect-error — Mapbox CSS file has no module declaration.
-      await import("mapbox-gl/dist/mapbox-gl.css");
-      const mod = await import("mapbox-gl");
-      if (cancelled || !containerRef.current) return;
-      const mapboxgl = mod.default;
-      mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!;
-      const map = new mapboxgl.Map({
-        container: containerRef.current,
-        style: "mapbox://styles/mapbox/dark-v11",
-        center: CONTINENTAL_US_CENTER,
-        zoom: 2.6,
-        attributionControl: false,
-      });
-      map.addControl(new mapboxgl.AttributionControl({ compact: true }));
-      map.on("load", () => {
-        if (cancelled) return;
-        // Seed an empty cluster source — we update its data when pinQuests
-        // changes below.
-        map.addSource("quests", {
-          type: "geojson",
-          data: {
-            type: "FeatureCollection",
-            features: [],
-          },
-          cluster: true,
-          clusterMaxZoom: 14,
-          clusterRadius: 60,
+      try {
+        // @ts-expect-error — Mapbox CSS file has no module declaration.
+        await import("mapbox-gl/dist/mapbox-gl.css");
+        const mod = await import("mapbox-gl");
+        if (cancelled || !containerRef.current) return;
+        const mapboxgl = mod.default;
+        mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!;
+        const map = new mapboxgl.Map({
+          container: containerRef.current,
+          style: "mapbox://styles/mapbox/dark-v11",
+          center: CONTINENTAL_US_CENTER,
+          zoom: 2.6,
+          attributionControl: false,
         });
-        setMapReady(true);
-      });
-      mapRef.current = map;
+        map.addControl(new mapboxgl.AttributionControl({ compact: true }));
+        map.on("error", (e) => {
+          console.info("[map] error", e?.error?.message ?? e);
+        });
+        map.on("load", () => {
+          if (cancelled) return;
+          // Seed an empty cluster source — we update its data when pinQuests
+          // changes below.
+          map.addSource("quests", {
+            type: "geojson",
+            data: {
+              type: "FeatureCollection",
+              features: [],
+            },
+            cluster: true,
+            clusterMaxZoom: 14,
+            clusterRadius: 60,
+          });
+          setMapReady(true);
+        });
+        mapRef.current = map;
+      } catch (err) {
+        console.info("[map] init failed", err);
+        if (!cancelled) {
+          setInitError(
+            err instanceof Error ? err.message : "Mapbox failed to load",
+          );
+        }
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [tokenPresent]);
+  }, [tokenPresent, visible]);
 
   // Tear-down on unmount.
   useEffect(() => {
@@ -433,9 +472,13 @@ export default function HistoryMap() {
     setPopover(null);
   };
 
-  if (!tokenPresent) {
+  if (!tokenPresent || initError) {
     return (
-      <div className="ds-history-map-wrap glass">
+      <div
+        className="ds-history-map-wrap glass"
+        hidden={!visible}
+        aria-hidden={!visible}
+      >
         <div className="ds-map-empty-inline">
           <MapPin
             weight="duotone"
@@ -452,10 +495,12 @@ export default function HistoryMap() {
               lineHeight: 1.15,
             }}
           >
-            Map is offline.
+            Map unavailable.
           </p>
           <p className="ds-empty-state-text">
-            The Mapbox token isn&apos;t configured for this environment.
+            {tokenPresent
+              ? "Mapbox failed to load. Try refreshing the page."
+              : "Add your Mapbox token to env to enable."}
           </p>
         </div>
       </div>
@@ -465,7 +510,11 @@ export default function HistoryMap() {
   const showEmpty = mapReady && pinQuests.length === 0 && pendingCoords === 0;
 
   return (
-    <div className="ds-history-map-wrap glass">
+    <div
+      className="ds-history-map-wrap glass"
+      hidden={!visible}
+      aria-hidden={!visible}
+    >
       <div
         ref={containerRef}
         className="ds-history-map-canvas"

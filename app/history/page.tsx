@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -40,6 +40,7 @@ import type {
 import Lightbox, { type LightboxItem } from "@/components/Lightbox";
 import StatsStrip from "@/components/StatsStrip";
 import HistoryMap from "@/components/HistoryMap";
+import { useStats } from "@/lib/stats-context";
 import {
   useQuestUploadJob,
   useUploadQueue,
@@ -78,6 +79,7 @@ export default function HistoryPage() {
   const { user, loading: authLoading } = useAuth();
   const supabase = useMemo(() => createClient(), []);
   const { version } = useUploadQueue();
+  const { quests: statsQuests } = useStats();
   const view: ViewMode = searchParams?.get("view") === "map" ? "map" : "list";
   const setView = (next: ViewMode) => {
     const params = new URLSearchParams(searchParams?.toString() ?? "");
@@ -86,10 +88,30 @@ export default function HistoryPage() {
     const qs = params.toString();
     router.replace(qs ? `/history?${qs}` : "/history", { scroll: false });
   };
+  const filter = searchParams?.get("filter") ?? null;
+  const savedView = filter === "saved";
   const [rows, setRows] = useState<Row[] | null>(null);
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
   const [lightboxQuest, setLightboxQuest] = useState<string | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [savedBookmarks, setSavedBookmarks] = useState<
+    { id: string; title: string; category: string; description: string }[]
+  >([]);
+
+  useEffect(() => {
+    if (!savedView) return;
+    try {
+      const raw = localStorage.getItem("sqBookmarks");
+      if (!raw) {
+        setSavedBookmarks([]);
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) setSavedBookmarks(parsed);
+    } catch {
+      // ignore
+    }
+  }, [savedView]);
 
   useEffect(() => {
     if (!authLoading && !user) router.replace("/");
@@ -179,7 +201,7 @@ export default function HistoryPage() {
     return () => {
       cancelled = true;
     };
-  }, [supabase, user, version]);
+  }, [supabase, user, version, statsQuests]);
 
   const lightboxItems = useMemo<LightboxItem[]>(() => {
     if (!lightboxQuest || !rows) return [];
@@ -208,6 +230,76 @@ export default function HistoryPage() {
         }}
       >
         <h1 className="ds-page-title">History</h1>
+        <StatsStrip />
+      </main>
+    );
+  }
+
+  if (savedView) {
+    return (
+      <main
+        style={{
+          maxWidth: 720,
+          margin: "0 auto",
+          padding: "var(--space-7) var(--space-4) var(--space-9)",
+        }}
+      >
+        <Link
+          href="/history"
+          className="ds-secondary-pill"
+          style={{ marginBottom: "var(--space-5)" }}
+        >
+          <ArrowRight
+            weight="duotone"
+            size={14}
+            aria-hidden="true"
+            style={{ transform: "scaleX(-1)" }}
+          />
+          <span>All history</span>
+        </Link>
+        <h1 className="ds-page-title">Saved</h1>
+
+        {savedBookmarks.length === 0 ? (
+          <div className="glass ds-empty-state">
+            <p
+              className="ds-empty-state-text"
+              style={{
+                fontFamily: "var(--font-display, serif)",
+                fontSize: "clamp(24px, 6vw, 32px)",
+                color: "var(--text-primary)",
+                lineHeight: 1.1,
+              }}
+            >
+              Nothing saved yet.
+            </p>
+            <p className="ds-empty-state-text">
+              Tap the bookmark on any quest card to save it for later.
+            </p>
+          </div>
+        ) : (
+          <div
+            className="flex flex-col"
+            style={{ gap: "var(--space-3)" }}
+          >
+            {savedBookmarks.map((b) => (
+              <div key={b.id} className="glass ds-history-row">
+                <span
+                  className="ds-cat-chip"
+                  style={{ alignSelf: "flex-start" }}
+                >
+                  {b.category}
+                </span>
+                <h3 className="ds-history-row-title">{b.title}</h3>
+                <p
+                  className="ds-card-desc"
+                  style={{ marginTop: 0 }}
+                >
+                  {b.description}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
       </main>
     );
   }
@@ -261,59 +353,64 @@ export default function HistoryPage() {
         </button>
       </div>
 
-      {view === "map" ? (
-        <div style={{ marginTop: "var(--space-5)" }}>
-          <HistoryMap />
-        </div>
-      ) : rows.length === 0 ? (
-        <div
-          className="glass ds-empty-state"
-          style={{ marginTop: "var(--space-5)" }}
-        >
-          <MapPinSimpleArea
-            weight="duotone"
-            size={36}
-            className="ds-empty-state-icon"
-            aria-hidden="true"
-          />
-          <p
-            className="ds-empty-state-text"
-            style={{
-              fontFamily: "var(--font-display, serif)",
-              fontSize: "clamp(28px, 6vw, 36px)",
-              lineHeight: 1.1,
-              color: "var(--text-primary)",
-            }}
+      {/* HistoryMap stays mounted across List/Map toggles so Mapbox doesn't
+        * re-initialize on every flip. Hidden via the `hidden` attribute when
+        * the user is in List mode. */}
+      <div style={{ marginTop: "var(--space-5)" }}>
+        <HistoryMap visible={view === "map"} />
+      </div>
+
+      {view === "list" &&
+        (rows.length === 0 ? (
+          <div
+            className="glass ds-empty-state"
+            style={{ marginTop: "var(--space-5)" }}
           >
-            Your first quest awaits.
-          </p>
-          <Link
-            href="/"
-            className="ds-suggest-pill"
-            style={{ marginTop: "var(--space-3)" }}
-          >
-            <ArrowRight weight="duotone" size={14} aria-hidden="true" />
-            <span>Generate quests</span>
-          </Link>
-        </div>
-      ) : (
-        <div
-          className="flex flex-col"
-          style={{ gap: "var(--space-3)", marginTop: "var(--space-5)" }}
-        >
-          {rows.map((row) => (
-            <HistoryRow
-              key={row.quest.id}
-              row={row}
-              signedUrls={signedUrls}
-              onOpenLightbox={(idx) => {
-                setLightboxQuest(row.quest.id);
-                setLightboxIndex(idx);
-              }}
+            <MapPinSimpleArea
+              weight="duotone"
+              size={36}
+              className="ds-empty-state-icon"
+              aria-hidden="true"
             />
-          ))}
-        </div>
-      )}
+            <p
+              className="ds-empty-state-text"
+              style={{
+                fontFamily: "var(--font-display, serif)",
+                fontSize: "clamp(28px, 6vw, 36px)",
+                lineHeight: 1.1,
+                color: "var(--text-primary)",
+              }}
+            >
+              Your first quest awaits.
+            </p>
+            <Link
+              href="/"
+              className="ds-suggest-pill"
+              style={{ marginTop: "var(--space-3)" }}
+            >
+              <ArrowRight weight="duotone" size={14} aria-hidden="true" />
+              <span>Generate quests</span>
+            </Link>
+          </div>
+        ) : (
+          <div
+            className="flex flex-col"
+            style={{ gap: "var(--space-3)", marginTop: "var(--space-5)" }}
+          >
+            {rows.map((row, idx) => (
+              <HistoryRow
+                key={row.quest.id}
+                row={row}
+                signedUrls={signedUrls}
+                priority={idx < 2}
+                onOpenLightbox={(thumbIdx) => {
+                  setLightboxQuest(row.quest.id);
+                  setLightboxIndex(thumbIdx);
+                }}
+              />
+            ))}
+          </div>
+        ))}
 
       {lightboxQuest && lightboxItems.length > 0 && (
         <Lightbox
@@ -326,14 +423,18 @@ export default function HistoryPage() {
   );
 }
 
-function HistoryRow({
+const HistoryRow = memo(function HistoryRow({
   row,
   signedUrls,
   onOpenLightbox,
+  priority = false,
 }: {
   row: Row;
   signedUrls: Record<string, string>;
   onOpenLightbox: (index: number) => void;
+  /** First two rows render eagerly with normal fetch priority; rows below
+   * the fold load lazily with low priority. */
+  priority?: boolean;
 }) {
   const { retry } = useUploadQueue();
   const job = useQuestUploadJob(row.quest.id);
@@ -422,6 +523,7 @@ function HistoryRow({
                         className="ds-history-thumb-media"
                         muted
                         playsInline
+                        preload={priority ? "metadata" : "none"}
                       />
                       <span
                         className="ds-history-thumb-video-glyph"
@@ -436,6 +538,10 @@ function HistoryRow({
                       src={url}
                       alt=""
                       className="ds-history-thumb-media"
+                      loading={priority ? "eager" : "lazy"}
+                      // @ts-expect-error — fetchpriority isn't in lib.dom yet.
+                      fetchpriority={priority ? "high" : "low"}
+                      decoding="async"
                     />
                   )
                 ) : null}
@@ -476,4 +582,4 @@ function HistoryRow({
       )}
     </div>
   );
-}
+});

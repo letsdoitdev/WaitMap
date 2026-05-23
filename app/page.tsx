@@ -17,11 +17,12 @@ import {
   Suggestion,
   SelfRating,
 } from "@/lib/suggestions";
+import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { useActiveQuest } from "@/lib/active-quest-context";
+import { useStats } from "@/lib/stats-context";
 import { createClient } from "@/lib/supabase/client";
 import SignInModal, { SignInIntent } from "@/components/SignInModal";
-import StreakRing from "@/components/StreakRing";
 import {
   ArrowRight,
   BookmarkSimple,
@@ -178,10 +179,22 @@ function saveRatings(records: RatingRecord[]) {
 
 type View = "results" | "saved";
 
+function formatTimeSince(iso: string): string {
+  const elapsed = Date.now() - new Date(iso).getTime();
+  if (elapsed < 60 * 60 * 1000) return "just now";
+  const totalHours = Math.floor(elapsed / (60 * 60 * 1000));
+  const days = Math.floor(totalHours / 24);
+  const hours = totalHours % 24;
+  if (days === 0) return `${totalHours}h ago`;
+  if (hours === 0) return `${days}d ago`;
+  return `${days}d ${hours}h ago`;
+}
+
 export default function Home() {
   const router = useRouter();
   const { user } = useAuth();
   const { active, refresh: refreshActive } = useActiveQuest();
+  const { completedEvents } = useStats();
   const supabase = useMemo(() => createClient(), []);
   const [signInOpen, setSignInOpen] = useState(false);
   const [signInIntent, setSignInIntent] = useState<SignInIntent>("save");
@@ -533,7 +546,6 @@ export default function Home() {
 
   return (
     <main className="relative min-h-screen overflow-x-hidden">
-      <StreakRing />
       {/* HERO — design v2 milestone 1 */}
       <section className="relative w-full overflow-visible px-6 pt-20 pb-12 sm:pt-28 md:pb-16">
         <div className="relative z-10 mx-auto flex max-w-3xl flex-col items-center text-center">
@@ -622,8 +634,9 @@ export default function Home() {
             )}
           </label>
 
-          {/* PREFERENCES PILL — toggles the sibling panel below the location card. */}
-          <div className="mt-4">
+          {/* PREFERENCES + QUICK-ACTION PILLS — Last quest, Saved.
+            * Scrolls horizontally if the row overflows on small screens. */}
+          <div className="ds-home-chip-row mt-4">
             <button
               type="button"
               onClick={() => setPrefsOpen((v) => !v)}
@@ -637,6 +650,36 @@ export default function Home() {
                 <CaretDown weight="duotone" size={12} />
               </span>
             </button>
+
+            {(() => {
+              const last = completedEvents[0];
+              if (!last) return null;
+              return (
+                <Link
+                  href={`/quest/${last.quest_id}`}
+                  className="ds-prefs-pill"
+                  aria-label={`Last quest ${formatTimeSince(last.created_at)}`}
+                >
+                  <Clock weight="duotone" size={14} aria-hidden="true" />
+                  <span>Last quest · {formatTimeSince(last.created_at)}</span>
+                </Link>
+              );
+            })()}
+
+            {bookmarks.length > 0 && (
+              <Link
+                href="/history?filter=saved"
+                className="ds-prefs-pill"
+                aria-label={`Saved ${bookmarks.length}`}
+              >
+                <BookmarkSimple
+                  weight="duotone"
+                  size={14}
+                  aria-hidden="true"
+                />
+                <span>Saved · {bookmarks.length}</span>
+              </Link>
+            )}
           </div>
 
           {/* GENERATE BUTTON — design v2 CTA */}
@@ -810,12 +853,12 @@ export default function Home() {
           )}
         </AnimatePresence>
 
-        {/* FILTER CHIPS — design v2 milestone 1 */}
-        {showResultsArea && (
-          <nav
-            aria-label="Filter quests"
-            className="ds-filter-scroll relative mt-8 -mx-4 sm:-mx-6"
-          >
+        {/* FILTER CHIPS — always visible (M7.1). Tap a category to scope
+          * generation to it. The All / Saved chips toggle the displayed view. */}
+        <nav
+          aria-label="Filter quests"
+          className="ds-filter-scroll relative mt-8 -mx-4 sm:-mx-6"
+        >
             <DsChip
               active={view === "results" && categoryFilter === null}
               onClick={() => {
@@ -871,8 +914,7 @@ export default function Home() {
                 </DsChip>
               );
             })}
-          </nav>
-        )}
+        </nav>
 
         {/* QUEST CARDS */}
         {showResultsArea && (
