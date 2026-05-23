@@ -949,3 +949,521 @@
 .ds-modal-submit {
   margin-top: var(--space-5);
 }
+
+/* -----------------------------------------------------------------------------
+ * M5 — accounts + quest lifecycle
+ * --------------------------------------------------------------------------- */
+
+/* Header strip — sign in / avatar lives here. Stays at the top of the
+ * document, scrolls away normally (the active-quest banner is the sticky
+ * thing, when it exists). */
+.ds-app-header {
+  position: relative;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: var(--space-4) var(--space-4) 0;
+}
+
+@media (min-width: 640px) {
+  .ds-app-header {
+    padding: var(--space-5) var(--space-5) 0;
+  }
+}
+
+/* Avatar — small circular button with the user's initial. */
+.ds-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--bg-glass-strong);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: var(--text-primary);
+  font-family: var(--font-body, inherit);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 200ms ease, background-color 200ms ease;
+}
+
+.ds-avatar:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+}
+
+/* Avatar dropdown menu. */
+.ds-user-menu {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  min-width: 200px;
+  padding: var(--space-3);
+  z-index: 40;
+}
+
+.ds-user-menu-name {
+  font-family: var(--font-body, inherit);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  padding: 0 var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--space-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-user-menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-family: var(--font-body, inherit);
+  font-size: 14px;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.ds-user-menu-item:hover {
+  background: var(--bg-glass-strong);
+  color: var(--text-primary);
+}
+
+/* Auth modal buttons (Google / Email / Send link). */
+.ds-auth-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 48px;
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-pill);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-family: var(--font-body, inherit);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 200ms ease,
+    border-color 200ms ease;
+}
+
+.ds-auth-btn:hover:not(:disabled) {
+  background: var(--bg-glass-strong);
+  border-color: var(--border-strong);
+}
+
+.ds-auth-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Card "Start this quest" button (and its locked / open variants). */
+.ds-start-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 44px;
+  padding: 0 var(--space-5);
+  margin-top: var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--bg-glass-strong);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  font-family: var(--font-body, inherit);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 200ms ease,
+    border-color 200ms ease,
+    color 200ms ease;
+}
+
+.ds-start-btn:hover:not(:disabled) {
+  background: var(--bg-elevated);
+}
+
+.ds-start-btn[data-variant="locked"] {
+  background: var(--bg-glass);
+  border-color: var(--border);
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+}
+
+.ds-start-btn[data-variant="open"] {
+  background: var(--bg-glass);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.ds-start-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* Active-quest banner — sticky top across every screen. */
+.ds-active-banner-wrap {
+  position: sticky;
+  top: 0;
+  z-index: 25;
+  padding: var(--space-3) var(--space-4);
+}
+
+.ds-active-banner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: 768px;
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+}
+
+.ds-active-banner::after {
+  content: "";
+  position: absolute;
+  left: var(--space-4);
+  right: var(--space-4);
+  bottom: -1px;
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-grad);
+  pointer-events: none;
+}
+
+.ds-active-banner-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-display, serif);
+  font-weight: 400;
+  font-size: 18px;
+  line-height: 1.15;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-active-banner-timer {
+  flex-shrink: 0;
+  font-family: var(--font-body, inherit);
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-active-banner[data-paused="true"] .ds-active-banner-timer {
+  color: var(--text-tertiary);
+}
+
+.ds-active-banner-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: transparent;
+  border: 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.ds-active-banner-icon-btn:hover {
+  background: var(--bg-glass-strong);
+  color: var(--text-primary);
+}
+
+/* Bottom navigation tab bar (authed only). */
+.ds-bottom-nav {
+  position: sticky;
+  bottom: 0;
+  z-index: 25;
+  margin-top: var(--space-7);
+  padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom));
+}
+
+.ds-bottom-nav-inner {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-2);
+  max-width: 420px;
+  margin: 0 auto;
+  padding: var(--space-2);
+  border-radius: var(--radius-pill);
+}
+
+.ds-bottom-nav-tab {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  border: 0;
+  color: var(--text-tertiary);
+  font-family: var(--font-body, inherit);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.ds-bottom-nav-tab:hover {
+  color: var(--text-secondary);
+}
+
+.ds-bottom-nav-tab[data-active="true"] {
+  background: var(--bg-glass-strong);
+  color: var(--text-primary);
+}
+
+/* Active quest detail screen. */
+.ds-active-screen {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-4) var(--space-7);
+}
+
+.ds-active-title {
+  font-family: var(--font-display, serif);
+  font-weight: 400;
+  font-size: clamp(28px, 6vw, 32px);
+  line-height: 1.1;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.ds-active-timer {
+  font-family: var(--font-display, serif);
+  font-weight: 400;
+  font-size: clamp(48px, 12vw, 56px);
+  line-height: 1;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  margin: 0;
+  text-align: center;
+}
+
+.ds-active-timer[data-paused="true"] {
+  color: var(--text-tertiary);
+}
+
+.ds-active-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+}
+
+.ds-secondary-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-pill);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: var(--text-secondary);
+  font-family: var(--font-body, inherit);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 200ms ease,
+    border-color 200ms ease,
+    color 200ms ease;
+}
+
+.ds-secondary-pill:hover:not(:disabled) {
+  background: var(--bg-glass-strong);
+  color: var(--text-primary);
+}
+
+.ds-abandon-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  background: transparent;
+  border: 0;
+  color: var(--text-tertiary);
+  font-family: var(--font-body, inherit);
+  font-size: 13px;
+  cursor: pointer;
+  transition: color 200ms ease;
+}
+
+.ds-abandon-link:hover {
+  color: var(--text-secondary);
+}
+
+.ds-abandon-link[data-confirm="true"] {
+  color: var(--warning);
+}
+
+/* Completion screen. */
+.ds-complete-screen {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--space-7) var(--space-4);
+  text-align: center;
+}
+
+.ds-complete-title {
+  font-family: var(--font-display, serif);
+  font-weight: 400;
+  font-size: clamp(40px, 10vw, 48px);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  margin: 0 0 var(--space-5);
+  background: var(--accent-grad);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.ds-complete-time {
+  font-family: var(--font-display, serif);
+  font-weight: 400;
+  font-size: clamp(28px, 7vw, 32px);
+  line-height: 1;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.ds-complete-prompt {
+  font-family: var(--font-body, inherit);
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: var(--space-6) 0 var(--space-3);
+}
+
+.ds-capture-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: var(--space-7) 0 var(--space-6);
+  padding: var(--space-6);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--text-tertiary);
+  text-align: center;
+  font-family: var(--font-body, inherit);
+  font-size: 13px;
+}
+
+/* Read-only quest detail row in history. */
+.ds-history-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5);
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  transition: transform 200ms ease, box-shadow 200ms ease;
+}
+
+.ds-history-row:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 24px 48px -16px rgba(0, 0, 0, 0.6);
+}
+
+.ds-history-row-title {
+  font-family: var(--font-display, serif);
+  font-weight: 400;
+  font-size: 18px;
+  line-height: 1.2;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.ds-history-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  font-family: var(--font-body, inherit);
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: var(--space-1) 0 0;
+}
+
+.ds-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-7) var(--space-5);
+  text-align: center;
+}
+
+.ds-empty-state-icon {
+  color: var(--text-tertiary);
+}
+
+.ds-empty-state-text {
+  font-family: var(--font-body, inherit);
+  font-size: 14px;
+  color: var(--text-secondary);
+  max-width: 320px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Page H1 used by /history etc. */
+.ds-page-title {
+  font-family: var(--font-display, serif);
+  font-weight: 400;
+  font-size: clamp(40px, 8vw, 56px);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  margin: 0 0 var(--space-6);
+}

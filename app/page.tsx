@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { generateQuests, GeneratedQuest } from "@/lib/generate";
 import { QuestCategory } from "@/lib/quests";
@@ -16,7 +17,12 @@ import {
   Suggestion,
   SelfRating,
 } from "@/lib/suggestions";
+import { useAuth } from "@/lib/auth-context";
+import { useActiveQuest } from "@/lib/active-quest-context";
+import { createClient } from "@/lib/supabase/client";
+import SignInModal, { SignInIntent } from "@/components/SignInModal";
 import {
+  ArrowRight,
   BookmarkSimple,
   CaretDown,
   Check,
@@ -28,10 +34,12 @@ import {
   Hand,
   Lightbulb,
   Lightning,
+  Lock,
   MapPin,
   Minus,
   Moon,
   PaintBrush,
+  Play,
   Sliders,
   Snowflake,
   Sparkle,
@@ -170,6 +178,14 @@ function saveRatings(records: RatingRecord[]) {
 type View = "results" | "saved";
 
 export default function Home() {
+  const router = useRouter();
+  const { user } = useAuth();
+  const { active, refresh: refreshActive } = useActiveQuest();
+  const supabase = useMemo(() => createClient(), []);
+  const [signInOpen, setSignInOpen] = useState(false);
+  const [signInIntent, setSignInIntent] = useState<SignInIntent>("save");
+  const [startingId, setStartingId] = useState<string | null>(null);
+  const [startError, setStartError] = useState<string | null>(null);
   const [city, setCity] = useState("");
   const [groupSize, setGroupSize] = useState(3);
   const [timeMinutes, setTimeMinutes] = useState(90);
@@ -420,6 +436,53 @@ export default function Home() {
 
     setQuests(picked);
     setRolling(false);
+
+    // Silent generation counter — M8 will read this to enforce a daily limit.
+    if (user) {
+      supabase.rpc("increment_daily_generation_counter").then(() => {
+        // ignore result in M5
+      });
+    }
+  };
+
+  const startQuest = async (q: GeneratedQuest) => {
+    if (!user) {
+      setSignInIntent("start");
+      setSignInOpen(true);
+      return;
+    }
+    if (active) {
+      // Locked — open the active quest detail instead of starting a new one.
+      router.push("/quest/active");
+      return;
+    }
+    setStartingId(q.id);
+    setStartError(null);
+    const { data, error } = await supabase.rpc("start_quest", {
+      p_title: q.title,
+      p_description: q.description,
+      p_category: q.category,
+      p_spice: q.spice,
+      p_estimated_minutes:
+        Number.isFinite(q.maxTime) && q.maxTime > 0 ? q.maxTime : null,
+      p_location_text: city || null,
+      p_source: "ai_generated",
+    });
+    setStartingId(null);
+    if (error) {
+      if (error.message?.includes("active_quest_exists")) {
+        setStartError("Finish your current quest first.");
+        await refreshActive();
+        router.push("/quest/active");
+        return;
+      }
+      setStartError(error.message ?? "Couldn't start quest. Try again.");
+      return;
+    }
+    await refreshActive();
+    if (data) {
+      router.push("/quest/active");
+    }
   };
 
   const rateQuest = (q: GeneratedQuest, rating: Rating) => {
@@ -941,6 +1004,72 @@ export default function Home() {
                         )}
                       </div>
 
+                      {(() => {
+                        const variant = !user
+                          ? "default"
+                          : !active
+                            ? "default"
+                            : active.quest.title === q.title
+                              ? "open"
+                              : "locked";
+                        const starting = startingId === q.id;
+                        return (
+                          <button
+                            type="button"
+                            className="ds-start-btn"
+                            data-variant={variant}
+                            disabled={starting}
+                            onClick={() => startQuest(q)}
+                            aria-label={
+                              variant === "locked"
+                                ? "Finish your current quest first"
+                                : variant === "open"
+                                  ? "Open active quest"
+                                  : "Start this quest"
+                            }
+                          >
+                            {variant === "locked" ? (
+                              <>
+                                <Lock
+                                  weight="duotone"
+                                  size={16}
+                                  aria-hidden="true"
+                                />
+                                <span>Finish your current quest first</span>
+                              </>
+                            ) : variant === "open" ? (
+                              <>
+                                <ArrowRight
+                                  weight="duotone"
+                                  size={16}
+                                  aria-hidden="true"
+                                />
+                                <span>Open active quest</span>
+                              </>
+                            ) : starting ? (
+                              <>
+                                <CircleNotch
+                                  weight="duotone"
+                                  size={16}
+                                  aria-hidden="true"
+                                  className="animate-spin"
+                                />
+                                <span>Starting…</span>
+                              </>
+                            ) : (
+                              <>
+                                <Play
+                                  weight="duotone"
+                                  size={16}
+                                  aria-hidden="true"
+                                />
+                                <span>Start this quest</span>
+                              </>
+                            )}
+                          </button>
+                        );
+                      })()}
+
                       <div className="ds-spice">
                         <div
                           className="ds-spice-track"
@@ -1144,6 +1273,34 @@ export default function Home() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <SignInModal
+        open={signInOpen}
+        intent={signInIntent}
+        onClose={() => setSignInOpen(false)}
+      />
+      {startError && (
+        <div
+          role="status"
+          style={{
+            position: "fixed",
+            bottom: "calc(80px + env(safe-area-inset-bottom))",
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 50,
+            padding: "10px 16px",
+            borderRadius: "var(--radius-pill)",
+            background: "var(--bg-elevated)",
+            border: "1px solid var(--border-strong)",
+            color: "var(--text-primary)",
+            fontFamily: "var(--font-body, inherit)",
+            fontSize: 13,
+            boxShadow: "var(--shadow-card)",
+          }}
+        >
+          {startError}
+        </div>
+      )}
     </main>
   );
 }

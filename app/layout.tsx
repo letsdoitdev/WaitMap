@@ -2,10 +2,12 @@ import type { Metadata } from "next";
 import { Instrument_Serif } from "next/font/google";
 import { GeistSans } from "geist/font/sans";
 import "./globals.css";
+import { createClient } from "@/lib/supabase/server";
+import Providers from "@/components/Providers";
+import ActiveQuestBanner from "@/components/ActiveQuestBanner";
+import BottomNav from "@/components/BottomNav";
+import UserMenu from "@/components/UserMenu";
 
-// Geist ships its own next/font wrapper from the `geist` package because it
-// is not yet exposed via `next/font/google`. Bind it to our --font-body
-// variable so the design tokens stay agnostic.
 const instrumentSerif = Instrument_Serif({
   subsets: ["latin"],
   weight: "400",
@@ -14,25 +16,43 @@ const instrumentSerif = Instrument_Serif({
 });
 
 export const metadata: Metadata = {
-  title: "Unemployment",
-  description: "Spontaneous IRL adventure quests for you and your friends.",
+  title: "Unemployed: The Side Quest App",
+  description:
+    "Unemployed is the side quest app. Spontaneous IRL adventures for you and your friends.",
+  openGraph: {
+    title: "Unemployed: The Side Quest App",
+    description:
+      "Unemployed is the side quest app. Spontaneous IRL adventures for you and your friends.",
+    type: "website",
+  },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const supabase = createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   return (
     <html
       lang="en"
       className={`${GeistSans.variable} ${instrumentSerif.variable}`}
     >
       <body className="antialiased">
-        {/* Design v2 page-level background — noise texture + single accent blob. */}
         <div aria-hidden="true" className="ds-bg-noise" />
         <div aria-hidden="true" className="ds-bg-blob" />
-        {children}
+        <Providers initialUser={user}>
+          <div className="ds-app-header">
+            <UserMenu />
+          </div>
+          <ActiveQuestBanner />
+          {children}
+          <BottomNav />
+        </Providers>
       </body>
     </html>
   );
