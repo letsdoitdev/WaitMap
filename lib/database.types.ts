@@ -61,6 +61,10 @@ export interface Database {
           generated_at: string;
           lat: number | null;
           lng: number | null;
+          completion_lat: number | null;
+          completion_lng: number | null;
+          completion_accuracy_m: number | null;
+          completion_captured_at: string | null;
         };
         Insert: {
           id?: string;
@@ -76,6 +80,10 @@ export interface Database {
           generated_at?: string;
           lat?: number | null;
           lng?: number | null;
+          completion_lat?: number | null;
+          completion_lng?: number | null;
+          completion_accuracy_m?: number | null;
+          completion_captured_at?: string | null;
         };
         Update: {
           id?: string;
@@ -91,6 +99,10 @@ export interface Database {
           generated_at?: string;
           lat?: number | null;
           lng?: number | null;
+          completion_lat?: number | null;
+          completion_lng?: number | null;
+          completion_accuracy_m?: number | null;
+          completion_captured_at?: string | null;
         };
         Relationships: [];
       };

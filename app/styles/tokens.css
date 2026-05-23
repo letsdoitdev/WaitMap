@@ -2908,3 +2908,81 @@
   background: var(--bg-elevated);
 }
 
+
+/* M7.5 — clustering host wrapper + cluster marker + SVG overlay. */
+.ds-map-pin-host {
+  /* Mapbox writes transform on this — leave it alone, our spiderfy offset
+   * lives on the inner .ds-map-pin-offset. */
+  pointer-events: auto;
+}
+
+.ds-map-pin-offset {
+  display: inline-block;
+  /* default identity — JS sets translate(Xpx, Ypx) when spiderfied. */
+  transform: translate(0, 0);
+  will-change: transform;
+}
+
+.ds-map-cluster {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  background: rgba(20, 18, 28, 0.92);
+  box-shadow:
+    0 4px 16px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.08);
+  position: relative;
+  transition: transform 150ms ease;
+}
+
+.ds-map-cluster::before {
+  /* Opal gradient ring rendered via a 1px stroke around the chip. */
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  padding: 2px;
+  background: var(--accent-grad);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+          mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+}
+
+.ds-map-cluster:hover {
+  transform: scale(1.06);
+}
+
+.ds-map-cluster-count {
+  font-family: var(--font-display, serif);
+  font-size: 17px;
+  font-weight: 400;
+  color: #fff;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  position: relative;
+  z-index: 1;
+}
+
+/* Spiderfy leader-line overlay — sits on top of the canvas but ignores
+ * pointer events so pins underneath still receive clicks. */
+.ds-map-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+}
+
