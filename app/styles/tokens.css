@@ -1,0 +1,320 @@
+/* =============================================================================
+ * Design System v2 — Milestone 1 tokens
+ *
+ * Consumed only by the hero and filter row in this milestone. Existing
+ * components keep their current styling until later milestones explicitly
+ * migrate them.
+ * ============================================================================= */
+
+:root {
+  /* Bridge the Geist next/font CSS variable to our design-system name so the
+   * tokens stay agnostic about which body font is loaded. */
+  --font-body: var(--font-geist-sans);
+
+  /* Color — surfaces */
+  --bg: #1a1614;
+  --bg-elevated: #221d1b;
+  --bg-glass: rgba(255, 255, 255, 0.06);
+  --bg-glass-strong: rgba(255, 255, 255, 0.1);
+
+  /* Color — borders */
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  /* Color — text */
+  --text-primary: #f5f1ed;
+  --text-secondary: rgba(245, 241, 237, 0.65);
+  --text-tertiary: rgba(245, 241, 237, 0.45);
+
+  /* Color — accent + semantic */
+  --accent-grad: linear-gradient(
+    135deg,
+    #7dd3c0 0%,
+    #c9a8e9 35%,
+    #f4a4c0 70%,
+    #f5c98a 100%
+  );
+  --success: #7dd3c0;
+  --warning: #f5c98a;
+  --error: #e8927c;
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+
+  /* Radius */
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-pill: 999px;
+
+  /* Elevation */
+  --shadow-card:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 24px 48px -16px rgba(0, 0, 0, 0.6);
+}
+
+/* Glass surface utility */
+.glass {
+  background: var(--bg-glass);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
+  border-radius: var(--radius-lg);
+}
+
+/* -----------------------------------------------------------------------------
+ * Page-level background — fixed layers behind everything.
+ *
+ * Layer 1: dotted-noise texture at 3% opacity.
+ * Layer 2: single accent-grad radial blob, top-right, 800px, blurred 200px.
+ * No other color anywhere in the bg.
+ * --------------------------------------------------------------------------- */
+
+.ds-bg-noise {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  background-size: 240px 240px;
+}
+
+.ds-bg-blob {
+  position: fixed;
+  top: -240px;
+  right: -200px;
+  width: 800px;
+  height: 800px;
+  pointer-events: none;
+  z-index: 0;
+  filter: blur(200px);
+  opacity: 1;
+  background: radial-gradient(
+    circle at center,
+    rgba(125, 211, 192, 0.08) 0%,
+    rgba(201, 168, 233, 0.08) 35%,
+    rgba(244, 164, 192, 0.08) 70%,
+    rgba(245, 201, 138, 0.08) 100%
+  );
+}
+
+/* -----------------------------------------------------------------------------
+ * Filter row chip — Milestone 1 redesign.
+ *
+ * Pill, glass surface, 44px min tap target. Active state layers the
+ * accent-grad behind the text at low opacity for a restrained inner halo
+ * (whisper, don't shout).
+ * --------------------------------------------------------------------------- */
+
+.ds-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  scroll-snap-align: start;
+  padding: 10px 16px;
+  min-height: 44px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--bg-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: var(--text-secondary);
+  font-family: var(--font-body, inherit);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease-out,
+    color 150ms ease-out,
+    border-color 150ms ease-out;
+}
+
+.ds-chip:hover {
+  background: var(--bg-glass-strong);
+  color: var(--text-primary);
+}
+
+.ds-chip[data-active="true"] {
+  background: var(--bg-glass-strong);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+/* Soft inner halo on active — accent-grad whispers behind the text. */
+.ds-chip[data-active="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--accent-grad);
+  opacity: 0.25;
+  z-index: 0;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.ds-chip > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Filter scroll container — dual-edge mask + snap. */
+.ds-filter-scroll {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  padding-inline: 16px;
+  scrollbar-width: none;
+  mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    black 24px,
+    black calc(100% - 24px),
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0,
+    black 24px,
+    black calc(100% - 24px),
+    transparent 100%
+  );
+}
+
+.ds-filter-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+@media (min-width: 768px) {
+  .ds-filter-scroll {
+    padding-inline: 24px;
+  }
+}
+
+/* -----------------------------------------------------------------------------
+ * Hero CTA — the one accent moment.
+ *
+ * Iridescent opal pill on dark-text. Soft resting shadow, brighter on hover.
+ * --------------------------------------------------------------------------- */
+
+.ds-cta {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 32px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-grad);
+  color: #1a1614;
+  font-family: var(--font-body, inherit);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  border: 0;
+  cursor: pointer;
+  box-shadow: 0 8px 24px -8px rgba(125, 211, 192, 0.25);
+  transition:
+    transform 150ms ease-out,
+    box-shadow 150ms ease-out,
+    filter 150ms ease-out;
+  width: 100%;
+}
+
+@media (min-width: 480px) {
+  .ds-cta {
+    width: auto;
+    max-width: 320px;
+  }
+}
+
+.ds-cta:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 32px -8px rgba(125, 211, 192, 0.4);
+}
+
+.ds-cta:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.ds-cta:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* -----------------------------------------------------------------------------
+ * Hero badge — sentence-case pill with MapPin glyph.
+ * --------------------------------------------------------------------------- */
+
+.ds-hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: var(--text-secondary);
+  font-family: var(--font-body, inherit);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  line-height: 1;
+}
+
+/* -----------------------------------------------------------------------------
+ * Hero typography — Instrument Serif title + Geist subhead.
+ * --------------------------------------------------------------------------- */
+
+.ds-hero-title {
+  font-family: var(--font-display, serif);
+  font-weight: 400;
+  font-size: clamp(56px, 11vw, 120px);
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.ds-hero-subhead {
+  font-family: var(--font-body, inherit);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  max-width: 540px;
+  margin: 16px auto 0;
+  text-align: center;
+}
+
+@media (min-width: 768px) {
+  .ds-hero-subhead {
+    font-size: 18px;
+  }
+}
+
+.ds-hero-helper {
+  font-family: var(--font-body, inherit);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text-tertiary);
+  margin-top: 12px;
+  text-align: center;
+}
