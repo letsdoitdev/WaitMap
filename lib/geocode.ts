@@ -82,15 +82,39 @@ export async function geocodeLocation(text: string): Promise<Coords | null> {
   return next;
 }
 
+/**
+ * Write the resolved lat/lng back to the quests row. We call .select() so
+ * the response carries the updated row — that's the only way to detect an
+ * RLS soft-failure (no rows matched → data: []), which otherwise looks
+ * identical to a successful update.
+ *
+ * Returns true when the row was updated, false otherwise. Errors are logged
+ * but never thrown — the caller's geocode loop should continue.
+ */
 export async function upsertQuestCoords(
   questId: string,
   coords: Coords,
-): Promise<void> {
+): Promise<boolean> {
   const supabase = createClient();
-  await supabase
+  const { data, error } = await supabase
     .from("quests")
     .update({ lat: coords.lat, lng: coords.lng })
-    .eq("id", questId);
+    .eq("id", questId)
+    .select("id, lat, lng");
+  if (error) {
+    console.info("[geocode] upsert error for", questId, error);
+    return false;
+  }
+  if (!data || data.length === 0) {
+    console.info(
+      "[geocode] upsert wrote 0 rows for",
+      questId,
+      "(likely RLS or wrong id)",
+    );
+    return false;
+  }
+  console.info("[geocode] upsert wrote", data.length, "row(s) for", questId);
+  return true;
 }
 
 export function hasMapboxToken(): boolean {
