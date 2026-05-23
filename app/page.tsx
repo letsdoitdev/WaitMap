@@ -132,6 +132,9 @@ const RATING_STYLES: {
   key: Rating;
   label: string;
   icon: string;
+  /** Subtle resting tint on the icon disc, ramped cool→warm so the row reads
+   * as an ordered sentiment scale instead of four independent buttons. */
+  iconBg: string;
   hover: string;
   active: string;
 }[] = [
@@ -139,57 +142,35 @@ const RATING_STYLES: {
     key: "cooked",
     label: "Cooked",
     icon: "🗑️",
-    hover: "hover:bg-red-500/20 hover:text-red-300 hover:border-red-500/40",
-    active: "bg-red-500/30 text-red-200 border-red-400/60",
+    iconBg: "bg-slate-500/20",
+    hover: "hover:bg-slate-500/20 hover:text-slate-200 hover:border-slate-400/40",
+    active: "bg-slate-500/30 text-slate-100 border-slate-400/60",
   },
   {
     key: "mid",
     label: "Mid",
     icon: "😐",
-    hover: "hover:bg-yellow-500/20 hover:text-yellow-300 hover:border-yellow-500/40",
-    active: "bg-yellow-500/30 text-yellow-200 border-yellow-400/60",
+    iconBg: "bg-amber-500/20",
+    hover: "hover:bg-amber-500/15 hover:text-amber-200 hover:border-amber-500/40",
+    active: "bg-amber-500/30 text-amber-100 border-amber-400/60",
   },
   {
     key: "tuff",
     label: "Tuff",
     icon: "💪",
-    hover: "hover:bg-blue-500/20 hover:text-blue-300 hover:border-blue-500/40",
-    active: "bg-blue-500/30 text-blue-200 border-blue-400/60",
+    iconBg: "bg-orange-500/25",
+    hover: "hover:bg-orange-500/15 hover:text-orange-200 hover:border-orange-500/40",
+    active: "bg-orange-500/30 text-orange-100 border-orange-400/60",
   },
   {
     key: "fire",
     label: "Fire",
     icon: "🔥",
-    hover: "hover:bg-orange-500/20 hover:text-orange-300 hover:border-orange-500/40",
-    active: "bg-orange-500/30 text-orange-200 border-orange-400/60",
+    iconBg: "bg-red-500/30",
+    hover: "hover:bg-red-500/15 hover:text-red-200 hover:border-red-500/40",
+    active: "bg-red-500/30 text-red-100 border-red-400/60",
   },
 ];
-
-function SpiceBar({ level }: { level: number }) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <div className="flex gap-0.5">
-        {Array.from({ length: 10 }).map((_, i) => (
-          <span
-            key={i}
-            className={`h-2 w-1.5 rounded-sm transition-colors ${
-              i < level
-                ? level >= 8
-                  ? "bg-red-400"
-                  : level >= 5
-                    ? "bg-orange-400"
-                    : "bg-emerald-400"
-                : "bg-white/10"
-            }`}
-          />
-        ))}
-      </div>
-      <span className="text-xs font-medium text-white/60 tabular-nums">
-        {level}/10
-      </span>
-    </div>
-  );
-}
 
 type View = "results" | "saved";
 
@@ -636,10 +617,21 @@ export default function Home() {
           <button
             type="button"
             onClick={() => setPrefsOpen((v) => !v)}
-            className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-white/60 transition hover:border-violet-400/40 hover:text-violet-200"
             aria-expanded={prefsOpen}
+            className={`mt-4 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors duration-150 ${
+              prefsOpen
+                ? "border-violet-400/60 bg-violet-500/15 text-violet-100"
+                : "border-white/10 bg-white/[0.03] text-white/60 hover:border-violet-400/40 hover:text-violet-200"
+            }`}
           >
-            ⚙ Preferences {prefsOpen ? "▲" : ""}
+            ⚙ Preferences
+            <span
+              aria-hidden="true"
+              className="inline-block text-[10px] transition-transform duration-150"
+              style={{ transform: prefsOpen ? "rotate(180deg)" : "rotate(0deg)" }}
+            >
+              ▾
+            </span>
           </button>
           <AnimatePresence initial={false}>
             {prefsOpen && (
@@ -696,7 +688,9 @@ export default function Home() {
                       <span className="text-[11px] font-medium uppercase tracking-wider text-white/50">
                         Spice
                       </span>
-                      <SpiceBar level={spice} />
+                      <span className="text-xs text-white/80 tabular-nums">
+                        {spice}/10
+                      </span>
                     </div>
                     <input
                       type="range"
@@ -712,7 +706,7 @@ export default function Home() {
                       <span>Unhinged</span>
                     </div>
                   </div>
-                  <div className="mt-4 flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                  <div className="mt-4 flex items-center justify-between py-1.5">
                     <span className="text-xs text-white/70">🚗 Can Drive</span>
                     <button
                       type="button"
@@ -732,7 +726,7 @@ export default function Home() {
                       />
                     </button>
                   </div>
-                  <div className="mt-2 flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2">
+                  <div className="flex items-center justify-between py-1.5">
                     <span className="text-xs text-white/70">💸 Low / No Cost</span>
                     <button
                       type="button"
@@ -761,12 +755,12 @@ export default function Home() {
           <div className="relative mt-6">
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute inset-x-6 -bottom-3 h-10 rounded-full bg-violet-500/40 blur-2xl"
+              className="pointer-events-none absolute inset-x-8 -bottom-2 h-8 rounded-full bg-violet-500/15 blur-2xl transition-opacity duration-200 group-hover:bg-violet-500/40"
             />
             <button
               onClick={() => generate()}
               disabled={!canGenerate || rolling}
-              className="group relative w-full overflow-hidden rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 px-6 py-4 text-base font-semibold text-white shadow-[0_0_30px_rgba(139,92,246,0.4)] transition-all duration-200 hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:text-lg"
+              className="group relative w-full overflow-hidden rounded-full bg-gradient-to-r from-violet-600 to-indigo-600 px-6 py-4 text-base font-semibold text-white shadow-[0_0_14px_rgba(139,92,246,0.18)] transition-all duration-200 hover:shadow-[0_0_36px_rgba(139,92,246,0.5)] hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:text-lg"
             >
               {/* Liquid glass overlay */}
               <span
@@ -844,7 +838,7 @@ export default function Home() {
               onClick={() => setView("saved")}
             >
               🔖 Saved
-              <span className="ml-1.5 rounded-full bg-white/15 px-1.5 py-0.5 text-[10px] font-bold tabular-nums">
+              <span className="ml-1.5 rounded-full bg-white/25 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-current/90">
                 {bookmarks.length}
               </span>
             </FilterPill>
@@ -942,10 +936,10 @@ export default function Home() {
                           bookmarked ? "Remove bookmark" : "Bookmark quest"
                         }
                         aria-pressed={bookmarked}
-                        className={`absolute right-4 top-4 rounded-lg border px-2 py-1 text-base transition active:scale-90 ${
+                        className={`absolute right-3 top-3 rounded-lg px-2 py-1 text-base transition active:scale-90 ${
                           bookmarked
-                            ? "border-amber-400/60 bg-amber-500/20 text-amber-300 shadow-[0_0_16px_rgba(245,158,11,0.3)]"
-                            : "border-white/10 bg-white/5 text-white/40 hover:border-amber-400/40 hover:text-amber-300"
+                            ? "border border-amber-400/60 bg-amber-500/20 text-amber-300 shadow-[0_0_16px_rgba(245,158,11,0.3)]"
+                            : "border border-transparent bg-transparent text-white/40 hover:border-amber-400/40 hover:bg-amber-500/10 hover:text-amber-300"
                         }`}
                       >
                         🔖
@@ -983,8 +977,22 @@ export default function Home() {
                             💵 {q.cost}
                           </span>
                         )}
-                        <span className="ml-auto">
-                          <SpiceBar level={q.spice} />
+                        <span className="ml-auto inline-flex items-center gap-2">
+                          <span className="relative h-[3px] w-20 overflow-hidden rounded-full bg-white/10">
+                            <span
+                              className={`absolute inset-y-0 left-0 rounded-full ${
+                                q.spice >= 8
+                                  ? "bg-red-400"
+                                  : q.spice >= 5
+                                    ? "bg-orange-400"
+                                    : "bg-emerald-400"
+                              }`}
+                              style={{ width: `${q.spice * 10}%` }}
+                            />
+                          </span>
+                          <span className="text-xs font-medium tabular-nums text-white/70">
+                            {q.spice}/10
+                          </span>
                         </span>
                       </div>
 
@@ -1000,10 +1008,15 @@ export default function Home() {
                               className={`inline-flex items-center justify-center gap-1.5 rounded-full border px-2 py-1.5 text-xs font-semibold transition-all active:scale-95 ${
                                 active
                                   ? r.active
-                                  : `border-white/10 bg-white/[0.03] text-white/50 ${r.hover}`
+                                  : `border-white/10 bg-white/[0.03] text-white/55 ${r.hover}`
                               }`}
                             >
-                              <span>{r.icon}</span>
+                              <span
+                                aria-hidden="true"
+                                className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[11px] ${r.iconBg}`}
+                              >
+                                {r.icon}
+                              </span>
                               <span className="hidden xs:inline sm:inline">
                                 {r.label}
                               </span>
@@ -1020,7 +1033,7 @@ export default function Home() {
         )}
 
         {/* FOOTER */}
-        <div className="mt-16 flex flex-col items-center gap-4">
+        <div className="mt-12 flex flex-col items-center gap-4 pt-12">
           <button
             onClick={() => setSuggestOpen(true)}
             className="rounded-full border border-white/15 bg-white/[0.03] px-5 py-2 text-sm text-white/60 backdrop-blur transition hover:border-violet-400/40 hover:bg-violet-500/10 hover:text-violet-200"
