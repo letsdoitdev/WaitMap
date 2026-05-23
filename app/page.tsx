@@ -27,6 +27,7 @@ import {
   ArrowRight,
   BookmarkSimple,
   CaretDown,
+  Crosshair,
   Check,
   CircleNotch,
   Clock,
@@ -224,11 +225,14 @@ export default function Home() {
   const [locBusy, setLocBusy] = useState(false);
   const [locError, setLocError] = useState<string | null>(null);
 
+  // Auto-fill the location input from the browser's geolocation. Only ever
+  // fires on explicit tap of the crosshair button — never on mount, never
+  // via a "first-visit" flag. Uses Mapbox v5 places reverse geocoding so we
+  // stay on a single geocoder for the whole app.
   const useMyLocation = () => {
     if (locBusy) return;
     if (typeof navigator === "undefined" || !navigator.geolocation) {
-      setLocError("Location unavailable");
-      setTimeout(() => setLocError(null), 1800);
+      setLocError("Couldn't get your location — type it instead.");
       return;
     }
     setLocBusy(true);
@@ -237,50 +241,75 @@ export default function Home() {
       async (pos) => {
         try {
           const { latitude, longitude } = pos.coords;
+          const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
+          if (!token) {
+            setLocError("Couldn't get your location — type it instead.");
+            return;
+          }
           const r = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`,
-            { headers: { "Accept-Language": "en" } },
+            `https://api.mapbox.com/geocoding/v5/mapbox.places/${longitude},${latitude}.json?types=place,locality,neighborhood&limit=1&access_token=${token}`,
           );
           if (!r.ok) throw new Error("reverse geocode failed");
           const data = (await r.json()) as {
-            address?: Record<string, string>;
-            display_name?: string;
+            features?: {
+              text?: string;
+              context?: { id?: string; short_code?: string; text?: string }[];
+            }[];
           };
-          const a = data.address ?? {};
-          const place =
-            a.city ||
-            a.town ||
-            a.village ||
-            a.suburb ||
-            a.county ||
-            a.state ||
-            (data.display_name ? data.display_name.split(",")[0] : "");
-          if (place) {
-            const region = a.state || a.country;
-            setCity(region && region !== place ? `${place}, ${region}` : place);
-          } else {
-            setLocError("Location unavailable");
-            setTimeout(() => setLocError(null), 1800);
+          const feature = data.features?.[0];
+          if (!feature?.text) {
+            setLocError("Couldn't get your location — type it instead.");
+            return;
+          }
+          const region = feature.context?.find((c) =>
+            c.id?.startsWith("region"),
+          );
+          const regionShort = region?.short_code
+            ?.replace(/^us-/i, "")
+            .toUpperCase();
+          // US localities get just the state name (e.g. "Ashburn Virginia");
+          // outside the US we fall back to "Place, Country" via context.text.
+          const regionText =
+            region?.short_code?.toLowerCase().startsWith("us-") &&
+            region.text
+              ? region.text
+              : regionShort ?? region?.text ?? "";
+          const next = regionText
+            ? `${feature.text} ${regionText}`
+            : feature.text;
+          setCity(next);
+          try {
+            localStorage.setItem("sqLocation", next);
+          } catch {
+            // ignore quota errors
           }
         } catch {
-          setLocError("Location unavailable");
-          setTimeout(() => setLocError(null), 1800);
+          setLocError("Couldn't get your location — type it instead.");
         } finally {
           setLocBusy(false);
         }
       },
       () => {
         setLocBusy(false);
-        setLocError("Location unavailable");
-        setTimeout(() => setLocError(null), 1800);
+        setLocError("Couldn't get your location — type it instead.");
       },
-      { timeout: 10_000, maximumAge: 60_000 },
+      {
+        enableHighAccuracy: false,
+        timeout: 8_000,
+        maximumAge: 5 * 60 * 1000,
+      },
     );
   };
 
   useEffect(() => {
     setRatingsHistory(loadRatings());
     setBookmarks(loadBookmarks());
+    try {
+      const saved = localStorage.getItem("sqLocation");
+      if (saved) setCity(saved);
+    } catch {
+      // ignore
+    }
   }, []);
 
   const submitSuggestion = async () => {
@@ -600,10 +629,20 @@ export default function Home() {
             <div className="ds-loc-field">
               <input
                 value={city}
-                onChange={(e) => setCity(e.target.value)}
+                onChange={(e) => {
+                  setCity(e.target.value);
+                  try {
+                    localStorage.setItem("sqLocation", e.target.value);
+                  } catch {
+                    // ignore
+                  }
+                }}
                 placeholder="e.g. Washington DC"
                 className="ds-loc-input"
               />
+              <span className="ds-loc-pin-marker" aria-hidden="true">
+                <MapPin weight="duotone" size={16} />
+              </span>
               <button
                 type="button"
                 onClick={useMyLocation}
@@ -611,6 +650,9 @@ export default function Home() {
                 aria-label="Use my location"
                 title="Use my location"
                 className="ds-loc-pin"
+                hidden={
+                  typeof window !== "undefined" && !window.isSecureContext
+                }
                 data-busy={locBusy ? "true" : "false"}
               >
                 {locBusy ? (
@@ -620,7 +662,7 @@ export default function Home() {
                     aria-hidden="true"
                   />
                 ) : (
-                  <MapPin weight="duotone" size={18} aria-hidden="true" />
+                  <Crosshair weight="duotone" size={18} aria-hidden="true" />
                 )}
               </button>
             </div>

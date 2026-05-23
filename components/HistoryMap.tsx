@@ -136,8 +136,8 @@ export default function HistoryMap({ visible = true }: Props) {
             ...prev,
             [q.id]: coords,
           }));
-          const persisted = await upsertQuestCoords(q.id, coords);
-          if (persisted) anyPersisted = true;
+          const result = await upsertQuestCoords(q.id, coords);
+          if (result.ok) anyPersisted = true;
         }
         setPendingCoords((n) => Math.max(0, n - 1));
       }

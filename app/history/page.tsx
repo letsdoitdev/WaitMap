@@ -1,10 +1,17 @@
 "use client";
 
-import { memo, useEffect, useMemo, useState } from "react";
+import {
+  memo,
+  startTransition,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
+  Camera,
   Clock,
   Flame,
   ForkKnife,
@@ -37,7 +44,6 @@ import type {
   QuestMedia,
   QuestReaction,
 } from "@/lib/database.types";
-import Lightbox, { type LightboxItem } from "@/components/Lightbox";
 import StatsStrip from "@/components/StatsStrip";
 import HistoryMap from "@/components/HistoryMap";
 import { useStats } from "@/lib/stats-context";
@@ -69,7 +75,6 @@ type Row = {
   media: QuestMedia[];
 };
 
-const MAX_VISIBLE_THUMBS = 3;
 
 type ViewMode = "list" | "map";
 
@@ -92,8 +97,6 @@ export default function HistoryPage() {
   const savedView = filter === "saved";
   const [rows, setRows] = useState<Row[] | null>(null);
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
-  const [lightboxQuest, setLightboxQuest] = useState<string | null>(null);
-  const [lightboxIndex, setLightboxIndex] = useState(0);
   const [savedBookmarks, setSavedBookmarks] = useState<
     { id: string; title: string; category: string; description: string }[]
   >([]);
@@ -191,34 +194,39 @@ export default function HistoryPage() {
         });
       }
 
-      setRows(built);
+      // Paint rows immediately with placeholder thumbs; signed URLs follow
+      // in an idle callback so the row markup + skeletons land in the first
+      // paint frame, not the network-blocked frame.
+      startTransition(() => {
+        setRows(built);
+      });
 
-      // Sign every media URL in one batch (60 minutes is fine for a list page).
       const allMedia = built.flatMap((r) => r.media);
-      const urls = await getSignedMediaUrls(allMedia);
-      if (!cancelled) setSignedUrls(urls);
+      if (allMedia.length === 0) {
+        if (!cancelled) setSignedUrls({});
+        return;
+      }
+      const fillUrls = async () => {
+        const urls = await getSignedMediaUrls(allMedia);
+        if (!cancelled) setSignedUrls(urls);
+      };
+      const w = window as Window & {
+        requestIdleCallback?: (cb: () => void) => number;
+      };
+      if (typeof w.requestIdleCallback === "function") {
+        w.requestIdleCallback(() => {
+          void fillUrls();
+        });
+      } else {
+        setTimeout(() => {
+          void fillUrls();
+        }, 0);
+      }
     })();
     return () => {
       cancelled = true;
     };
   }, [supabase, user, version, statsQuests]);
-
-  const lightboxItems = useMemo<LightboxItem[]>(() => {
-    if (!lightboxQuest || !rows) return [];
-    const row = rows.find((r) => r.quest.id === lightboxQuest);
-    if (!row) return [];
-    return row.media
-      .map((m): LightboxItem | null => {
-        const url = signedUrls[m.id];
-        if (!url) return null;
-        return {
-          id: m.id,
-          url,
-          kind: m.mime_type.startsWith("video/") ? "video" : "image",
-        };
-      })
-      .filter((x): x is LightboxItem => x !== null);
-  }, [lightboxQuest, rows, signedUrls]);
 
   if (!user || rows === null) {
     return (
@@ -231,6 +239,15 @@ export default function HistoryPage() {
       >
         <h1 className="ds-page-title">History</h1>
         <StatsStrip />
+        <div
+          className="flex flex-col"
+          style={{ gap: "var(--space-3)", marginTop: "var(--space-5)" }}
+          aria-hidden="true"
+        >
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="glass ds-history-row-skeleton" />
+          ))}
+        </div>
       </main>
     );
   }
@@ -397,189 +414,193 @@ export default function HistoryPage() {
             className="flex flex-col"
             style={{ gap: "var(--space-3)", marginTop: "var(--space-5)" }}
           >
-            {rows.map((row, idx) => (
-              <HistoryRow
-                key={row.quest.id}
-                row={row}
-                signedUrls={signedUrls}
-                priority={idx < 2}
-                onOpenLightbox={(thumbIdx) => {
-                  setLightboxQuest(row.quest.id);
-                  setLightboxIndex(thumbIdx);
-                }}
-              />
-            ))}
+            {rows.map((row, idx) => {
+              const firstMedia = row.media[0];
+              const thumbUrl = firstMedia
+                ? signedUrls[firstMedia.id] ?? null
+                : null;
+              const isVideo =
+                firstMedia?.mime_type.startsWith("video/") ?? false;
+              return (
+                <HistoryRow
+                  key={row.quest.id}
+                  row={row}
+                  thumbUrl={thumbUrl}
+                  isVideo={isVideo}
+                  priority={idx < 2}
+                />
+              );
+            })}
           </div>
         ))}
 
-      {lightboxQuest && lightboxItems.length > 0 && (
-        <Lightbox
-          items={lightboxItems}
-          initialIndex={lightboxIndex}
-          onClose={() => setLightboxQuest(null)}
-        />
-      )}
     </main>
   );
 }
 
-const HistoryRow = memo(function HistoryRow({
-  row,
-  signedUrls,
-  onOpenLightbox,
-  priority = false,
-}: {
+type HistoryRowProps = {
   row: Row;
-  signedUrls: Record<string, string>;
-  onOpenLightbox: (index: number) => void;
+  thumbUrl: string | null;
+  isVideo: boolean;
   /** First two rows render eagerly with normal fetch priority; rows below
    * the fold load lazily with low priority. */
   priority?: boolean;
-}) {
-  const { retry } = useUploadQueue();
-  const job = useQuestUploadJob(row.quest.id);
-  const CategoryIcon = CATEGORY_ICONS[row.quest.category] ?? Sparkle;
-  const totalMs = computeElapsedMs(row.events, row.completedAt);
-  const ReactionIcon = row.quest.reaction
-    ? REACTION_ICONS[row.quest.reaction]
-    : null;
+};
 
-  const visible = row.media.slice(0, MAX_VISIBLE_THUMBS);
-  const extra = row.media.length - visible.length;
+const HistoryRow = memo(
+  function HistoryRow({
+    row,
+    thumbUrl,
+    isVideo,
+    priority = false,
+  }: HistoryRowProps) {
+    const { retry } = useUploadQueue();
+    const job = useQuestUploadJob(row.quest.id);
+    const CategoryIcon = CATEGORY_ICONS[row.quest.category] ?? Sparkle;
+    const totalMs = computeElapsedMs(row.events, row.completedAt);
+    const ReactionIcon = row.quest.reaction
+      ? REACTION_ICONS[row.quest.reaction]
+      : null;
 
-  const pending =
-    job && job.status === "uploading"
-      ? job.total - job.completed
-      : 0;
-  const failed = job && job.status === "failed" ? job.failedFiles.length : 0;
+    const extra = Math.max(0, row.media.length - 1);
+    const pending =
+      job && job.status === "uploading" ? job.total - job.completed : 0;
+    const failed =
+      job && job.status === "failed" ? job.failedFiles.length : 0;
 
-  return (
-    <div className="glass ds-history-row">
+    const transitionStyle = {
+      viewTransitionName: `quest-card-${row.quest.id}`,
+    } as React.CSSProperties;
+
+    return (
       <Link
         href={`/quest/${row.quest.id}`}
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: "var(--space-2)",
-          textDecoration: "none",
-          color: "inherit",
-        }}
+        className="glass ds-history-row"
+        style={transitionStyle}
+        prefetch
       >
-        <span className="ds-cat-chip" style={{ alignSelf: "flex-start" }}>
-          <span className="ds-cat-chip-icon" aria-hidden="true">
-            <CategoryIcon weight="duotone" size={12} />
-          </span>
-          {row.quest.category}
-        </span>
-        <h3 className="ds-history-row-title">{row.quest.title}</h3>
-        <div className="ds-history-row-meta">
-          <span className="ds-meta-item">
-            <Clock weight="duotone" size={14} aria-hidden="true" />
-            {formatElapsed(totalMs)}
-          </span>
-          <span>
-            completed{" "}
-            {formatDistanceToNow(new Date(row.completedAt), {
-              addSuffix: true,
-            })}
-          </span>
-          {ReactionIcon && row.quest.reaction && (
-            <ReactionIcon
-              weight="fill"
-              size={14}
-              color="var(--text-secondary)"
-              aria-label={`Rated ${row.quest.reaction}`}
-            />
+        <div
+          className="ds-history-row-thumb"
+          aria-hidden={thumbUrl ? "false" : "true"}
+        >
+          {thumbUrl ? (
+            isVideo ? (
+              <>
+                <video
+                  src={thumbUrl}
+                  muted
+                  playsInline
+                  preload={priority ? "metadata" : "none"}
+                  width={80}
+                  height={80}
+                />
+                <span
+                  className="ds-history-thumb-video-glyph"
+                  aria-hidden="true"
+                >
+                  <VideoCamera weight="duotone" size={12} />
+                </span>
+              </>
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={thumbUrl}
+                alt=""
+                width={80}
+                height={80}
+                loading={priority ? "eager" : "lazy"}
+                // @ts-expect-error — fetchpriority isn't in lib.dom yet.
+                fetchpriority={priority ? "high" : "low"}
+                decoding="async"
+              />
+            )
+          ) : (
+            <span className="ds-history-row-thumb-placeholder">
+              <Camera
+                weight="duotone"
+                size={20}
+                color="var(--text-tertiary)"
+                aria-hidden="true"
+              />
+            </span>
           )}
-          {row.quest.location_text &&
-            (row.quest.lat == null || row.quest.lng == null) && (
-              <span className="ds-pin-pending" aria-label="Pin pending">
-                Pin pending
-              </span>
-            )}
-        </div>
-      </Link>
-
-      {visible.length > 0 && (
-        <div className="ds-history-thumbs" role="group" aria-label="Media">
-          {visible.map((m, i) => {
-            const url = signedUrls[m.id];
-            const isVideo = m.mime_type.startsWith("video/");
-            return (
-              <button
-                key={m.id}
-                type="button"
-                onClick={() => onOpenLightbox(i)}
-                className="ds-history-thumb"
-                aria-label={
-                  isVideo ? "Open video" : "Open photo"
-                }
-              >
-                {url ? (
-                  isVideo ? (
-                    <>
-                      <video
-                        src={url}
-                        className="ds-history-thumb-media"
-                        muted
-                        playsInline
-                        preload={priority ? "metadata" : "none"}
-                      />
-                      <span
-                        className="ds-history-thumb-video-glyph"
-                        aria-hidden="true"
-                      >
-                        <VideoCamera weight="duotone" size={12} />
-                      </span>
-                    </>
-                  ) : (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={url}
-                      alt=""
-                      className="ds-history-thumb-media"
-                      loading={priority ? "eager" : "lazy"}
-                      // @ts-expect-error — fetchpriority isn't in lib.dom yet.
-                      fetchpriority={priority ? "high" : "low"}
-                      decoding="async"
-                    />
-                  )
-                ) : null}
-              </button>
-            );
-          })}
           {extra > 0 && (
+            <span className="ds-history-row-thumb-extra" aria-hidden="true">
+              +{extra}
+            </span>
+          )}
+        </div>
+
+        <div className="ds-history-row-body">
+          <span className="ds-cat-chip" style={{ alignSelf: "flex-start" }}>
+            <span className="ds-cat-chip-icon" aria-hidden="true">
+              <CategoryIcon weight="duotone" size={12} />
+            </span>
+            {row.quest.category}
+          </span>
+          <h3 className="ds-history-row-title">{row.quest.title}</h3>
+          <div className="ds-history-row-meta">
+            <span className="ds-meta-item">
+              <Clock weight="duotone" size={14} aria-hidden="true" />
+              {formatElapsed(totalMs)}
+            </span>
+            <span>
+              completed{" "}
+              {formatDistanceToNow(new Date(row.completedAt), {
+                addSuffix: true,
+              })}
+            </span>
+            {ReactionIcon && row.quest.reaction && (
+              <ReactionIcon
+                weight="fill"
+                size={14}
+                color="var(--text-secondary)"
+                aria-label={`Rated ${row.quest.reaction}`}
+              />
+            )}
+            {row.quest.location_text &&
+              (row.quest.lat == null || row.quest.lng == null) && (
+                <span className="ds-pin-pending" aria-label="Pin pending">
+                  Pin pending
+                </span>
+              )}
+          </div>
+
+          {pending > 0 && (
+            <span className="ds-pending-pill" data-variant="pending">
+              <span
+                className="ds-queue-indicator-dot"
+                aria-hidden="true"
+              />
+              {pending} {pending === 1 ? "upload" : "uploads"} in progress
+            </span>
+          )}
+          {failed > 0 && job && (
             <button
               type="button"
-              onClick={() => onOpenLightbox(MAX_VISIBLE_THUMBS)}
-              className="ds-history-thumb ds-history-thumb-more"
-              aria-label={`Open ${extra} more`}
+              className="ds-pending-pill"
+              data-variant="failed"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                retry(job.id);
+              }}
             >
-              +{extra}
+              {failed} upload{failed === 1 ? "" : "s"} failed · retry
             </button>
           )}
         </div>
-      )}
-
-      {pending > 0 && (
-        <span className="ds-pending-pill" data-variant="pending">
-          <span
-            className="ds-queue-indicator-dot"
-            aria-hidden="true"
-          />
-          {pending} {pending === 1 ? "upload" : "uploads"} in progress
-        </span>
-      )}
-      {failed > 0 && job && (
-        <button
-          type="button"
-          className="ds-pending-pill"
-          data-variant="failed"
-          onClick={() => retry(job.id)}
-        >
-          {failed} upload{failed === 1 ? "" : "s"} failed · retry
-        </button>
-      )}
-    </div>
-  );
-});
+      </Link>
+    );
+  },
+  (prev, next) =>
+    prev.row.quest.id === next.row.quest.id &&
+    prev.row.quest.lat === next.row.quest.lat &&
+    prev.row.quest.lng === next.row.quest.lng &&
+    prev.row.quest.reaction === next.row.quest.reaction &&
+    prev.row.media.length === next.row.media.length &&
+    prev.row.completedAt === next.row.completedAt &&
+    prev.thumbUrl === next.thumbUrl &&
+    prev.isVideo === next.isVideo &&
+    prev.priority === next.priority,
+);

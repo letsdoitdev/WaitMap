@@ -82,19 +82,25 @@ export async function geocodeLocation(text: string): Promise<Coords | null> {
   return next;
 }
 
+export type UpsertResult =
+  | { ok: true; lat: number; lng: number }
+  | { ok: false; lat?: undefined; lng?: undefined };
+
 /**
  * Write the resolved lat/lng back to the quests row. We call .select() so
  * the response carries the updated row — that's the only way to detect an
  * RLS soft-failure (no rows matched → data: []), which otherwise looks
  * identical to a successful update.
  *
- * Returns true when the row was updated, false otherwise. Errors are logged
- * but never thrown — the caller's geocode loop should continue.
+ * Returns { ok, lat, lng } so the caller can decide whether to drop the
+ * "Pin pending" badge for this row. Errors are logged (full message + code
+ * + details, not just the bare Object) but never thrown — the caller's
+ * geocode loop should continue.
  */
 export async function upsertQuestCoords(
   questId: string,
   coords: Coords,
-): Promise<boolean> {
+): Promise<UpsertResult> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("quests")
@@ -102,8 +108,15 @@ export async function upsertQuestCoords(
     .eq("id", questId)
     .select("id, lat, lng");
   if (error) {
-    console.info("[geocode] upsert error for", questId, error);
-    return false;
+    console.info(
+      "[geocode] upsert error for",
+      questId,
+      "—",
+      `message="${error.message}"`,
+      `code="${error.code}"`,
+      `details="${error.details}"`,
+    );
+    return { ok: false };
   }
   if (!data || data.length === 0) {
     console.info(
@@ -111,10 +124,14 @@ export async function upsertQuestCoords(
       questId,
       "(likely RLS or wrong id)",
     );
-    return false;
+    return { ok: false };
   }
-  console.info("[geocode] upsert wrote", data.length, "row(s) for", questId);
-  return true;
+  console.info(
+    "[geocode] persisted:",
+    questId,
+    `-> (${coords.lat}, ${coords.lng})`,
+  );
+  return { ok: true, lat: coords.lat, lng: coords.lng };
 }
 
 export function hasMapboxToken(): boolean {
