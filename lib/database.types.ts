@@ -59,6 +59,8 @@ export interface Database {
           source: QuestSource;
           reaction: QuestReaction | null;
           generated_at: string;
+          lat: number | null;
+          lng: number | null;
         };
         Insert: {
           id?: string;
@@ -72,6 +74,8 @@ export interface Database {
           source?: QuestSource;
           reaction?: QuestReaction | null;
           generated_at?: string;
+          lat?: number | null;
+          lng?: number | null;
         };
         Update: {
           id?: string;
@@ -85,6 +89,8 @@ export interface Database {
           source?: QuestSource;
           reaction?: QuestReaction | null;
           generated_at?: string;
+          lat?: number | null;
+          lng?: number | null;
         };
         Relationships: [];
       };

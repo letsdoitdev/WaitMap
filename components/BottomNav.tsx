@@ -21,7 +21,11 @@ export default function BottomNav() {
           className="ds-bottom-nav-tab"
           data-active={isHome ? "true" : "false"}
         >
-          <House weight={isHome ? "fill" : "duotone"} size={18} aria-hidden="true" />
+          <House
+            weight={isHome ? "fill" : "duotone"}
+            size={18}
+            aria-hidden="true"
+          />
           <span>Home</span>
         </Link>
         <Link
