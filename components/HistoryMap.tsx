@@ -21,11 +21,31 @@ const DEV = process.env.NODE_ENV !== "production";
 const MAP_STYLE = "mapbox://styles/mapbox/dark-v11";
 const CONTINENTAL_US_CENTER: [number, number] = [-98.5795, 39.8283];
 
+// Two markers within this screen-px distance group into a single cluster.
+const CLUSTER_RADIUS_PX = 30;
+// At-or-above this zoom (or when coords are identical) clicking the
+// cluster spiderfies instead of zooming in.
+const SPIDERFY_ZOOM_THRESHOLD = 15;
+// Pixel radius for the spiderfy fan-out.
+const SPIDERFY_RADIUS_PX = 36;
+
 type PinQuest = Quest & {
   lat: number;
   lng: number;
   thumbUrl?: string;
+  /** True iff this came from completion_lat/lng (precise) rather than the
+   * city-level geocode. Visual-only signal for future styling. */
+  precise: boolean;
 };
+
+type Group =
+  | { kind: "single"; quest: PinQuest }
+  | {
+      kind: "cluster";
+      id: string;
+      quests: PinQuest[];
+      center: { lng: number; lat: number };
+    };
 
 type Props = {
   /** Pass true when the map mode is the visible mode on /history. We keep
@@ -36,8 +56,8 @@ type Props = {
    * every /history mount (M7.3 dedupe — the list view already pulls these). */
   media?: QuestMedia[];
   signedUrls?: Record<string, string>;
-  /** When set, non-matching markers fade to 0.15 opacity instead of being
-   * removed — keeps the map from flashing on category filter changes. */
+  /** When set, non-matching pins disappear from clustering entirely so the
+   * cluster + spiderfy math reflects only the filtered set. */
   categoryFilter?: string | null;
 };
 
@@ -50,12 +70,18 @@ export default function HistoryMap({
   const router = useRouter();
   const { quests, refresh: refreshStats } = useStats();
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const overlayRef = useRef<SVGSVGElement | null>(null);
   const mapRef = useRef<MapboxMap | null>(null);
+  // Single Map keyed by either `quest-${id}` (leaf) or `cluster-${id}`.
   const markersRef = useRef<Map<string, MapboxMarker>>(new Map());
   const fittedRef = useRef(false);
   const [mapReady, setMapReady] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [pendingCoords, setPendingCoords] = useState(0);
+  // Bumps on every map move/zoom + on spiderfy toggle — drives the render
+  // effect without needing to wire React state into the Mapbox event loop.
+  const [viewTick, setViewTick] = useState(0);
+  const [spiderfyId, setSpiderfyId] = useState<string | null>(null);
   const media = useMemo(() => mediaProp ?? [], [mediaProp]);
   const signedUrls = useMemo(() => signedUrlsProp ?? {}, [signedUrlsProp]);
   const [geocodedPatch, setGeocodedPatch] = useState<
@@ -73,12 +99,18 @@ export default function HistoryMap({
     return () => cancelAnimationFrame(id);
   }, [visible]);
 
-  // Lazy-geocode quests that still need coords. (The list-view backfill from
-  // M7.3 also runs this path; we leave it for the case where the user comes
-  // straight to the map mode on first mount.)
+  // Lazy-geocode quests that don't have *any* coords (no completion GPS and
+  // no city geocode). The list-view backfill on /history covers this path
+  // too — we keep it here for the case where the user opens the map mode
+  // before the list mode has run.
   useEffect(() => {
     if (!tokenPresent || quests.length === 0) return;
-    const needs = quests.filter((q) => q.lat == null || q.lng == null);
+    const needs = quests.filter(
+      (q) =>
+        q.completion_lat == null &&
+        q.completion_lng == null &&
+        (q.lat == null || q.lng == null),
+    );
     if (needs.length === 0) {
       setPendingCoords(0);
       return;
@@ -110,9 +142,8 @@ export default function HistoryMap({
     };
   }, [quests, tokenPresent, refreshStats]);
 
-  // Validate every coord at the source. typeof + isFinite is on purpose —
-  // strings, NaN, or Infinity from a misconfigured backfill should not turn
-  // into a marker at (0, 0).
+  // Validated pin set. Completion coords take priority over city coords;
+  // typeof + isFinite guards a stray NaN from planting a pin at (0, 0).
   const pinQuests: PinQuest[] = useMemo(() => {
     const mediaByQuest = new Map<string, QuestMedia[]>();
     for (const m of media) {
@@ -122,9 +153,20 @@ export default function HistoryMap({
     }
     const out: PinQuest[] = [];
     for (const q of quests) {
-      const patched = geocodedPatch[q.id];
-      const lat = patched?.lat ?? q.lat;
-      const lng = patched?.lng ?? q.lng;
+      let lat: number | null | undefined = q.completion_lat;
+      let lng: number | null | undefined = q.completion_lng;
+      let precise = true;
+      if (
+        typeof lat !== "number" ||
+        typeof lng !== "number" ||
+        !Number.isFinite(lat) ||
+        !Number.isFinite(lng)
+      ) {
+        const patched = geocodedPatch[q.id];
+        lat = patched?.lat ?? q.lat;
+        lng = patched?.lng ?? q.lng;
+        precise = false;
+      }
       if (
         typeof lat !== "number" ||
         typeof lng !== "number" ||
@@ -133,19 +175,17 @@ export default function HistoryMap({
       ) {
         continue;
       }
+      if (categoryFilter && q.category !== categoryFilter) continue;
       const firstMedia = mediaByQuest.get(q.id)?.[0];
       const thumbUrl = firstMedia ? signedUrls[firstMedia.id] : undefined;
-      out.push({ ...q, lat, lng, thumbUrl });
+      out.push({ ...q, lat, lng, thumbUrl, precise });
     }
     return out;
-  }, [quests, geocodedPatch, media, signedUrls]);
+  }, [quests, geocodedPatch, media, signedUrls, categoryFilter]);
 
-  // Initialize Mapbox the first time the container becomes visible. We wait
-  // on BOTH `load` and `styledata` because Mapbox style requests sometimes
-  // 503 — when they do, `load` never fires but the basemap-less canvas is
-  // still usable for markers. One retry of the style URL on `error` covers
-  // the transient case; a hard failure leaves the basemap blank but lets
-  // markers render on top.
+  // Initialize Mapbox the first time the container becomes visible. Hooks
+  // into both `load` and `styledata` so a transient style 503 doesn't strand
+  // us forever.
   useEffect(() => {
     if (!tokenPresent || !visible || !containerRef.current || mapRef.current)
       return;
@@ -177,24 +217,43 @@ export default function HistoryMap({
         };
 
         map.on("load", flipReady);
-        // styledata fires even when the initial style is replaced after a
-        // retry — covers the 503 fall-through where `load` never arrives.
         map.on("styledata", flipReady);
 
-        map.on("error", (e: { error?: { status?: number; message?: string } }) => {
-          const status = e?.error?.status;
-          if (DEV) console.warn("[map] error", status, e?.error?.message);
-          if (!styleRetried && (status === 503 || status === 502 || status === 504)) {
-            styleRetried = true;
-            window.setTimeout(() => {
-              try {
-                map.setStyle(MAP_STYLE);
-              } catch {
-                // give up — markers still work on a blank canvas
-              }
-            }, 1_000);
+        // Recompute clusters on every camera change.
+        const bumpView = () => setViewTick((n) => n + 1);
+        map.on("move", bumpView);
+        map.on("zoom", bumpView);
+        map.on("resize", bumpView);
+
+        // Click anywhere on the map empty area — collapse spiderfy.
+        map.on("click", (e: { originalEvent: Event }) => {
+          const target = e.originalEvent?.target as HTMLElement | null;
+          if (target?.closest(".ds-map-pin") || target?.closest(".ds-map-cluster")) {
+            return;
           }
+          setSpiderfyId(null);
         });
+
+        map.on(
+          "error",
+          (e: { error?: { status?: number; message?: string } }) => {
+            const status = e?.error?.status;
+            if (DEV) console.warn("[map] error", status, e?.error?.message);
+            if (
+              !styleRetried &&
+              (status === 503 || status === 502 || status === 504)
+            ) {
+              styleRetried = true;
+              window.setTimeout(() => {
+                try {
+                  map.setStyle(MAP_STYLE);
+                } catch {
+                  // give up — markers still render on a blank canvas
+                }
+              }, 1_000);
+            }
+          },
+        );
 
         mapRef.current = map;
       } catch (err) {
@@ -223,11 +282,8 @@ export default function HistoryMap({
     };
   }, []);
 
-  // Direct per-quest marker creation. One mapboxgl.Marker per pin, keyed by
-  // quest id so the diff is O(n). Cluster source / querySourceFeatures has
-  // been retired — Mapbox's source pipeline can no-op when the style 503s
-  // or before the first tile is loaded, which is exactly the failure we
-  // saw in prod.
+  // Compute clusters in screen space, then render. Re-runs on pinQuests,
+  // viewTick (every map move/zoom), spiderfy toggle, mapReady.
   useEffect(() => {
     if (!mapReady || !tokenPresent) return;
     let cancelled = false;
@@ -238,55 +294,201 @@ export default function HistoryMap({
       const map = mapRef.current;
       if (!map) return;
 
-      const wanted = new Set(pinQuests.map((q) => q.id));
+      // Screen-space cluster pass — O(n²) is fine for our ~tens-of-pins
+      // ceiling. Each marker grabs the nearest still-unassigned neighbours
+      // within CLUSTER_RADIUS_PX.
+      const projected = pinQuests.map((q) => ({
+        quest: q,
+        px: map.project([q.lng, q.lat]),
+      }));
+      const used = new Set<string>();
+      const groups: Group[] = [];
+      for (let i = 0; i < projected.length; i++) {
+        if (used.has(projected[i].quest.id)) continue;
+        used.add(projected[i].quest.id);
+        const cluster: PinQuest[] = [projected[i].quest];
+        for (let j = i + 1; j < projected.length; j++) {
+          if (used.has(projected[j].quest.id)) continue;
+          const dx = projected[i].px.x - projected[j].px.x;
+          const dy = projected[i].px.y - projected[j].px.y;
+          if (Math.hypot(dx, dy) < CLUSTER_RADIUS_PX) {
+            cluster.push(projected[j].quest);
+            used.add(projected[j].quest.id);
+          }
+        }
+        if (cluster.length === 1) {
+          groups.push({ kind: "single", quest: cluster[0] });
+        } else {
+          const avgLng =
+            cluster.reduce((s, q) => s + q.lng, 0) / cluster.length;
+          const avgLat =
+            cluster.reduce((s, q) => s + q.lat, 0) / cluster.length;
+          const id =
+            "c_" +
+            cluster
+              .map((q) => q.id)
+              .sort()
+              .join("|");
+          groups.push({
+            kind: "cluster",
+            id,
+            quests: cluster,
+            center: { lng: avgLng, lat: avgLat },
+          });
+        }
+      }
 
-      // Remove markers whose quest is no longer in the set.
-      markersRef.current.forEach((marker, id) => {
-        if (!wanted.has(id)) {
+      // Decide the marker key set this pass.
+      const wanted = new Set<string>();
+      const activeSpiderfy = groups.find(
+        (g) => g.kind === "cluster" && g.id === spiderfyId,
+      ) as Extract<Group, { kind: "cluster" }> | undefined;
+
+      for (const group of groups) {
+        if (group.kind === "single") {
+          wanted.add(`quest-${group.quest.id}`);
+        } else if (spiderfyId === group.id) {
+          // Spiderfied — show each member leaf, no cluster bubble.
+          for (const q of group.quests) wanted.add(`quest-${q.id}`);
+        } else {
+          // Collapsed cluster — show only the cluster bubble.
+          wanted.add(`cluster-${group.id}`);
+        }
+      }
+
+      // Sweep gone markers.
+      markersRef.current.forEach((marker, key) => {
+        if (!wanted.has(key)) {
           marker.remove();
-          markersRef.current.delete(id);
+          markersRef.current.delete(key);
         }
       });
 
-      // Add / update markers for every current pin.
-      for (const q of pinQuests) {
-        const existing = markersRef.current.get(q.id);
+      const ensureLeafMarker = (
+        q: PinQuest,
+        offset: { x: number; y: number } | null,
+      ) => {
+        const key = `quest-${q.id}`;
+        const existing = markersRef.current.get(key);
+        const setOffset = (el: HTMLElement) => {
+          const inner = el.querySelector<HTMLElement>(".ds-map-pin-offset");
+          if (!inner) return;
+          inner.style.transform = offset
+            ? `translate(${offset.x}px, ${offset.y}px)`
+            : "translate(0px, 0px)";
+          inner.style.transition = "transform 200ms ease-out";
+        };
         if (existing) {
           existing.setLngLat([q.lng, q.lat]);
-          continue;
+          setOffset(existing.getElement() as HTMLElement);
+          return;
         }
-
-        // 44pt tap target via padding on the button wrapper; visible disc
-        // is the inner span at 24px.
-        const el = document.createElement("button");
-        el.type = "button";
-        el.className = "ds-map-pin";
-        el.setAttribute("aria-label", q.title);
-        el.setAttribute("data-category", q.category ?? "");
-        el.style.transition = "opacity 180ms ease-out";
-
+        const host = document.createElement("div");
+        host.className = "ds-map-pin-host";
+        const inner = document.createElement("span");
+        inner.className = "ds-map-pin-offset";
+        host.appendChild(inner);
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "ds-map-pin";
+        button.setAttribute("aria-label", q.title);
+        button.setAttribute("data-category", q.category ?? "");
         if (q.thumbUrl) {
           const img = document.createElement("img");
           img.src = q.thumbUrl;
           img.alt = "";
           img.className = "ds-map-pin-thumb";
-          el.appendChild(img);
+          button.appendChild(img);
         } else {
           const fallback = document.createElement("span");
           fallback.className = "ds-map-pin-fallback";
           fallback.setAttribute("aria-hidden", "true");
-          el.appendChild(fallback);
+          button.appendChild(fallback);
         }
-
-        el.addEventListener("click", (event) => {
+        button.addEventListener("click", (event) => {
           event.stopPropagation();
           router.push(`/quest/${q.id}`);
         });
+        inner.appendChild(button);
 
-        const marker = new mapboxgl.Marker({ element: el, anchor: "center" })
+        const marker = new mapboxgl.Marker({ element: host, anchor: "center" })
           .setLngLat([q.lng, q.lat])
           .addTo(map);
-        markersRef.current.set(q.id, marker);
+        markersRef.current.set(key, marker);
+        setOffset(host);
+      };
+
+      const ensureClusterMarker = (
+        cluster: Extract<Group, { kind: "cluster" }>,
+      ) => {
+        const key = `cluster-${cluster.id}`;
+        const existing = markersRef.current.get(key);
+        if (existing) {
+          existing.setLngLat([cluster.center.lng, cluster.center.lat]);
+          const el = existing.getElement() as HTMLElement;
+          const num = el.querySelector(".ds-map-cluster-count");
+          if (num) num.textContent = String(cluster.quests.length);
+          return;
+        }
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "ds-map-cluster";
+        button.setAttribute(
+          "aria-label",
+          `${cluster.quests.length} quests in this area`,
+        );
+        const count = document.createElement("span");
+        count.className = "ds-map-cluster-count";
+        count.textContent = String(cluster.quests.length);
+        button.appendChild(count);
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          // If the coords are stacked (city-geocode collision) — spiderfy
+          // immediately. Otherwise ease in by 1.5 levels and let the
+          // cluster pass run again at the new zoom; once we're at or above
+          // the threshold and they still cluster, the next click spiderfies.
+          const stacked = cluster.quests.every(
+            (q) =>
+              Math.abs(q.lat - cluster.quests[0].lat) < 1e-4 &&
+              Math.abs(q.lng - cluster.quests[0].lng) < 1e-4,
+          );
+          const z = map.getZoom();
+          if (stacked || z >= SPIDERFY_ZOOM_THRESHOLD) {
+            setSpiderfyId(cluster.id);
+            return;
+          }
+          map.easeTo({
+            center: [cluster.center.lng, cluster.center.lat],
+            zoom: Math.min(SPIDERFY_ZOOM_THRESHOLD, z + 1.5),
+            duration: 500,
+          });
+        });
+        const marker = new mapboxgl.Marker({
+          element: button,
+          anchor: "center",
+        })
+          .setLngLat([cluster.center.lng, cluster.center.lat])
+          .addTo(map);
+        markersRef.current.set(key, marker);
+      };
+
+      // Render the desired set.
+      for (const group of groups) {
+        if (group.kind === "single") {
+          ensureLeafMarker(group.quest, null);
+        } else if (spiderfyId === group.id) {
+          const n = group.quests.length;
+          group.quests.forEach((q, idx) => {
+            const angle = (idx / n) * Math.PI * 2 - Math.PI / 2;
+            const offset = {
+              x: Math.cos(angle) * SPIDERFY_RADIUS_PX,
+              y: Math.sin(angle) * SPIDERFY_RADIUS_PX,
+            };
+            ensureLeafMarker(q, offset);
+          });
+        } else {
+          ensureClusterMarker(group);
+        }
       }
 
       // Auto-fit on the first non-empty pin set only.
@@ -303,28 +505,51 @@ export default function HistoryMap({
           for (const p of pinQuests) bounds.extend([p.lng, p.lat]);
           map.fitBounds(bounds, {
             padding: 80,
-            maxZoom: 13,
+            maxZoom: 15,
             duration: 600,
           });
+        }
+      }
+
+      // Draw spiderfy leader lines into the SVG overlay.
+      const svg = overlayRef.current;
+      if (svg) {
+        while (svg.firstChild) svg.removeChild(svg.firstChild);
+        if (activeSpiderfy) {
+          const centerPx = map.project([
+            activeSpiderfy.center.lng,
+            activeSpiderfy.center.lat,
+          ]);
+          const ns = "http://www.w3.org/2000/svg";
+          const n = activeSpiderfy.quests.length;
+          for (let idx = 0; idx < n; idx++) {
+            const angle = (idx / n) * Math.PI * 2 - Math.PI / 2;
+            const x2 = centerPx.x + Math.cos(angle) * SPIDERFY_RADIUS_PX;
+            const y2 = centerPx.y + Math.sin(angle) * SPIDERFY_RADIUS_PX;
+            const line = document.createElementNS(ns, "line");
+            line.setAttribute("x1", String(centerPx.x));
+            line.setAttribute("y1", String(centerPx.y));
+            line.setAttribute("x2", String(x2));
+            line.setAttribute("y2", String(y2));
+            line.setAttribute("stroke", "rgba(255,255,255,0.3)");
+            line.setAttribute("stroke-width", "1");
+            line.setAttribute("stroke-linecap", "round");
+            svg.appendChild(line);
+          }
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [mapReady, pinQuests, tokenPresent, router]);
-
-  // Category dim — applied to whatever markers are currently mounted.
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    document
-      .querySelectorAll<HTMLElement>(".ds-map-pin[data-category]")
-      .forEach((node) => {
-        const cat = node.getAttribute("data-category") ?? "";
-        node.style.opacity =
-          categoryFilter && cat !== categoryFilter ? "0.15" : "1";
-      });
-  }, [categoryFilter, pinQuests]);
+  }, [
+    mapReady,
+    pinQuests,
+    tokenPresent,
+    router,
+    viewTick,
+    spiderfyId,
+  ]);
 
   if (!tokenPresent || initError) {
     return (
@@ -374,6 +599,12 @@ export default function HistoryMap({
         className="ds-history-map-canvas"
         role="application"
         aria-label="Quest map"
+      />
+      <svg
+        ref={overlayRef}
+        className="ds-map-overlay"
+        aria-hidden="true"
+        xmlns="http://www.w3.org/2000/svg"
       />
 
       {showEmpty && (

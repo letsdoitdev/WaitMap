@@ -104,10 +104,49 @@ export default function CompleteQuestPage() {
     return computeElapsedMs(events, ref);
   }, [events]);
 
+  // Best-effort precise-GPS capture. Runs in parallel with the completion
+  // write so the user never waits on the geolocation prompt; if it returns
+  // before the redirect lands we patch completion_* onto the quests row.
+  // Failure (denied / timeout / no API) silently drops the patch — the city
+  // geocode keeps powering the map.
+  const capturePreciseCoords = (): Promise<{
+    lat: number;
+    lng: number;
+    accuracy: number | null;
+    capturedAt: string;
+  } | null> => {
+    return new Promise((resolve) => {
+      if (
+        typeof navigator === "undefined" ||
+        !navigator.geolocation
+      ) {
+        resolve(null);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) =>
+          resolve({
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            accuracy: Number.isFinite(pos.coords.accuracy)
+              ? pos.coords.accuracy
+              : null,
+            capturedAt: new Date(pos.timestamp || Date.now()).toISOString(),
+          }),
+        () => resolve(null),
+        { enableHighAccuracy: true, timeout: 8_000, maximumAge: 0 },
+      );
+    });
+  };
+
   const submit = async () => {
     if (!user || !quest || submitting) return;
     setSubmitting(true);
     setError(null);
+
+    // Fire the GPS capture in parallel with the DB write so it doesn't
+    // gate the redirect.
+    const gpsPromise = capturePreciseCoords();
 
     let completionEventId: string | null = null;
 
@@ -136,11 +175,28 @@ export default function CompleteQuestPage() {
       completionEventId = inserted.id;
     }
 
-    if (reaction !== quest.reaction) {
-      await supabase
-        .from("quests")
-        .update({ reaction })
-        .eq("id", quest.id);
+    const reactionChanged = reaction !== quest.reaction;
+
+    // Wait briefly for the GPS prompt — capped by the geolocation timeout
+    // (8s) we passed in. The await rides alongside the redirect; if the
+    // user denies or it times out we fall through with no patch.
+    const gps = await gpsPromise;
+    const questPatch: {
+      reaction?: QuestReaction | null;
+      completion_lat?: number | null;
+      completion_lng?: number | null;
+      completion_accuracy_m?: number | null;
+      completion_captured_at?: string | null;
+    } = {};
+    if (reactionChanged) questPatch.reaction = reaction;
+    if (gps) {
+      questPatch.completion_lat = gps.lat;
+      questPatch.completion_lng = gps.lng;
+      questPatch.completion_accuracy_m = gps.accuracy;
+      questPatch.completion_captured_at = gps.capturedAt;
+    }
+    if (Object.keys(questPatch).length > 0) {
+      await supabase.from("quests").update(questPatch).eq("id", quest.id);
     }
 
     if (pending.length > 0 && completionEventId) {
