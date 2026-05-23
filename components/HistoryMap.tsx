@@ -2,14 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   MapPin,
   Sparkle,
-  X,
 } from "@phosphor-icons/react/dist/ssr";
-import { formatDistanceToNow } from "date-fns";
-import type { Map as MapboxMap, Marker as MapboxMarker, GeoJSONSource } from "mapbox-gl";
+import type { Map as MapboxMap, Marker as MapboxMarker } from "mapbox-gl";
 import { useStats } from "@/lib/stats-context";
 import {
   geocodeLocation,
@@ -18,21 +17,15 @@ import {
 } from "@/lib/geocode";
 import type { Quest, QuestMedia } from "@/lib/database.types";
 
+const DEV = process.env.NODE_ENV !== "production";
+const MAP_STYLE = "mapbox://styles/mapbox/dark-v11";
+const CONTINENTAL_US_CENTER: [number, number] = [-98.5795, 39.8283];
+
 type PinQuest = Quest & {
   lat: number;
   lng: number;
   thumbUrl?: string;
 };
-
-type PopoverState = {
-  questId: string;
-  title: string;
-  category: string;
-  completedAt: string | null;
-  thumbUrl?: string;
-};
-
-const CONTINENTAL_US_CENTER: [number, number] = [-98.5795, 39.8283];
 
 type Props = {
   /** Pass true when the map mode is the visible mode on /history. We keep
@@ -54,7 +47,8 @@ export default function HistoryMap({
   signedUrls: signedUrlsProp,
   categoryFilter = null,
 }: Props) {
-  const { quests, completedEvents, refresh: refreshStats } = useStats();
+  const router = useRouter();
+  const { quests, refresh: refreshStats } = useStats();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapboxMap | null>(null);
   const markersRef = useRef<Map<string, MapboxMarker>>(new Map());
@@ -62,48 +56,26 @@ export default function HistoryMap({
   const [mapReady, setMapReady] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [pendingCoords, setPendingCoords] = useState(0);
-  const [popover, setPopover] = useState<PopoverState | null>(null);
   const media = useMemo(() => mediaProp ?? [], [mediaProp]);
-  const signedUrls = useMemo(
-    () => signedUrlsProp ?? {},
-    [signedUrlsProp],
-  );
+  const signedUrls = useMemo(() => signedUrlsProp ?? {}, [signedUrlsProp]);
   const [geocodedPatch, setGeocodedPatch] = useState<
     Record<string, { lat: number; lng: number }>
   >({});
 
   const tokenPresent = hasMapboxToken();
 
-  // Category dim — fade non-matching markers instead of removing them so
-  // filtering doesn't visibly re-layout the canvas.
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    document
-      .querySelectorAll<HTMLElement>(".ds-map-pin[data-category]")
-      .forEach((node) => {
-        const cat = node.getAttribute("data-category") ?? "";
-        node.style.opacity =
-          categoryFilter && cat !== categoryFilter ? "0.15" : "1";
-      });
-  }, [categoryFilter]);
-
-  // When the container flips from hidden → visible, Mapbox needs a resize
-  // pass; otherwise the canvas keeps its zero-width layout from when the
-  // container was display:none.
+  // Resize when becoming visible (display:none → block).
   useEffect(() => {
     if (!visible || !mapRef.current) return;
-    // Defer one frame so the container has its real size after the CSS
-    // toggle has flushed.
     const id = requestAnimationFrame(() => {
       mapRef.current?.resize();
     });
     return () => cancelAnimationFrame(id);
   }, [visible]);
 
-  // Media + signed URLs are now hoisted to the /history page level (M7.3
-  // dedupe) — no per-mount fetch here.
-
-  // Lazy geocode any quests with a location but no coords.
+  // Lazy-geocode quests that still need coords. (The list-view backfill from
+  // M7.3 also runs this path; we leave it for the case where the user comes
+  // straight to the map mode on first mount.)
   useEffect(() => {
     if (!tokenPresent || quests.length === 0) return;
     const needs = quests.filter((q) => q.lat == null || q.lng == null);
@@ -125,22 +97,12 @@ export default function HistoryMap({
         const coords = await geocodeLocation(q.location_text);
         if (cancelled) return;
         if (coords) {
-          // setGeocodedPatch first so the pin renders immediately on the
-          // map in-session. Persistence happens after — if it fails, the
-          // list-row "Pin pending" badge will stay until the next reload,
-          // but the map still shows the resolved pin.
-          setGeocodedPatch((prev) => ({
-            ...prev,
-            [q.id]: coords,
-          }));
+          setGeocodedPatch((prev) => ({ ...prev, [q.id]: coords }));
           const result = await upsertQuestCoords(q.id, coords);
           if (result.ok) anyPersisted = true;
         }
         setPendingCoords((n) => Math.max(0, n - 1));
       }
-      // Only refresh the StatsProvider when at least one write landed —
-      // otherwise refresh is a no-op for the badge (lat/lng still null in
-      // DB) and just churns the network.
       if (!cancelled && anyPersisted) await refreshStats();
     })();
     return () => {
@@ -148,47 +110,47 @@ export default function HistoryMap({
     };
   }, [quests, tokenPresent, refreshStats]);
 
-  const mediaByQuest = useMemo(() => {
-    const map = new Map<string, QuestMedia[]>();
-    for (const m of media) {
-      const arr = map.get(m.quest_id) ?? [];
-      arr.push(m);
-      map.set(m.quest_id, arr);
-    }
-    return map;
-  }, [media]);
-
-  const completedByQuest = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const e of completedEvents) {
-      if (!map.has(e.quest_id)) {
-        map.set(e.quest_id, e.created_at);
-      }
-    }
-    return map;
-  }, [completedEvents]);
-
+  // Validate every coord at the source. typeof + isFinite is on purpose —
+  // strings, NaN, or Infinity from a misconfigured backfill should not turn
+  // into a marker at (0, 0).
   const pinQuests: PinQuest[] = useMemo(() => {
+    const mediaByQuest = new Map<string, QuestMedia[]>();
+    for (const m of media) {
+      const arr = mediaByQuest.get(m.quest_id) ?? [];
+      arr.push(m);
+      mediaByQuest.set(m.quest_id, arr);
+    }
     const out: PinQuest[] = [];
     for (const q of quests) {
       const patched = geocodedPatch[q.id];
       const lat = patched?.lat ?? q.lat;
       const lng = patched?.lng ?? q.lng;
-      if (lat == null || lng == null) continue;
+      if (
+        typeof lat !== "number" ||
+        typeof lng !== "number" ||
+        !Number.isFinite(lat) ||
+        !Number.isFinite(lng)
+      ) {
+        continue;
+      }
       const firstMedia = mediaByQuest.get(q.id)?.[0];
       const thumbUrl = firstMedia ? signedUrls[firstMedia.id] : undefined;
       out.push({ ...q, lat, lng, thumbUrl });
     }
     return out;
-  }, [quests, geocodedPatch, mediaByQuest, signedUrls]);
+  }, [quests, geocodedPatch, media, signedUrls]);
 
-  // Mount Mapbox the first time the container becomes visible. Once
-  // initialized, it persists across List/Map toggles via the `hidden`
-  // attribute on the wrapper — we just call resize() when flipping back.
+  // Initialize Mapbox the first time the container becomes visible. We wait
+  // on BOTH `load` and `styledata` because Mapbox style requests sometimes
+  // 503 — when they do, `load` never fires but the basemap-less canvas is
+  // still usable for markers. One retry of the style URL on `error` covers
+  // the transient case; a hard failure leaves the basemap blank but lets
+  // markers render on top.
   useEffect(() => {
     if (!tokenPresent || !visible || !containerRef.current || mapRef.current)
       return;
     let cancelled = false;
+    let styleRetried = false;
     (async () => {
       try {
         // @ts-expect-error — Mapbox CSS file has no module declaration.
@@ -199,41 +161,44 @@ export default function HistoryMap({
         mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!;
         const map = new mapboxgl.Map({
           container: containerRef.current,
-          style: "mapbox://styles/mapbox/dark-v11",
+          style: MAP_STYLE,
           center: CONTINENTAL_US_CENTER,
           zoom: 2.6,
           attributionControl: false,
         });
         map.addControl(new mapboxgl.AttributionControl({ compact: true }));
-        map.on("error", (e) => {
-          console.info("[map] error", e?.error?.message ?? e);
-        });
-        map.on("load", () => {
-          if (cancelled) return;
-          // Seed an empty cluster source — we update its data when pinQuests
-          // changes below.
-          map.addSource("quests", {
-            type: "geojson",
-            data: {
-              type: "FeatureCollection",
-              features: [],
-            },
-            cluster: true,
-            clusterMaxZoom: 14,
-            clusterRadius: 60,
-          });
+
+        const flipReady = () => {
+          if (cancelled || mapReady) return;
           setMapReady(true);
-          // Mapbox computes its initial canvas size at construction. After
-          // our flex layout has settled the wrapper to its real height, run
-          // a second resize so the tiles pick up the new dimensions without
-          // needing a manual List/Map toggle.
           requestAnimationFrame(() => {
             requestAnimationFrame(() => map.resize());
           });
+        };
+
+        map.on("load", flipReady);
+        // styledata fires even when the initial style is replaced after a
+        // retry — covers the 503 fall-through where `load` never arrives.
+        map.on("styledata", flipReady);
+
+        map.on("error", (e: { error?: { status?: number; message?: string } }) => {
+          const status = e?.error?.status;
+          if (DEV) console.warn("[map] error", status, e?.error?.message);
+          if (!styleRetried && (status === 503 || status === 502 || status === 504)) {
+            styleRetried = true;
+            window.setTimeout(() => {
+              try {
+                map.setStyle(MAP_STYLE);
+              } catch {
+                // give up — markers still work on a blank canvas
+              }
+            }, 1_000);
+          }
         });
+
         mapRef.current = map;
       } catch (err) {
-        console.info("[map] init failed", err);
+        if (DEV) console.warn("[map] init failed", err);
         if (!cancelled) {
           setInitError(
             err instanceof Error ? err.message : "Mapbox failed to load",
@@ -244,19 +209,25 @@ export default function HistoryMap({
     return () => {
       cancelled = true;
     };
-  }, [tokenPresent, visible]);
+  }, [tokenPresent, visible, mapReady]);
 
   // Tear-down on unmount.
   useEffect(() => {
+    const markersAtMount = markersRef.current;
+    const mapAtMount = mapRef;
     return () => {
-      markersRef.current.forEach((m) => m.remove());
-      markersRef.current.clear();
-      mapRef.current?.remove();
-      mapRef.current = null;
+      markersAtMount.forEach((m) => m.remove());
+      markersAtMount.clear();
+      mapAtMount.current?.remove();
+      mapAtMount.current = null;
     };
   }, []);
 
-  // Sync the cluster source data + render HTML markers when pins change.
+  // Direct per-quest marker creation. One mapboxgl.Marker per pin, keyed by
+  // quest id so the diff is O(n). Cluster source / querySourceFeatures has
+  // been retired — Mapbox's source pipeline can no-op when the style 503s
+  // or before the first tile is loaded, which is exactly the failure we
+  // saw in prod.
   useEffect(() => {
     if (!mapReady || !tokenPresent) return;
     let cancelled = false;
@@ -266,35 +237,65 @@ export default function HistoryMap({
       const mapboxgl = mod.default;
       const map = mapRef.current;
       if (!map) return;
-      const source = map.getSource("quests") as GeoJSONSource | undefined;
-      if (!source) return;
 
-      const features = pinQuests.map((q) => ({
-        type: "Feature" as const,
-        geometry: {
-          type: "Point" as const,
-          coordinates: [q.lng, q.lat] as [number, number],
-        },
-        properties: {
-          questId: q.id,
-          title: q.title,
-          category: q.category,
-          thumbUrl: q.thumbUrl ?? "",
-        },
-      }));
-      source.setData({
-        type: "FeatureCollection",
-        features,
+      const wanted = new Set(pinQuests.map((q) => q.id));
+
+      // Remove markers whose quest is no longer in the set.
+      markersRef.current.forEach((marker, id) => {
+        if (!wanted.has(id)) {
+          marker.remove();
+          markersRef.current.delete(id);
+        }
       });
 
-      // Auto-fit on first non-empty data set only — don't yank the camera
-      // every time geocoding finishes for a single quest.
+      // Add / update markers for every current pin.
+      for (const q of pinQuests) {
+        const existing = markersRef.current.get(q.id);
+        if (existing) {
+          existing.setLngLat([q.lng, q.lat]);
+          continue;
+        }
+
+        // 44pt tap target via padding on the button wrapper; visible disc
+        // is the inner span at 24px.
+        const el = document.createElement("button");
+        el.type = "button";
+        el.className = "ds-map-pin";
+        el.setAttribute("aria-label", q.title);
+        el.setAttribute("data-category", q.category ?? "");
+        el.style.transition = "opacity 180ms ease-out";
+
+        if (q.thumbUrl) {
+          const img = document.createElement("img");
+          img.src = q.thumbUrl;
+          img.alt = "";
+          img.className = "ds-map-pin-thumb";
+          el.appendChild(img);
+        } else {
+          const fallback = document.createElement("span");
+          fallback.className = "ds-map-pin-fallback";
+          fallback.setAttribute("aria-hidden", "true");
+          el.appendChild(fallback);
+        }
+
+        el.addEventListener("click", (event) => {
+          event.stopPropagation();
+          router.push(`/quest/${q.id}`);
+        });
+
+        const marker = new mapboxgl.Marker({ element: el, anchor: "center" })
+          .setLngLat([q.lng, q.lat])
+          .addTo(map);
+        markersRef.current.set(q.id, marker);
+      }
+
+      // Auto-fit on the first non-empty pin set only.
       if (!fittedRef.current && pinQuests.length > 0) {
         fittedRef.current = true;
         if (pinQuests.length === 1) {
           map.flyTo({
             center: [pinQuests[0].lng, pinQuests[0].lat],
-            zoom: 11,
+            zoom: 13,
             duration: 600,
           });
         } else {
@@ -302,191 +303,28 @@ export default function HistoryMap({
           for (const p of pinQuests) bounds.extend([p.lng, p.lat]);
           map.fitBounds(bounds, {
             padding: 80,
-            maxZoom: 11,
+            maxZoom: 13,
             duration: 600,
           });
         }
       }
-
-      // Render HTML markers for clusters + unclustered points based on what
-      // Mapbox has computed. We re-run on every source update + on move/zoom
-      // via the listeners below.
-      const renderMarkers = () => {
-        if (!map.isStyleLoaded()) return;
-        const queried = map.querySourceFeatures("quests");
-        const next = new Map<string, MapboxMarker>();
-
-        for (const feature of queried) {
-          const props = feature.properties ?? {};
-          const geom = feature.geometry as
-            | { type: "Point"; coordinates: [number, number] }
-            | undefined;
-          if (!geom || geom.type !== "Point") continue;
-          const [lng, lat] = geom.coordinates;
-
-          if (props.cluster) {
-            const id = `cluster-${props.cluster_id}`;
-            const count = props.point_count as number;
-            const existing = markersRef.current.get(id);
-            if (existing) {
-              existing.setLngLat([lng, lat]);
-              next.set(id, existing);
-              continue;
-            }
-            const el = document.createElement("button");
-            el.type = "button";
-            el.className = "ds-map-cluster";
-            el.setAttribute(
-              "aria-label",
-              `${count} quests in this area — zoom in`,
-            );
-            const stack = document.createElement("span");
-            stack.className = "ds-map-cluster-stack";
-            // Pull up to 3 thumb URLs from the queried unclustered features
-            // for this cluster's children — best-effort, gracefully skipped
-            // if the cluster source can't return them synchronously.
-            el.appendChild(stack);
-            const badge = document.createElement("span");
-            badge.className = "ds-map-cluster-badge";
-            badge.textContent = String(count);
-            el.appendChild(badge);
-            el.addEventListener("click", (event) => {
-              event.stopPropagation();
-              const src = map.getSource(
-                "quests",
-              ) as GeoJSONSource;
-              src.getClusterExpansionZoom(
-                props.cluster_id as number,
-                (err, zoom) => {
-                  if (err || zoom == null) return;
-                  map.easeTo({
-                    center: [lng, lat],
-                    zoom: zoom + 0.2,
-                    duration: 500,
-                  });
-                },
-              );
-            });
-            // Asynchronously hydrate up to three child thumb stack tiles.
-            const src = map.getSource("quests") as GeoJSONSource;
-            src.getClusterLeaves(
-              props.cluster_id as number,
-              3,
-              0,
-              (err, leaves) => {
-                if (err || !leaves) return;
-                stack.innerHTML = "";
-                leaves.forEach((leaf, idx) => {
-                  const url = (leaf.properties?.thumbUrl as string) ?? "";
-                  const tile = document.createElement("span");
-                  tile.className = "ds-map-cluster-stack-tile";
-                  tile.style.zIndex = String(3 - idx);
-                  if (url) {
-                    const img = document.createElement("img");
-                    img.src = url;
-                    img.alt = "";
-                    tile.appendChild(img);
-                  }
-                  stack.appendChild(tile);
-                });
-              },
-            );
-            const marker = new mapboxgl.Marker({
-              element: el,
-              anchor: "center",
-            })
-              .setLngLat([lng, lat])
-              .addTo(map);
-            next.set(id, marker);
-          } else {
-            const questId = props.questId as string;
-            if (!questId) continue;
-            const id = `quest-${questId}`;
-            const existing = markersRef.current.get(id);
-            if (existing) {
-              existing.setLngLat([lng, lat]);
-              next.set(id, existing);
-              continue;
-            }
-            const el = document.createElement("button");
-            el.type = "button";
-            el.className = "ds-map-pin";
-            el.setAttribute("aria-label", props.title as string);
-            el.setAttribute(
-              "data-category",
-              (props.category as string) ?? "",
-            );
-            el.style.transition = "opacity 200ms ease-out";
-            const thumbUrl = (props.thumbUrl as string) ?? "";
-            if (thumbUrl) {
-              const img = document.createElement("img");
-              img.src = thumbUrl;
-              img.alt = "";
-              img.className = "ds-map-pin-thumb";
-              el.appendChild(img);
-            } else {
-              const fallback = document.createElement("span");
-              fallback.className = "ds-map-pin-fallback";
-              fallback.setAttribute("aria-hidden", "true");
-              el.appendChild(fallback);
-            }
-            el.addEventListener("click", (event) => {
-              event.stopPropagation();
-              document
-                .querySelectorAll(".ds-map-pin[data-active='true']")
-                .forEach((node) => {
-                  (node as HTMLElement).removeAttribute("data-active");
-                });
-              el.setAttribute("data-active", "true");
-              setPopover({
-                questId,
-                title: props.title as string,
-                category: props.category as string,
-                completedAt: completedByQuest.get(questId) ?? null,
-                thumbUrl: thumbUrl || undefined,
-              });
-            });
-            const marker = new mapboxgl.Marker({
-              element: el,
-              anchor: "center",
-            })
-              .setLngLat([lng, lat])
-              .addTo(map);
-            next.set(id, marker);
-          }
-        }
-
-        // Sweep stale markers.
-        markersRef.current.forEach((m, key) => {
-          if (!next.has(key)) m.remove();
-        });
-        markersRef.current = next;
-      };
-
-      renderMarkers();
-      map.on("moveend", renderMarkers);
-      map.on("zoomend", renderMarkers);
-      map.on("sourcedata", renderMarkers);
-
-      return () => {
-        map.off("moveend", renderMarkers);
-        map.off("zoomend", renderMarkers);
-        map.off("sourcedata", renderMarkers);
-      };
     })();
     return () => {
       cancelled = true;
     };
-  }, [mapReady, pinQuests, completedByQuest, tokenPresent]);
+  }, [mapReady, pinQuests, tokenPresent, router]);
 
-  const dismissPopover = () => {
+  // Category dim — applied to whatever markers are currently mounted.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
     document
-      .querySelectorAll(".ds-map-pin[data-active='true']")
+      .querySelectorAll<HTMLElement>(".ds-map-pin[data-category]")
       .forEach((node) => {
-        (node as HTMLElement).removeAttribute("data-active");
+        const cat = node.getAttribute("data-category") ?? "";
+        node.style.opacity =
+          categoryFilter && cat !== categoryFilter ? "0.15" : "1";
       });
-    setPopover(null);
-  };
+  }, [categoryFilter, pinQuests]);
 
   if (!tokenPresent || initError) {
     return (
@@ -561,6 +399,14 @@ export default function HistoryMap({
             <p className="ds-empty-state-text">
               Complete a quest with a location and it&apos;ll land here.
             </p>
+            <Link
+              href="/"
+              className="ds-suggest-pill"
+              style={{ marginTop: "var(--space-3)" }}
+            >
+              <ArrowRight weight="duotone" size={14} aria-hidden="true" />
+              <span>Generate quests</span>
+            </Link>
           </div>
         </div>
       )}
@@ -571,46 +417,6 @@ export default function HistoryMap({
           <span>
             Resolving {pendingCoords} location{pendingCoords === 1 ? "" : "s"}…
           </span>
-        </div>
-      )}
-
-      {popover && (
-        <div
-          className="glass ds-map-popover"
-          role="dialog"
-          aria-label="Quest"
-        >
-          <button
-            type="button"
-            className="ds-map-popover-close"
-            onClick={dismissPopover}
-            aria-label="Close"
-          >
-            <X weight="duotone" size={14} aria-hidden="true" />
-          </button>
-          <span className="ds-cat-chip" style={{ alignSelf: "flex-start" }}>
-            <span className="ds-cat-chip-icon" aria-hidden="true">
-              <MapPin weight="duotone" size={12} />
-            </span>
-            {popover.category}
-          </span>
-          <h3 className="ds-map-popover-title">{popover.title}</h3>
-          {popover.completedAt && (
-            <p className="ds-map-popover-sub">
-              completed{" "}
-              {formatDistanceToNow(new Date(popover.completedAt), {
-                addSuffix: true,
-              })}
-            </p>
-          )}
-          <Link
-            href={`/quest/${popover.questId}`}
-            className="ds-secondary-pill"
-            style={{ marginTop: "var(--space-3)" }}
-          >
-            <span>View</span>
-            <ArrowRight weight="duotone" size={14} aria-hidden="true" />
-          </Link>
         </div>
       )}
     </div>
