@@ -3,6 +3,7 @@
 import type { User } from "@supabase/supabase-js";
 import { AuthProvider } from "@/lib/auth-context";
 import { ActiveQuestProvider } from "@/lib/active-quest-context";
+import { UploadQueueProvider } from "@/components/UploadQueueProvider";
 
 export default function Providers({
   initialUser,
@@ -13,7 +14,9 @@ export default function Providers({
 }) {
   return (
     <AuthProvider initialUser={initialUser}>
-      <ActiveQuestProvider>{children}</ActiveQuestProvider>
+      <UploadQueueProvider>
+        <ActiveQuestProvider>{children}</ActiveQuestProvider>
+      </UploadQueueProvider>
     </AuthProvider>
   );
 }

@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import Providers from "@/components/Providers";
 import ActiveQuestBanner from "@/components/ActiveQuestBanner";
 import BottomNav from "@/components/BottomNav";
+import UploadQueueIndicator from "@/components/UploadQueueIndicator";
 import UserMenu from "@/components/UserMenu";
 
 const instrumentSerif = Instrument_Serif({
@@ -51,6 +52,7 @@ export default async function RootLayout({
           </div>
           <ActiveQuestBanner />
           {children}
+          <UploadQueueIndicator />
           <BottomNav />
         </Providers>
       </body>
