@@ -4,22 +4,18 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CaretRight,
+  CheckCircle,
   Compass,
-  Pause,
-  Play,
 } from "@phosphor-icons/react/dist/ssr";
 import { useActiveQuest } from "@/lib/active-quest-context";
-import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/lib/auth-context";
 import { computeElapsedMs, formatElapsed } from "@/lib/quest-lifecycle";
 
 export default function ActiveQuestBanner() {
   const router = useRouter();
-  const { active, refresh } = useActiveQuest();
+  const { active } = useActiveQuest();
   const { user } = useAuth();
-  const supabase = createClient();
   const [tick, setTick] = useState(0);
-  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!active || active.state !== "active") return;
@@ -29,29 +25,18 @@ export default function ActiveQuestBanner() {
 
   if (!active || !user) return null;
 
+  void tick;
   const elapsedMs = computeElapsedMs(
     active.events,
     new Date(Date.now()).toISOString(),
   );
-  // tick is read so the linter knows the interval drives a re-render
-  void tick;
-
   const isPaused = active.state === "paused";
 
-  const togglePause = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (busy) return;
-    setBusy(true);
-    await supabase.from("quest_events").insert({
-      quest_id: active.quest.id,
-      user_id: user.id,
-      event_type: isPaused ? "resumed" : "paused",
-    });
-    await refresh();
-    setBusy(false);
-  };
-
   const open = () => router.push("/quest/active");
+  const goComplete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    router.push(`/quest/${active.quest.id}/complete`);
+  };
 
   return (
     <div className="ds-active-banner-wrap">
@@ -71,23 +56,20 @@ export default function ActiveQuestBanner() {
           color="var(--text-secondary)"
           aria-hidden="true"
         />
-        <span className="ds-active-banner-title">{active.quest.title}</span>
+        <span className="ds-active-banner-title">Quest in progress</span>
         <span className="ds-active-banner-timer">
           {isPaused ? "Paused · " : ""}
           {formatElapsed(elapsedMs)}
         </span>
         <button
           type="button"
-          className="ds-active-banner-icon-btn"
-          onClick={togglePause}
-          disabled={busy}
-          aria-label={isPaused ? "Resume quest" : "Pause quest"}
+          className="ds-secondary-pill"
+          style={{ minHeight: 36, padding: "0 14px", fontSize: 13 }}
+          onClick={goComplete}
+          aria-label="Complete quest"
         >
-          {isPaused ? (
-            <Play weight="duotone" size={18} aria-hidden="true" />
-          ) : (
-            <Pause weight="duotone" size={18} aria-hidden="true" />
-          )}
+          <CheckCircle weight="duotone" size={16} aria-hidden="true" />
+          <span>Complete</span>
         </button>
         <button
           type="button"

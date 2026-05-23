@@ -90,7 +90,7 @@ export default function ActiveQuestPage() {
     : "just now";
 
   const insertEvent = async (
-    event_type: "paused" | "resumed" | "completed" | "abandoned",
+    event_type: "paused" | "resumed" | "abandoned",
   ) => {
     if (!user || busy) return;
     setBusy(true);
@@ -105,11 +105,16 @@ export default function ActiveQuestPage() {
     }
     await refresh();
     setBusy(false);
-    if (event_type === "completed") {
-      router.push(`/quest/${active.quest.id}/complete`);
-    } else if (event_type === "abandoned") {
+    if (event_type === "abandoned") {
       router.push("/");
     }
+  };
+
+  const goToComplete = () => {
+    if (busy) return;
+    // No event is inserted here — the completion event is written from the
+    // /quest/[id]/complete capture screen after media is attached (or skipped).
+    router.push(`/quest/${active.quest.id}/complete`);
   };
 
   return (
@@ -215,7 +220,7 @@ export default function ActiveQuestPage() {
             type="button"
             className="ds-cta"
             style={{ width: "auto" }}
-            onClick={() => insertEvent("completed")}
+            onClick={goToComplete}
             disabled={busy}
           >
             <span>Complete</span>

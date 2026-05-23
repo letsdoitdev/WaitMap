@@ -112,6 +112,48 @@ export interface Database {
         };
         Relationships: [];
       };
+      quest_media: {
+        Row: {
+          id: string;
+          quest_id: string;
+          quest_event_id: string;
+          user_id: string;
+          storage_path: string;
+          mime_type: string;
+          bytes: number;
+          width: number | null;
+          height: number | null;
+          duration_ms: number | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          quest_id: string;
+          quest_event_id: string;
+          user_id: string;
+          storage_path: string;
+          mime_type: string;
+          bytes: number;
+          width?: number | null;
+          height?: number | null;
+          duration_ms?: number | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          quest_id?: string;
+          quest_event_id?: string;
+          user_id?: string;
+          storage_path?: string;
+          mime_type?: string;
+          bytes?: number;
+          width?: number | null;
+          height?: number | null;
+          duration_ms?: number | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       daily_generation_counter: {
         Row: {
           user_id: string;
@@ -160,4 +202,21 @@ export type Tables<T extends keyof Database["public"]["Tables"]> =
 
 export type Quest = Tables<"quests">;
 export type QuestEvent = Tables<"quest_events">;
+export type QuestMedia = Tables<"quest_media">;
 export type Profile = Tables<"profiles">;
+
+export const QUEST_MEDIA_BUCKET = "quest-media";
+export const MAX_MEDIA_PER_COMPLETION = 4;
+export const MAX_MEDIA_BYTES = 25 * 1024 * 1024;
+export const ACCEPTED_IMAGE_MIME = [
+  "image/jpeg",
+  "image/png",
+  "image/heic",
+  "image/webp",
+] as const;
+export const ACCEPTED_VIDEO_MIME = ["video/mp4", "video/quicktime"] as const;
+export const ACCEPTED_MEDIA_MIME = [
+  ...ACCEPTED_IMAGE_MIME,
+  ...ACCEPTED_VIDEO_MIME,
+] as const;
+export const IMAGE_COMPRESS_THRESHOLD_BYTES = 2 * 1024 * 1024;

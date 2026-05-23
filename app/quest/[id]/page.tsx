@@ -18,6 +18,7 @@ import {
   Sparkle,
   Tree,
   UsersThree,
+  VideoCamera,
 } from "@phosphor-icons/react/dist/ssr";
 import { formatDistanceToNow } from "date-fns";
 import type { Icon } from "@phosphor-icons/react";
@@ -28,11 +29,14 @@ import {
   formatElapsed,
   getQuestState,
 } from "@/lib/quest-lifecycle";
+import { getSignedMediaUrls } from "@/lib/upload";
 import type {
   Quest,
   QuestEvent,
+  QuestMedia,
   QuestReaction,
 } from "@/lib/database.types";
+import Lightbox, { type LightboxItem } from "@/components/Lightbox";
 
 const CATEGORY_ICONS: Record<string, Icon> = {
   Social: UsersThree,
@@ -64,6 +68,9 @@ export default function QuestDetailPage() {
   const supabase = useMemo(() => createClient(), []);
   const [quest, setQuest] = useState<Quest | null>(null);
   const [events, setEvents] = useState<QuestEvent[]>([]);
+  const [media, setMedia] = useState<QuestMedia[]>([]);
+  const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -76,10 +83,15 @@ export default function QuestDetailPage() {
     if (!user || !params?.id) return;
     let cancelled = false;
     (async () => {
-      const [{ data: q }, { data: ev }] = await Promise.all([
+      const [{ data: q }, { data: ev }, { data: m }] = await Promise.all([
         supabase.from("quests").select("*").eq("id", params.id).maybeSingle(),
         supabase
           .from("quest_events")
+          .select("*")
+          .eq("quest_id", params.id)
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("quest_media")
           .select("*")
           .eq("quest_id", params.id)
           .order("created_at", { ascending: true }),
@@ -87,6 +99,11 @@ export default function QuestDetailPage() {
       if (cancelled) return;
       setQuest(q ?? null);
       setEvents(ev ?? []);
+      setMedia(m ?? []);
+      if ((m ?? []).length > 0) {
+        const urls = await getSignedMediaUrls(m!);
+        if (!cancelled) setSignedUrls(urls);
+      }
       setLoading(false);
     })();
     return () => {
@@ -220,7 +237,74 @@ export default function QuestDetailPage() {
             </span>
           )}
         </div>
+
+        {media.length > 0 && (
+          <div
+            className="ds-history-thumbs"
+            style={{ marginTop: "var(--space-5)", flexWrap: "wrap" }}
+            role="group"
+            aria-label="Quest media"
+          >
+            {media.map((m, i) => {
+              const url = signedUrls[m.id];
+              const isVideo = m.mime_type.startsWith("video/");
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  className="ds-history-thumb"
+                  onClick={() => setLightboxIndex(i)}
+                  aria-label={isVideo ? "Open video" : "Open photo"}
+                >
+                  {url ? (
+                    isVideo ? (
+                      <>
+                        <video
+                          src={url}
+                          className="ds-history-thumb-media"
+                          muted
+                          playsInline
+                        />
+                        <span
+                          className="ds-history-thumb-video-glyph"
+                          aria-hidden="true"
+                        >
+                          <VideoCamera weight="duotone" size={12} />
+                        </span>
+                      </>
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={url}
+                        alt=""
+                        className="ds-history-thumb-media"
+                      />
+                    )
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
+
+      {lightboxIndex !== null && media.length > 0 && (
+        <Lightbox
+          items={media
+            .map((m): LightboxItem | null => {
+              const url = signedUrls[m.id];
+              if (!url) return null;
+              return {
+                id: m.id,
+                url,
+                kind: m.mime_type.startsWith("video/") ? "video" : "image",
+              };
+            })
+            .filter((x): x is LightboxItem => x !== null)}
+          initialIndex={lightboxIndex}
+          onClose={() => setLightboxIndex(null)}
+        />
+      )}
     </main>
   );
 }

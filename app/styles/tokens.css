@@ -1467,3 +1467,417 @@
   color: var(--text-primary);
   margin: 0 0 var(--space-6);
 }
+
+/* -----------------------------------------------------------------------------
+ * M6 — completion media capture, history thumbs, lightbox, upload queue
+ * --------------------------------------------------------------------------- */
+
+/* MediaCapturePad — 2x2 grid of upload tiles. */
+.ds-capture-pad-wrap {
+  position: relative;
+}
+
+.ds-capture-pad-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+.ds-capture-tile {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  width: 100%;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-glass-strong);
+  border: 1px solid var(--border);
+  padding: 0;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  transition:
+    background-color 200ms ease,
+    border-color 200ms ease,
+    transform 100ms ease;
+}
+
+.ds-capture-tile[data-empty="true"] {
+  border-style: dashed;
+}
+
+.ds-capture-tile[data-empty="true"]:enabled:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
+}
+
+.ds-capture-tile:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.ds-capture-tile-media {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ds-capture-tile-video-glyph {
+  position: absolute;
+  left: var(--space-2);
+  bottom: var(--space-2);
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text-primary);
+}
+
+.ds-capture-tile-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 44px;
+  height: 44px;
+  margin: -8px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  color: var(--text-primary);
+  cursor: pointer;
+  z-index: 2;
+}
+
+/* Inner visible chip on the (oversized) remove button. */
+.ds-capture-tile-remove::before {
+  content: "";
+  position: absolute;
+  inset: 14px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  transition: background-color 150ms ease;
+}
+
+.ds-capture-tile-remove:hover::before {
+  background: rgba(0, 0, 0, 0.78);
+}
+
+.ds-capture-tile-remove > svg {
+  position: relative;
+  z-index: 1;
+}
+
+/* Upload progress ring — the screen's one accent moment. */
+.ds-capture-progress-ring {
+  position: absolute;
+  inset: -1px;
+  border-radius: var(--radius-md);
+  pointer-events: none;
+  /* Two-layer trick: conic on top, masked into a thin ring; tiles look
+   * like they're glowing-progressing through the opal sweep. */
+  padding: 2px;
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  background-image: var(--accent-grad);
+}
+
+.ds-capture-tile[data-uploading="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: rgba(26, 22, 20, 0.35);
+  pointer-events: none;
+}
+
+.ds-capture-pad-hint {
+  font-family: var(--font-body, inherit);
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin: var(--space-3) 0 0;
+}
+
+.ds-capture-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(96px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  padding: 10px 16px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-body, inherit);
+  font-size: 13px;
+  color: var(--text-primary);
+  z-index: 60;
+  white-space: nowrap;
+  max-width: calc(100% - var(--space-5));
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* History row — thumbnails strip + pending pill. */
+.ds-history-thumbs {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.ds-history-thumb {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-glass-strong);
+  border: 1px solid var(--border);
+  padding: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.ds-history-thumb-media {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ds-history-thumb-video-glyph {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: var(--text-primary);
+}
+
+.ds-history-thumb-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-body, inherit);
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.ds-pending-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  margin-top: var(--space-3);
+  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-glass-strong);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: var(--font-body, inherit);
+  font-size: 12px;
+  cursor: default;
+}
+
+.ds-pending-pill[data-variant="failed"] {
+  color: var(--warning);
+  cursor: pointer;
+  min-height: 44px;
+  padding: 8px 14px;
+}
+
+.ds-pending-pill[data-variant="failed"]:hover {
+  background: var(--bg-elevated);
+}
+
+/* Lightbox overlay. */
+.ds-lightbox-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.ds-lightbox-stage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: var(--space-7) var(--space-4);
+}
+
+.ds-lightbox-media {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  border-radius: var(--radius-md);
+  background: #000;
+}
+
+.ds-lightbox-close,
+.ds-lightbox-nav {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.ds-lightbox-close:hover,
+.ds-lightbox-nav:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.ds-lightbox-close {
+  top: calc(var(--space-4) + env(safe-area-inset-top));
+  right: var(--space-4);
+}
+
+.ds-lightbox-nav[data-side="prev"] {
+  left: var(--space-3);
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.ds-lightbox-nav[data-side="next"] {
+  right: var(--space-3);
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.ds-lightbox-counter {
+  position: absolute;
+  bottom: calc(var(--space-4) + env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--font-body, inherit);
+  font-size: 13px;
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Queue indicator chip — floats above the bottom nav while uploads run. */
+.ds-queue-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-body, inherit);
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  pointer-events: auto;
+}
+
+.ds-queue-indicator-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-grad);
+  background-size: 100% 100%;
+}
+
+.ds-queue-indicator-wrap {
+  position: fixed;
+  left: 50%;
+  bottom: calc(96px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 26;
+  pointer-events: none;
+}
+
+/* Completion page hero (replaces the old M5 celebration headline). */
+.ds-complete-hero-title {
+  font-family: var(--font-display, serif);
+  font-weight: 400;
+  font-size: clamp(36px, 8vw, 44px);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  margin: 0 0 var(--space-3);
+}
+
+.ds-complete-hero-sub {
+  font-family: var(--font-body, inherit);
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0 0 var(--space-6);
+}
+
+.ds-complete-section-label {
+  font-family: var(--font-body, inherit);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin: var(--space-6) 0 var(--space-3);
+}
+
+.ds-mark-complete-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 48px;
+  padding: 0 var(--space-6);
+  margin-top: var(--space-6);
+  border-radius: var(--radius-pill);
+  background: var(--bg-glass-strong);
+  border: 1px solid var(--border-strong);
+  color: var(--text-primary);
+  font-family: var(--font-body, inherit);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 200ms ease, border-color 200ms ease;
+}
+
+.ds-mark-complete-btn:hover:not(:disabled) {
+  background: var(--bg-elevated);
+}
+
+.ds-mark-complete-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ds-complete-uploading-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: var(--space-4);
+  font-family: var(--font-body, inherit);
+  font-size: 13px;
+  color: var(--text-tertiary);
+}

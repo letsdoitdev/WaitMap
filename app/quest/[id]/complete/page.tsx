@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  Camera,
+  ArrowLeft,
+  CheckCircle,
+  CircleNotch,
   Flame,
   Hand,
   Minus,
@@ -12,6 +14,11 @@ import {
 } from "@phosphor-icons/react/dist/ssr";
 import type { Icon } from "@phosphor-icons/react";
 import { useAuth } from "@/lib/auth-context";
+import { useActiveQuest } from "@/lib/active-quest-context";
+import { useUploadQueue } from "@/components/UploadQueueProvider";
+import MediaCapturePad, {
+  type PendingMedia,
+} from "@/components/MediaCapturePad";
 import { createClient } from "@/lib/supabase/client";
 import {
   computeElapsedMs,
@@ -43,17 +50,21 @@ export default function CompleteQuestPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
+  const { refresh: refreshActive } = useActiveQuest();
+  const { enqueue } = useUploadQueue();
   const supabase = useMemo(() => createClient(), []);
+
   const [quest, setQuest] = useState<Quest | null>(null);
   const [events, setEvents] = useState<QuestEvent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [reactionBusy, setReactionBusy] = useState(false);
+  const [pending, setPending] = useState<PendingMedia[]>([]);
   const [reaction, setReaction] = useState<QuestReaction | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [alreadyCompleted, setAlreadyCompleted] = useState(false);
 
   useEffect(() => {
-    if (!authLoading && !user) {
-      router.replace("/");
-    }
+    if (!authLoading && !user) router.replace("/");
   }, [authLoading, user, router]);
 
   useEffect(() => {
@@ -72,6 +83,9 @@ export default function CompleteQuestPage() {
       setQuest(q ?? null);
       setEvents(ev ?? []);
       setReaction(q?.reaction ?? null);
+      setAlreadyCompleted(
+        (ev ?? []).some((e) => e.event_type === "completed"),
+      );
       setLoading(false);
     })();
     return () => {
@@ -79,21 +93,66 @@ export default function CompleteQuestPage() {
     };
   }, [params?.id, supabase, user]);
 
-  const totalMs = computeElapsedMs(
-    events,
-    new Date(Date.now()).toISOString(),
-  );
+  const elapsedMs = useMemo(() => {
+    if (events.length === 0) return 0;
+    const completedEvent = [...events]
+      .reverse()
+      .find((e) => e.event_type === "completed");
+    const ref = completedEvent
+      ? completedEvent.created_at
+      : new Date(Date.now()).toISOString();
+    return computeElapsedMs(events, ref);
+  }, [events]);
 
-  const setReactionFor = async (r: QuestReaction) => {
-    if (!quest || reactionBusy) return;
-    setReactionBusy(true);
-    const next = reaction === r ? null : r;
-    setReaction(next);
-    await supabase
-      .from("quests")
-      .update({ reaction: next })
-      .eq("id", quest.id);
-    setReactionBusy(false);
+  const submit = async () => {
+    if (!user || !quest || submitting) return;
+    setSubmitting(true);
+    setError(null);
+
+    let completionEventId: string | null = null;
+
+    if (alreadyCompleted) {
+      // Re-attaching media to a quest already completed (e.g. user navigated
+      // back here from /history). Reuse the original completion event.
+      const last = [...events]
+        .reverse()
+        .find((e) => e.event_type === "completed");
+      completionEventId = last?.id ?? null;
+    } else {
+      const { data: inserted, error: insertError } = await supabase
+        .from("quest_events")
+        .insert({
+          quest_id: quest.id,
+          user_id: user.id,
+          event_type: "completed",
+        })
+        .select()
+        .single();
+      if (insertError || !inserted) {
+        setError(insertError?.message ?? "Couldn't mark complete");
+        setSubmitting(false);
+        return;
+      }
+      completionEventId = inserted.id;
+    }
+
+    if (reaction !== quest.reaction) {
+      await supabase
+        .from("quests")
+        .update({ reaction })
+        .eq("id", quest.id);
+    }
+
+    if (pending.length > 0 && completionEventId) {
+      enqueue({
+        questId: quest.id,
+        eventId: completionEventId,
+        files: pending.map((p) => p.file),
+      });
+    }
+
+    await refreshActive();
+    router.push("/history");
   };
 
   if (loading) {
@@ -121,21 +180,37 @@ export default function CompleteQuestPage() {
   }
 
   return (
-    <main className="ds-complete-screen">
-      <h1 className="ds-complete-title">Quest complete</h1>
-      <p
-        style={{
-          fontFamily: "var(--font-body, inherit)",
-          fontSize: 14,
-          color: "var(--text-secondary)",
-          margin: "0 0 var(--space-5)",
-        }}
+    <main
+      style={{
+        maxWidth: 640,
+        margin: "0 auto",
+        padding: "var(--space-6) var(--space-4) var(--space-8)",
+      }}
+    >
+      <Link
+        href="/quest/active"
+        className="ds-secondary-pill"
+        style={{ marginBottom: "var(--space-5)" }}
       >
-        {quest.title}
-      </p>
-      <p className="ds-complete-time">{formatElapsed(totalMs)}</p>
+        <ArrowLeft weight="duotone" size={16} aria-hidden="true" />
+        <span>Back to quest</span>
+      </Link>
 
-      <p className="ds-complete-prompt">How did this quest feel?</p>
+      <h1 className="ds-complete-hero-title">
+        {alreadyCompleted ? "Add to your quest" : "Wrapping up"}
+      </h1>
+      <p className="ds-complete-hero-sub">
+        {quest.title} · {formatElapsed(elapsedMs)}
+      </p>
+
+      <p className="ds-complete-section-label">Photos &amp; video</p>
+      <MediaCapturePad
+        pending={pending}
+        onChange={setPending}
+        disabled={submitting}
+      />
+
+      <p className="ds-complete-section-label">How did this quest feel?</p>
       <div
         className="ds-reactions"
         role="radiogroup"
@@ -151,10 +226,10 @@ export default function CompleteQuestPage() {
               type="button"
               role="radio"
               aria-checked={active}
-              onClick={() => setReactionFor(r)}
+              onClick={() => setReaction((cur) => (cur === r ? null : r))}
               className="ds-reaction"
               data-active={active ? "true" : "false"}
-              disabled={reactionBusy}
+              disabled={submitting}
             >
               <ReactionIcon
                 weight={active ? "fill" : "duotone"}
@@ -167,19 +242,48 @@ export default function CompleteQuestPage() {
         })}
       </div>
 
-      <div className="ds-capture-placeholder">
-        <Camera
-          weight="duotone"
-          size={28}
-          color="var(--text-tertiary)"
-          aria-hidden="true"
-        />
-        <span>Capture coming soon</span>
-      </div>
+      {error && (
+        <p
+          role="alert"
+          style={{
+            color: "var(--error)",
+            fontFamily: "var(--font-body, inherit)",
+            fontSize: 13,
+            margin: "var(--space-4) 0 0",
+          }}
+        >
+          {error}
+        </p>
+      )}
 
-      <Link href="/" className="ds-suggest-pill">
-        <span>Back home</span>
-      </Link>
+      <button
+        type="button"
+        className="ds-mark-complete-btn"
+        onClick={submit}
+        disabled={submitting}
+      >
+        {submitting ? (
+          <>
+            <CircleNotch
+              weight="duotone"
+              size={18}
+              aria-hidden="true"
+              className="animate-spin"
+            />
+            <span>
+              {pending.length > 0 ? "Finalizing…" : "Marking complete…"}
+            </span>
+          </>
+        ) : (
+          <>
+            <CheckCircle weight="duotone" size={18} aria-hidden="true" />
+            <span>
+              {alreadyCompleted ? "Save" : "Mark complete"}
+              {pending.length > 0 ? ` & upload ${pending.length}` : ""}
+            </span>
+          </>
+        )}
+      </button>
     </main>
   );
 }
