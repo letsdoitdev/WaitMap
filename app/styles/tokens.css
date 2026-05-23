@@ -2081,9 +2081,18 @@
   z-index: 1;
 }
 
-/* History map — embedded inside /history, ~60vh tall, glass surround. */
+/* History map — embedded inside /history, ~60vh tall, glass surround.
+ *
+ * Layout is flex-column so the canvas child sizes via `flex: 1` instead of
+ * absolute positioning. Mapbox sets `position: relative` as an inline style
+ * on the container the moment it initializes, which would beat our CSS
+ * `position: absolute` and collapse the canvas to height 0. Flex sizing is
+ * immune to that — the inline position rule is harmless here.
+ */
 .ds-history-map-wrap {
   position: relative;
+  display: flex;
+  flex-direction: column;
   width: 100%;
   height: 60vh;
   min-height: 360px;
@@ -2092,8 +2101,8 @@
 }
 
 .ds-history-map-canvas {
-  position: absolute;
-  inset: 0;
+  flex: 1 1 auto;
+  min-height: 400px;
   background: var(--bg);
   border-radius: var(--radius-lg);
   overflow: hidden;

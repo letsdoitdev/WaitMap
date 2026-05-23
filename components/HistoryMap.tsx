@@ -118,6 +118,7 @@ export default function HistoryMap({ visible = true }: Props) {
 
     let cancelled = false;
     (async () => {
+      let anyPersisted = false;
       for (const q of needs) {
         if (cancelled) return;
         if (!q.location_text) {
@@ -127,17 +128,23 @@ export default function HistoryMap({ visible = true }: Props) {
         const coords = await geocodeLocation(q.location_text);
         if (cancelled) return;
         if (coords) {
-          await upsertQuestCoords(q.id, coords);
+          // setGeocodedPatch first so the pin renders immediately on the
+          // map in-session. Persistence happens after — if it fails, the
+          // list-row "Pin pending" badge will stay until the next reload,
+          // but the map still shows the resolved pin.
           setGeocodedPatch((prev) => ({
             ...prev,
             [q.id]: coords,
           }));
+          const persisted = await upsertQuestCoords(q.id, coords);
+          if (persisted) anyPersisted = true;
         }
         setPendingCoords((n) => Math.max(0, n - 1));
       }
-      // Pull the freshly-written lat/lng into the StatsProvider so the
-      // /history list row drops its "Pin pending" badge.
-      if (!cancelled) await refreshStats();
+      // Only refresh the StatsProvider when at least one write landed —
+      // otherwise refresh is a no-op for the badge (lat/lng still null in
+      // DB) and just churns the network.
+      if (!cancelled && anyPersisted) await refreshStats();
     })();
     return () => {
       cancelled = true;
@@ -219,6 +226,13 @@ export default function HistoryMap({ visible = true }: Props) {
             clusterRadius: 60,
           });
           setMapReady(true);
+          // Mapbox computes its initial canvas size at construction. After
+          // our flex layout has settled the wrapper to its real height, run
+          // a second resize so the tiles pick up the new dimensions without
+          // needing a manual List/Map toggle.
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => map.resize());
+          });
         });
         mapRef.current = map;
       } catch (err) {
