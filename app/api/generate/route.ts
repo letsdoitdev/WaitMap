@@ -178,21 +178,16 @@ Return a JSON array of exactly 3 quest objects. No markdown. No extra text. Each
 }
 \`\`\`
 
-## ⚠️ HARD BANS — etiquette & safety (READ AND SELF-CHECK BEFORE OUTPUTTING)
+## ⚠️ HARD BANS — safety (READ AND SELF-CHECK BEFORE OUTPUTTING)
 
-Reject and rewrite any quest that hits ANY of the patterns below. These are hard rejections, not "rephrase the words" — if a draft matches a pattern, change the underlying activity.
+The app's default vibe is mild chaos. "Could get mildly side-eyed" or "could get asked to leave the store" is fine — that's the product. The bans below are the small set of things with real long-term-damage risk. Anything outside this list is allowed, even if it's a little chaotic. Do not over-sanitize.
 
-1. **Filming or recording strangers** (their answers, voices, faces) without explicit consent. The group can film themselves; never the public. Two-party-consent states make this illegal anyway.
-2. **"Wait until staff notices" / "stay until kicked out"** as a success condition. Designing for ejection is hostile to workers and gets users banned.
-3. **Library quests involving noise, tag, racing, whisper games, "until they react" gimmicks, or any test of how disruptive you can be in a quiet space.** Libraries are off-limits for chaos.
-4. **Restaurant pranks that waste staff time:** identical orders one after another under fake names, wrong-order swaps, sustained in-character deception through the check, anything where the staff person is the mark.
-5. **Supermarket/store cart races, aisle sprints, or evade-staff framings.** Cart-rider "speed runs" are physically dangerous (carts tip) and frame employees as enemies.
-6. **The word "ambush" applied to strangers** — the connotation alone is the problem, especially for women / minorities in parking lots. Rewrite.
-7. **Recording strangers' answers / voices / faces** for content (same as #1, called out separately because it's the most common failure mode).
-8. **Outdoor quests framed around "before dark" or "at midnight" involving elevation, navigation in unfamiliar terrain, creeks/rivers, or sprinting through residential neighborhoods at night.** Sprained ankles and worse. Daytime versions of these activities are fine.
-9. **Cart-rider "speed run" framing** in any retail context (see #5, called out separately because it shows up worded differently).
+1. **No library disruption quests.** No tag, racing, "whisper tournaments," shouting, scavenger sprints, or "stay until staff notices" inside libraries. Libraries stay quiet — real risk of cops being called. Library quests that involve quiet reading, browsing, or finding a book are fine.
+2. **No cart racing with a rider, or in a crowded area.** Shopping-cart speed runs with a person inside the cart are out, and cart racing in a crowded store is out. An empty cart pushed around an empty parking lot at 1am or an empty aisle is fine — the line is "rider present" or "crowded area," not "cart-shaped object exists."
+3. **Recording strangers without consent — INSTRUCTION, not a blanket ban.** If a quest involves filming or recording another person, the quest description must explicitly tell users to ask first and only film with consent. Filming yourselves and filming strangers who've agreed are always fine. Don't avoid cameras in quests — just include the consent instruction when strangers are involved.
+4. **No risky-environment exploration.** No caves without gear, no spelunking, no mountain or free climbing, no cliff scrambling, no deep forest solo trips, no unmarked trails at night. Normal outdoor activity is fully fine — jogging an unfamiliar neighborhood, driving to a hill, walking through community parks, navigating in normal terrain before dark, any of that is allowed.
 
-Self-check each quest before emitting it. If the activity needs one of these patterns to be fun, design a different activity. Workarounds that just hide the pattern in different words fail the check.
+That's the whole list. Restaurant ordering shenanigans (fake names, identical orders, mystery orders), solo aisle sprints in a normal store, cashier-rotation payment bits, drive-thru games, parking-lot social bits, before-dark community navigation — all allowed. The threshold for a ban is significant long-term damage, not "an employee might be mildly annoyed."
 
 ## ⚠️ VARIETY GUARDRAILS (HARD)
 
@@ -497,12 +492,64 @@ function renderFewShot(quests: QuestTemplate[]): string {
 const FOOD_VERBS =
   /\b(eat|eats|eating|ate|order|orders|ordered|taste|tastes|tasted|drink|drinks|drank|sandwich|coffee|sushi|wing|wings|popcorn|sample|samples|sampled|snack|snacks|meal|brunch|breakfast|lunch|dinner|dessert)\b/i;
 
-// Server-side safety belt — matches the 9 hard bans from the prompt. Belt
-// and suspenders: the prompt asks the model to self-check, this catches
-// drafts that slip through. Title + description are joined before the
-// match so single-field bans still trigger.
-const SAFETY_BAN_REGEX =
-  /\b(ambush|until staff notices?|kicked? out|fake name|cart.{0,15}rider|speed.?run.{0,15}cart|midnight|before dark.{0,30}(climb|hike|elevation)|film(ing)? (a |the )?stranger|record(ing)? (their|the|a) (answer|voice))\b/i;
+// Server-side safety belt — matches the 4 narrowed hard bans from the
+// prompt. Belt and suspenders: the prompt asks the model to self-check,
+// this catches drafts that slip through. Title + description are joined
+// before the match so single-field bans still trigger.
+//
+// Two patterns have allow-phrase post-checks:
+//   * cart racing is allowed when the haystack also describes an empty
+//     cart in an empty area (the spec's whitelist phrasing),
+//   * filming/recording a stranger is allowed when the description
+//     includes explicit consent language.
+// A pattern with an `allow` callback only fires a violation when the
+// regex matches AND `allow(haystack)` returns false.
+type SafetyRule = {
+  name: string;
+  regex: RegExp;
+  allow?: (haystack: string) => boolean;
+};
+
+const EMPTY_CART_ALLOW =
+  /(open area|empty lot|no one around|nobody around|empty aisle|empty parking lot)/i;
+const CONSENT_ALLOW =
+  /(with their consent|if they agree|ask(?:ed)? first|with permission|get(?:s|ting)? permission|if they(?:'re| are) cool with it|only if they say yes|opt[- ]?in)/i;
+
+const SAFETY_RULES: SafetyRule[] = [
+  {
+    name: "library_disruption",
+    regex:
+      /library.{0,40}(sprint|race|tag|chase|shout|scream|loud|whisper.{0,20}tournament|until staff)/i,
+  },
+  {
+    name: "cart_racing",
+    regex: /cart.{0,20}(rider|racing|race|speed.?run)/i,
+    allow: (h) => /empty cart/i.test(h) && EMPTY_CART_ALLOW.test(h),
+  },
+  {
+    name: "risky_terrain",
+    regex:
+      /(cave(?! painting)|spelunk|free.?climb|mountain.?climb|cliff.{0,20}scramble|unmarked trail.{0,30}night)/i,
+  },
+  {
+    name: "filming_stranger_without_consent",
+    regex:
+      /(film(?:ing)?|record(?:ing)?)\s+(?:a\s+|the\s+|any\s+|random\s+|some\s+|each\s+)?stranger/i,
+    allow: (h) => CONSENT_ALLOW.test(h),
+  },
+];
+
+function findSafetyViolation(
+  haystack: string,
+): { name: string; match: string } | null {
+  for (const rule of SAFETY_RULES) {
+    const m = haystack.match(rule.regex);
+    if (!m) continue;
+    if (rule.allow && rule.allow(haystack)) continue;
+    return { name: rule.name, match: m[0] };
+  }
+  return null;
+}
 
 // Title-bigram Jaccard. We normalize, drop punctuation + stopwords-ish
 // noise words, then build the bigram set. A perfect match returns 1.0;
@@ -599,11 +646,11 @@ function detectViolations(
         }
       }
     }
-    // HARD BANS — server-side belt for the 9 etiquette / safety patterns.
-    if (SAFETY_BAN_REGEX.test(haystack)) {
-      const match = haystack.match(SAFETY_BAN_REGEX);
+    // HARD BANS — server-side belt for the 4 narrowed safety patterns.
+    const safety = findSafetyViolation(haystack);
+    if (safety) {
       violations.push(
-        `VIOLATION_SAFETY: "${match?.[0]}" in "${q.title}"`,
+        `VIOLATION_SAFETY[${safety.name}]: "${safety.match}" in "${q.title}"`,
       );
     }
     // Food density
