@@ -3440,3 +3440,174 @@ button.ds-onboarding-back:active {
   color: var(--text-primary);
   background: var(--bg-glass-strong);
 }
+
+/* -----------------------------------------------------------------------------
+ * M8.5 — first-completion ReviewPrompt bottom sheet.
+ * Mobile-first dark glass card pinned to the bottom of the viewport;
+ * on md+ it lifts into a centered modal-style card so it doesn't feel
+ * undersized on desktop.
+ * --------------------------------------------------------------------------- */
+
+.ds-review-prompt-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  padding: 0;
+}
+
+@media (min-width: 768px) {
+  .ds-review-prompt-overlay {
+    align-items: center;
+    padding: var(--space-5);
+  }
+}
+
+.ds-review-prompt-sheet {
+  position: relative;
+  width: 100%;
+  max-width: 32rem;
+  padding: var(--space-6) var(--space-5)
+    calc(var(--space-6) + env(safe-area-inset-bottom));
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+@media (min-width: 768px) {
+  .ds-review-prompt-sheet {
+    border-radius: var(--radius-lg);
+    padding: var(--space-6);
+  }
+}
+
+.ds-review-prompt-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--bg-glass-strong);
+  color: var(--text-primary);
+}
+
+.ds-review-prompt-title {
+  font-family: var(--font-display, serif);
+  font-weight: 400;
+  font-size: clamp(24px, 6vw, 28px);
+  line-height: 1.15;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.ds-review-prompt-body {
+  font-family: var(--font-body, inherit);
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.ds-review-prompt-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+  margin-top: var(--space-3);
+}
+
+@media (min-width: 480px) {
+  .ds-review-prompt-actions {
+    flex-direction: row;
+    align-items: center;
+  }
+}
+
+.ds-review-prompt-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 var(--space-6);
+  border-radius: 999px;
+  background: var(--accent-grad);
+  color: #1a1614;
+  font-family: var(--font-body, inherit);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  border: 0;
+  cursor: pointer;
+  box-shadow: 0 8px 24px -8px rgba(125, 211, 192, 0.25);
+  transition: transform 150ms ease, box-shadow 150ms ease;
+  flex: 1 1 auto;
+}
+
+.ds-review-prompt-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 32px -8px rgba(125, 211, 192, 0.4);
+}
+
+.ds-review-prompt-primary:active {
+  transform: scale(0.98);
+}
+
+.ds-review-prompt-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 var(--space-5);
+  border-radius: 999px;
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-family: var(--font-body, inherit);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+  flex: 0 0 auto;
+}
+
+.ds-review-prompt-secondary:hover {
+  background: var(--bg-glass-strong);
+  color: var(--text-primary);
+}
+
+.ds-review-prompt-secondary:active {
+  transform: scale(0.98);
+}
+
+.ds-review-prompt-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 44px;
+  height: 44px;
+  margin: -8px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 150ms ease, background-color 150ms ease;
+}
+
+.ds-review-prompt-close:hover {
+  color: var(--text-primary);
+  background: var(--bg-glass-strong);
+}
