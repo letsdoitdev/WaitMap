@@ -15,15 +15,19 @@ import {
 import type { Icon } from "@phosphor-icons/react";
 import { useAuth } from "@/lib/auth-context";
 import { useActiveQuest } from "@/lib/active-quest-context";
+import { useStats } from "@/lib/stats-context";
+import { useOnboarding } from "@/lib/onboarding-context";
 import { useUploadQueue } from "@/components/UploadQueueProvider";
 import MediaCapturePad, {
   type PendingMedia,
 } from "@/components/MediaCapturePad";
+import ReviewPrompt from "@/components/ReviewPrompt";
 import { createClient } from "@/lib/supabase/client";
 import {
   computeElapsedMs,
   formatElapsed,
 } from "@/lib/quest-lifecycle";
+import { REVIEW_PROMPT_STORAGE_KEY } from "@/lib/constants";
 import type {
   Quest,
   QuestEvent,
@@ -51,6 +55,11 @@ export default function CompleteQuestPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { refresh: refreshActive } = useActiveQuest();
+  const { completedEvents } = useStats();
+  const {
+    answers: onboardingAnswers,
+    markReviewPrompted,
+  } = useOnboarding();
   const { enqueue } = useUploadQueue();
   const supabase = useMemo(() => createClient(), []);
 
@@ -61,6 +70,9 @@ export default function CompleteQuestPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // True when we deferred the redirect to let the review prompt show its
+  // 1.2s celebration beat. Resolved when the user picks an option.
+  const [reviewOpen, setReviewOpen] = useState(false);
   const [alreadyCompleted, setAlreadyCompleted] = useState(false);
 
   useEffect(() => {
@@ -139,10 +151,34 @@ export default function CompleteQuestPage() {
     });
   };
 
+  // First-completion detection — true iff (a) the user had zero prior
+  // completed events when this submit fires, AND (b) we've never set the
+  // localStorage flag in this session, AND (c) the user_onboarding row
+  // hasn't recorded review_prompted_at yet. Computed at submit time so
+  // a deep-link to /quest/[id]/complete doesn't accidentally show the
+  // prompt on a second completion.
+  const shouldShowReviewPrompt = (): boolean => {
+    if (alreadyCompleted) return false;
+    if (completedEvents.length > 0) return false;
+    if (onboardingAnswers.reviewPromptedAt) return false;
+    if (typeof window !== "undefined") {
+      try {
+        if (localStorage.getItem(REVIEW_PROMPT_STORAGE_KEY) === "1") {
+          return false;
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return true;
+  };
+
   const submit = async () => {
     if (!user || !quest || submitting) return;
     setSubmitting(true);
     setError(null);
+
+    const firstCompletion = shouldShowReviewPrompt();
 
     // Fire the GPS capture in parallel with the DB write so it doesn't
     // gate the redirect.
@@ -208,6 +244,29 @@ export default function CompleteQuestPage() {
     }
 
     await refreshActive();
+
+    if (firstCompletion) {
+      // Open the bottom-sheet — it self-defers its render by 1.2s so the
+      // celebration moment lands first. Redirect happens once the user
+      // picks an option.
+      setReviewOpen(true);
+      return;
+    }
+
+    router.push("/history");
+  };
+
+  const handleReviewClose = () => {
+    // Mark the prompt as seen, on both axes the spec calls for:
+    //   - local one-shot guard so the same browser never re-shows
+    //   - user_onboarding.review_prompted_at via the context (Supabase upsert)
+    try {
+      localStorage.setItem(REVIEW_PROMPT_STORAGE_KEY, "1");
+    } catch {
+      // ignore quota / privacy mode — the supabase column still records it
+    }
+    markReviewPrompted();
+    setReviewOpen(false);
     router.push("/history");
   };
 
@@ -340,6 +399,8 @@ export default function CompleteQuestPage() {
           </>
         )}
       </button>
+
+      <ReviewPrompt open={reviewOpen} onClose={handleReviewClose} />
     </main>
   );
 }
