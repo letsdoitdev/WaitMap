@@ -850,16 +850,14 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       // When the category is locked, the model's distribution narrows hard
       // and we see the same handful of templates remixed across rerolls.
-      // Bumping temperature + top_p only for category-locked calls keeps
+      // Bumping temperature only for category-locked calls keeps
       // unfocused "All" requests calm.
       const temperature = requestedCategory ? 0.95 : 0.9;
-      const top_p = requestedCategory ? 0.95 : 1;
       const response = await client.messages.create(
         {
           model: "claude-sonnet-4-5",
           max_tokens: 1500,
           temperature,
-          top_p,
           system: [
             {
               type: "text",
