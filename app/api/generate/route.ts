@@ -177,6 +177,25 @@ Return a JSON array of exactly 3 quest objects. No markdown. No extra text. Each
   "rating": null
 }
 \`\`\`
+
+## ⚠️ HARD BANS — safety (READ AND SELF-CHECK BEFORE OUTPUTTING)
+
+The app's default vibe is mild chaos. "Could get mildly side-eyed" or "could get asked to leave the store" is fine — that's the product. The bans below are the small set of things with real long-term-damage risk. Anything outside this list is allowed, even if it's a little chaotic. Do not over-sanitize.
+
+1. **No library disruption quests.** No tag, racing, "whisper tournaments," shouting, scavenger sprints, or "stay until staff notices" inside libraries. Libraries stay quiet — real risk of cops being called. Library quests that involve quiet reading, browsing, or finding a book are fine.
+2. **No cart racing with a rider, or in a crowded area.** Shopping-cart speed runs with a person inside the cart are out, and cart racing in a crowded store is out. An empty cart pushed around an empty parking lot at 1am or an empty aisle is fine — the line is "rider present" or "crowded area," not "cart-shaped object exists."
+3. **Recording strangers without consent — INSTRUCTION, not a blanket ban.** If a quest involves filming or recording another person, the quest description must explicitly tell users to ask first and only film with consent. Filming yourselves and filming strangers who've agreed are always fine. Don't avoid cameras in quests — just include the consent instruction when strangers are involved.
+4. **No risky-environment exploration.** No caves without gear, no spelunking, no mountain or free climbing, no cliff scrambling, no deep forest solo trips, no unmarked trails at night. Normal outdoor activity is fully fine — jogging an unfamiliar neighborhood, driving to a hill, walking through community parks, navigating in normal terrain before dark, any of that is allowed.
+
+That's the whole list. Restaurant ordering shenanigans (fake names, identical orders, mystery orders), solo aisle sprints in a normal store, cashier-rotation payment bits, drive-thru games, parking-lot social bits, before-dark community navigation — all allowed. The threshold for a ban is significant long-term damage, not "an employee might be mildly annoyed."
+
+## ⚠️ VARIETY GUARDRAILS (HARD)
+
+The categories collapse to a single setting (supermarket / library / restaurant) when the histogram pulls you. The histogram is a SOFT HINT; do not make all 3 quests at the dominant venue type. Within any batch of 3:
+
+- At most 1 quest per setting type (supermarket, restaurant, library, park, street, residential, transit, etc.). If two quests share a setting, replace one.
+- At most 1 quest per "trick" (sprint, identical-order, backwards-walking, scavenger hunt, whisper game, etc.).
+- Each quest commits to a different VERB (the activity action), and ideally a different group-dynamic (competitive / cooperative / secret / public).
 `;
 
 const SYSTEM_PROMPT = `You are running as the backend for the Unemployment app's side quest generator. The canonical skill is loaded below from .claude/skills/side-quest-generator/SKILL.md. Follow it, then apply the website-specific overrides at the bottom.
@@ -312,16 +331,116 @@ const TYPE_LABELS: Record<string, string> = {
  * recount from raw place objects here.
  */
 function buildHistogram(typeCounts: Record<string, number>): string {
+  // Soft hint, not an anchor. We:
+  //   1. drop the counts entirely (sample size leaks through and over-anchors
+  //      the model on whichever bucket "won"),
+  //   2. cap at 4 entries instead of 8 so we don't enumerate the whole map,
+  //   3. randomize the order of equally-weighted entries so the same query
+  //      doesn't always emphasise the same dominant type.
   const labeled: Record<string, number> = {};
   for (const [type, n] of Object.entries(typeCounts)) {
     const label = TYPE_LABELS[type] ?? type;
     labeled[label] = (labeled[label] ?? 0) + n;
   }
-  const parts = Object.entries(labeled)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8)
-    .map(([label, n]) => `${n} ${label}`);
-  return parts.length ? parts.join(", ") : "(no nearby info)";
+  const entries = Object.entries(labeled).sort((a, b) => b[1] - a[1]);
+  if (entries.length === 0) return "(no nearby info)";
+  // Take top 6, then shuffle the slice so the lead bucket isn't always first.
+  const slice = entries.slice(0, 6).map(([label]) => label);
+  for (let i = slice.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [slice[i], slice[j]] = [slice[j], slice[i]];
+  }
+  return slice.slice(0, 4).join(", ");
+}
+
+// ---------- Diversity axes ----------
+//
+// Soft prompt-side diversity seed: 4 axes, each picked from a small pool per
+// request. We tell the model "use AT LEAST ONE per quest and span 3+ axes
+// across the batch", which steers each batch away from the
+// "supermarket sprint" attractor without hard-filtering the space.
+
+const DIVERSITY_AXES = {
+  verb: [
+    "invent",
+    "trade",
+    "map",
+    "teach",
+    "sketch",
+    "cook",
+    "hide",
+    "race",
+    "collect",
+    "photograph",
+    "interview",
+    "decode",
+    "build",
+    "perform",
+    "barter",
+    "swap",
+    "stargaze",
+    "skip-stones",
+    "deliver",
+  ],
+  setting: [
+    "indoors",
+    "outdoors",
+    "residential",
+    "commercial",
+    "natural",
+    "transit",
+    "civic",
+    "rooftop",
+  ],
+  prop: [
+    "phone-banned",
+    "paper-only",
+    "food-based",
+    "chalk",
+    "cash-only",
+    "one-shared-item",
+    "no-props",
+    "music",
+    "polaroid",
+    "balloon",
+  ],
+  group_dynamic: [
+    "competitive",
+    "cooperative",
+    "secret",
+    "public",
+    "relay",
+    "silent",
+    "narrated",
+    "timed",
+    "open-ended",
+  ],
+} as const;
+
+type DiversitySeed = {
+  verb: string;
+  setting: string;
+  prop: string;
+  group_dynamic: string;
+};
+
+function pickDiversitySeed(): DiversitySeed {
+  const pick = <T>(pool: readonly T[]): T =>
+    pool[Math.floor(Math.random() * pool.length)];
+  return {
+    verb: pick(DIVERSITY_AXES.verb),
+    setting: pick(DIVERSITY_AXES.setting),
+    prop: pick(DIVERSITY_AXES.prop),
+    group_dynamic: pick(DIVERSITY_AXES.group_dynamic),
+  };
+}
+
+function renderDiversitySeed(seed: DiversitySeed): string {
+  return `\n\nDIVERSITY SEED (use at least one tag per quest; the batch should collectively touch 3+ of these 4 axes):
+- verb hint: ${seed.verb}
+- setting hint: ${seed.setting}
+- prop / constraint hint: ${seed.prop}
+- group dynamic hint: ${seed.group_dynamic}`;
 }
 
 function spiceTier(s: number): 1 | 2 | 3 | 4 {
@@ -373,6 +492,112 @@ function renderFewShot(quests: QuestTemplate[]): string {
 const FOOD_VERBS =
   /\b(eat|eats|eating|ate|order|orders|ordered|taste|tastes|tasted|drink|drinks|drank|sandwich|coffee|sushi|wing|wings|popcorn|sample|samples|sampled|snack|snacks|meal|brunch|breakfast|lunch|dinner|dessert)\b/i;
 
+// Server-side safety belt — matches the 4 narrowed hard bans from the
+// prompt. Belt and suspenders: the prompt asks the model to self-check,
+// this catches drafts that slip through. Title + description are joined
+// before the match so single-field bans still trigger.
+//
+// Two patterns have allow-phrase post-checks:
+//   * cart racing is allowed when the haystack also describes an empty
+//     cart in an empty area (the spec's whitelist phrasing),
+//   * filming/recording a stranger is allowed when the description
+//     includes explicit consent language.
+// A pattern with an `allow` callback only fires a violation when the
+// regex matches AND `allow(haystack)` returns false.
+type SafetyRule = {
+  name: string;
+  regex: RegExp;
+  allow?: (haystack: string) => boolean;
+};
+
+const EMPTY_CART_ALLOW =
+  /(open area|empty lot|no one around|nobody around|empty aisle|empty parking lot)/i;
+const CONSENT_ALLOW =
+  /(with their consent|if they agree|ask(?:ed)? first|with permission|get(?:s|ting)? permission|if they(?:'re| are) cool with it|only if they say yes|opt[- ]?in)/i;
+
+const SAFETY_RULES: SafetyRule[] = [
+  {
+    name: "library_disruption",
+    regex:
+      /library.{0,40}(sprint|race|tag|chase|shout|scream|loud|whisper.{0,20}tournament|until staff)/i,
+  },
+  {
+    name: "cart_racing",
+    regex: /cart.{0,20}(rider|racing|race|speed.?run)/i,
+    allow: (h) => /empty cart/i.test(h) && EMPTY_CART_ALLOW.test(h),
+  },
+  {
+    name: "risky_terrain",
+    regex:
+      /(cave(?! painting)|spelunk|free.?climb|mountain.?climb|cliff.{0,20}scramble|unmarked trail.{0,30}night)/i,
+  },
+  {
+    name: "filming_stranger_without_consent",
+    regex:
+      /(film(?:ing)?|record(?:ing)?)\s+(?:a\s+|the\s+|any\s+|random\s+|some\s+|each\s+)?stranger/i,
+    allow: (h) => CONSENT_ALLOW.test(h),
+  },
+];
+
+function findSafetyViolation(
+  haystack: string,
+): { name: string; match: string } | null {
+  for (const rule of SAFETY_RULES) {
+    const m = haystack.match(rule.regex);
+    if (!m) continue;
+    if (rule.allow && rule.allow(haystack)) continue;
+    return { name: rule.name, match: m[0] };
+  }
+  return null;
+}
+
+// Title-bigram Jaccard. We normalize, drop punctuation + stopwords-ish
+// noise words, then build the bigram set. A perfect match returns 1.0;
+// disjoint returns 0.0.
+const TITLE_STOPWORDS = new Set([
+  "a",
+  "an",
+  "the",
+  "of",
+  "to",
+  "in",
+  "at",
+  "on",
+  "and",
+  "or",
+  "for",
+  "with",
+  "by",
+]);
+
+function titleBigrams(title: string): Set<string> {
+  const tokens = title
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, " ")
+    .split(/\s+/)
+    .filter((t) => t && !TITLE_STOPWORDS.has(t));
+  const out = new Set<string>();
+  for (let i = 0; i + 1 < tokens.length; i++) {
+    out.add(`${tokens[i]} ${tokens[i + 1]}`);
+  }
+  return out;
+}
+
+function bigramJaccard(a: string, b: string): number {
+  const sa = titleBigrams(a);
+  const sb = titleBigrams(b);
+  if (sa.size === 0 && sb.size === 0) return 0;
+  let inter = 0;
+  sa.forEach((t) => {
+    if (sb.has(t)) inter++;
+  });
+  const union = sa.size + sb.size - inter;
+  return union === 0 ? 0 : inter / union;
+}
+
+const SIMILARITY_THRESHOLD = 0.45;
+const SAFETY_LOG = process.env.GENERATE_DEBUG === "1";
+
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -401,6 +626,7 @@ function detectViolations(
   rawNames: string[],
   userRequestedSpice: number,
   requestedCategory: string | null,
+  previousTitles: string[],
 ): ViolationReport {
   const violations: string[] = [];
   const leakedNames = new Set<string>();
@@ -419,6 +645,13 @@ function detectViolations(
           leakedNames.add(name);
         }
       }
+    }
+    // HARD BANS — server-side belt for the 4 narrowed safety patterns.
+    const safety = findSafetyViolation(haystack);
+    if (safety) {
+      violations.push(
+        `VIOLATION_SAFETY[${safety.name}]: "${safety.match}" in "${q.title}"`,
+      );
     }
     // Food density
     const isFoodCat = (q.category ?? "").toLowerCase() === "food";
@@ -439,15 +672,39 @@ function detectViolations(
     violations.push(`VIOLATION_FOODHEAVY: ${foodCount} food-flavored quests in batch`);
   }
 
-  // Dupe titles
+  // Dupe titles — 3-consecutive-word check (existing) PLUS the new bigram
+  // Jaccard at 0.45 against (a) sibling titles in this batch and (b) the
+  // client-supplied previousTitles list. Catches "Same Trick, Different
+  // Wording" cases like "Backwards Navigation Challenge" vs "Reverse Path
+  // Challenge" that the trigram check happily lets through.
   for (let i = 0; i < quests.length; i++) {
+    const titleI = quests[i].title ?? "";
     for (let j = i + 1; j < quests.length; j++) {
-      if (shareThreeConsecutive(quests[i].title ?? "", quests[j].title ?? "")) {
+      const titleJ = quests[j].title ?? "";
+      if (shareThreeConsecutive(titleI, titleJ)) {
         violations.push(
-          `VIOLATION_DUPE: titles "${quests[i].title}" / "${quests[j].title}"`,
+          `VIOLATION_DUPE: titles "${titleI}" / "${titleJ}"`,
+        );
+      }
+      const j2 = bigramJaccard(titleI, titleJ);
+      if (j2 >= SIMILARITY_THRESHOLD) {
+        violations.push(
+          `VIOLATION_SIMILAR: jaccard=${j2.toFixed(2)} between "${titleI}" / "${titleJ}"`,
         );
       }
     }
+    for (const prev of previousTitles) {
+      const jp = bigramJaccard(titleI, prev);
+      if (jp >= SIMILARITY_THRESHOLD) {
+        violations.push(
+          `VIOLATION_SIMILAR_PREV: jaccard=${jp.toFixed(2)} between "${titleI}" / "${prev}"`,
+        );
+      }
+    }
+  }
+
+  if (SAFETY_LOG && violations.length > 0) {
+    console.log("[generate] violations", violations);
   }
 
   return { violations, leakedNames: Array.from(leakedNames) };
@@ -563,16 +820,18 @@ export async function POST(req: NextRequest) {
   const histogram = buildHistogram(typeCounts);
   const fewShot = pickFewShot(groupSize, spiceLevel, requestedCategory, 6);
   const fewShotStr = renderFewShot(fewShot);
+  const diversitySeed = pickDiversitySeed();
+  const diversityStr = renderDiversitySeed(diversitySeed);
 
-  const baseUserMessage = `${categoryPrefix}Generate 3 side quests. Light context: the user is in ${location} (atmosphere only — NOT a venue list to draw from).
+  const baseUserMessage = `${categoryPrefix}Generate exactly 3 side quests. Light context: the user is in ${location} (atmosphere only — NOT a venue list to draw from).
 
-Venue TYPES available nearby (use as type-hints, NEVER name specific places): ${histogram}
+Venue TYPES available nearby (soft hint only — do NOT make all 3 quests at the dominant type): ${histogram}
 
-For example, if they have parks, your quest can say "a nearby park" — do NOT name the park.${fewShotStr}
+For example, if they have parks, your quest can say "a nearby park" — do NOT name the park.${fewShotStr}${diversityStr}
 
 Inputs: spice level ${spiceLevel}/10, group size ${groupSizeHint}, time available ${timeAvailable} minutes.${driveStr}${costStr}${previousStr}
 
-Return a JSON array of exactly 3 quest objects following the OUTPUT FORMAT defined in the system prompt. No markdown, no explanation, just the raw JSON array.`;
+Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defined in the system prompt. No markdown, no explanation, just the raw JSON array. If you produce more than 3, only the first 3 will be used.`;
 
   const rawNames = places.map((p) => p.name);
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -589,11 +848,16 @@ Return a JSON array of exactly 3 quest objects following the OUTPUT FORMAT defin
 
   try {
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      // When the category is locked, the model's distribution narrows hard
+      // and we see the same handful of templates remixed across rerolls.
+      // Bumping temperature only for category-locked calls keeps
+      // unfocused "All" requests calm.
+      const temperature = requestedCategory ? 0.95 : 0.9;
       const response = await client.messages.create(
         {
           model: "claude-sonnet-4-5",
           max_tokens: 1500,
-          temperature: 0.9,
+          temperature,
           system: [
             {
               type: "text",
@@ -619,8 +883,18 @@ Return a JSON array of exactly 3 quest objects following the OUTPUT FORMAT defin
       }
       if (!Array.isArray(parsed)) break;
 
-      const arr = parsed as ClaudeQuest[];
-      const report = detectViolations(arr, rawNames, spiceLevel, requestedCategory);
+      // Cap at the contract size up-front — when the model returns 6
+      // (which the Outdoor audit saw) we'd otherwise propagate the extras
+      // through to the client. Keeping the first 3 also makes the
+      // violation report deterministic.
+      const arr = (parsed as ClaudeQuest[]).slice(0, 3);
+      const report = detectViolations(
+        arr,
+        rawNames,
+        spiceLevel,
+        requestedCategory,
+        previousTitles,
+      );
       lastParsed = arr;
       lastViolations = report.violations;
       console.log("[generate] attempt", attempt + 1, {
