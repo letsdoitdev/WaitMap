@@ -3288,3 +3288,57 @@ button.ds-onboarding-back:active {
   gap: var(--space-3);
   padding-top: var(--space-7);
 }
+
+/* -----------------------------------------------------------------------------
+ * M8.3 — spice slider readout + anchors for the onboarding flow.
+ * Reuses the existing .ds-slider track / thumb tokens; only the surrounding
+ * scale (large number + label + endpoint anchors) is new.
+ * --------------------------------------------------------------------------- */
+
+.ds-onboarding-spice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-3) 0;
+}
+
+.ds-onboarding-spice-readout {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--space-3);
+}
+
+.ds-onboarding-spice-number {
+  font-family: var(--font-display, serif);
+  font-weight: 400;
+  font-size: clamp(64px, 18vw, 96px);
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-onboarding-spice-label {
+  font-family: var(--font-body, inherit);
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.ds-onboarding-slider {
+  width: 100%;
+  /* Slightly chunkier hit area than the prefs panel — 44pt floor. */
+  height: 44px;
+}
+
+.ds-onboarding-spice-anchors {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-body, inherit);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--text-tertiary);
+  text-transform: lowercase;
+}
