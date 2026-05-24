@@ -12,6 +12,7 @@ import StepSpice from "@/components/onboarding/StepSpice";
 import StepTime from "@/components/onboarding/StepTime";
 import StepMobility from "@/components/onboarding/StepMobility";
 import StepCost from "@/components/onboarding/StepCost";
+import StepLocation from "@/components/onboarding/StepLocation";
 import { useOnboarding } from "@/lib/onboarding-context";
 
 const TOTAL_STEPS = 8;
@@ -67,30 +68,7 @@ function OnboardingInner() {
         {step === 5 && <StepTime onAdvance={onAdvance} />}
         {step === 6 && <StepMobility onAdvance={onAdvance} />}
         {step === 7 && <StepCost onAdvance={onAdvance} />}
-        {step === 8 && (
-          <div className="ds-onboarding-placeholder">
-            <p
-              className="ds-empty-state-text"
-              style={{
-                fontFamily: "var(--font-display, serif)",
-                fontSize: "clamp(24px, 6vw, 30px)",
-                color: "var(--text-primary)",
-              }}
-            >
-              Step 8
-            </p>
-            <p className="ds-empty-state-text">
-              Location pre-prompt lands in M8.4.
-            </p>
-            <button
-              type="button"
-              className="ds-onboarding-cta"
-              onClick={() => goTo(Math.min(TOTAL_STEPS, step + 1))}
-            >
-              <span>Skip for now</span>
-            </button>
-          </div>
-        )}
+        {step === 8 && <StepLocation />}
       </OnboardingShell>
     </div>
   );

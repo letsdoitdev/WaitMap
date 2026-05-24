@@ -26,6 +26,11 @@ function placeholderForType(osmType: string | undefined): string {
   return "a nearby spot";
 }
 
+export type OnboardingPrefs = {
+  vibe_categories?: string[];
+  cost_pref?: "free" | "cheap" | "any";
+};
+
 export type GenerateInput = {
   city: string;
   groupSize: number;
@@ -34,6 +39,7 @@ export type GenerateInput = {
   nearby?: NearbyPlace[];
   ratings?: Record<string, Rating>;
   excludeIds?: string[]; // quest ids already shown this session
+  onboardingPrefs?: OnboardingPrefs;
 };
 
 export type GenerateResult = {
@@ -57,6 +63,56 @@ function fisherYates<T>(arr: T[]): T[] {
     [out[i], out[j]] = [out[j], out[i]];
   }
   return out;
+}
+
+/**
+ * Soft bias from the onboarding answers. We never hard-filter — variety is
+ * the point — but vibe matches get +25% weight (per spec), and cost_pref
+ * tilts the cost ladder in the user's direction. With no prefs every weight
+ * is 1, so the picker degrades cleanly to uniform random.
+ */
+function templateWeight(
+  q: QuestTemplate,
+  prefs: OnboardingPrefs | undefined,
+): number {
+  let w = 1;
+  if (!prefs) return w;
+  if (prefs.vibe_categories && prefs.vibe_categories.length > 0) {
+    if (prefs.vibe_categories.includes(q.category)) w *= 1.25;
+  }
+  if (prefs.cost_pref === "free") {
+    if (q.cost === "free") w *= 1.4;
+    else if (q.cost === "$") w *= 0.8;
+    else if (q.cost === "$$") w *= 0.5;
+    else if (q.cost === "$$$") w *= 0.3;
+  } else if (prefs.cost_pref === "cheap") {
+    if (q.cost === "free" || q.cost === "$") w *= 1.25;
+    else if (q.cost === "$$") w *= 0.9;
+    else if (q.cost === "$$$") w *= 0.5;
+  }
+  return w;
+}
+
+/**
+ * Efraimidis–Spirakis weighted reservoir sampling without replacement.
+ * Returns the top `count` items by exponential-rank, so heavier items are
+ * more likely to land near the top without ever being guaranteed.
+ */
+function weightedSample<T>(
+  items: T[],
+  weight: (item: T) => number,
+  count: number,
+): T[] {
+  if (items.length <= 1) return items.slice(0, count);
+  const ranked = items.map((item) => {
+    const w = Math.max(1e-9, weight(item));
+    // Lower keys win when sorted ascending; -ln(U)/w is the standard form.
+    const u = Math.random();
+    const key = -Math.log(u <= 0 ? 1e-12 : u) / w;
+    return { item, key };
+  });
+  ranked.sort((a, b) => a.key - b.key);
+  return ranked.slice(0, count).map((x) => x.item);
 }
 
 function viable(q: QuestTemplate, input: GenerateInput): boolean {
@@ -116,9 +172,15 @@ export function generateQuests(
   }
   if (pool.length < count) pool = QUESTS.slice();
 
-  // 4. Fisher-Yates shuffle, take first N.
-  const shuffled = fisherYates(pool);
-  const picked = shuffled.slice(0, count);
+  // 4. Weighted sample (no prefs → uniform; with prefs → +25% vibe, cost
+  //    ladder). Falls back to a plain shuffle on the rare empty case.
+  const picked = pool.length
+    ? weightedSample(
+        pool,
+        (q) => templateWeight(q, input.onboardingPrefs),
+        count,
+      )
+    : fisherYates(pool).slice(0, count);
 
   // 5. Resolve venues + templating.
   // We deliberately do NOT inject real venue names into quest text, even when
