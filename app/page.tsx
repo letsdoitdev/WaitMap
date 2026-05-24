@@ -21,7 +21,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { useActiveQuest } from "@/lib/active-quest-context";
 import { useStats } from "@/lib/stats-context";
-import { useOnboarding } from "@/lib/onboarding-context";
+import { GROUP_MODE_SIZE, useOnboarding } from "@/lib/onboarding-context";
 import {
   appendRecentQuestIds,
   loadRecentQuestIds,
@@ -203,10 +203,12 @@ export default function Home() {
   const { active, refresh: refreshActive } = useActiveQuest();
   const { completedEvents } = useStats();
   const {
+    answers: onboardingAnswers,
     isComplete: onboardingDone,
     loading: onboardingLoading,
   } = useOnboarding();
   const forceFlag = searchParamsHome?.get("force") === "1";
+  const focusLocationFlag = searchParamsHome?.get("focus") === "1";
 
   // New users (no onboarding row, no localStorage progress) get routed to
   // the guided quiz the first time they hit /. ?force=1 escapes for QA.
@@ -422,6 +424,71 @@ export default function Home() {
     }
   }, []);
 
+  // First-visit-after-onboarding Preferences prefill. We seed once: if the
+  // onboarding answers exist (group_modes / spice / time_minutes / canDrive
+  // / costPref) we write them into the matching Preferences state so the
+  // home generator starts on the user's quiz answers rather than the
+  // hard-coded defaults. Gated on a localStorage flag so reroll / reload
+  // doesn't repeatedly clobber state the user has since tweaked.
+  const onboardingPrefillRef = useRef(false);
+  useEffect(() => {
+    if (onboardingPrefillRef.current) return;
+    if (onboardingLoading || !onboardingDone) return;
+    onboardingPrefillRef.current = true;
+    let alreadySeeded = false;
+    try {
+      alreadySeeded =
+        localStorage.getItem("sqOnboardingPrefilled.v1") === "1";
+    } catch {
+      // ignore
+    }
+    if (alreadySeeded) return;
+    if (onboardingAnswers.groupModes.length > 0) {
+      const sizes = onboardingAnswers.groupModes
+        .map((m) => GROUP_MODE_SIZE[m] ?? 3)
+        .filter((n) => Number.isFinite(n));
+      if (sizes.length > 0) setGroupSize(Math.max(...sizes));
+    }
+    if (typeof onboardingAnswers.spice === "number") {
+      setSpice(onboardingAnswers.spice);
+    }
+    if (typeof onboardingAnswers.timeMinutes === "number") {
+      setTimeMinutes(onboardingAnswers.timeMinutes);
+    }
+    if (typeof onboardingAnswers.canDrive === "boolean") {
+      setCanDrive(onboardingAnswers.canDrive);
+    }
+    if (onboardingAnswers.costPref) {
+      setLowCostOnly(onboardingAnswers.costPref === "free");
+    }
+    try {
+      localStorage.setItem("sqOnboardingPrefilled.v1", "1");
+    } catch {
+      // ignore
+    }
+  }, [
+    onboardingLoading,
+    onboardingDone,
+    onboardingAnswers.groupModes,
+    onboardingAnswers.spice,
+    onboardingAnswers.timeMinutes,
+    onboardingAnswers.canDrive,
+    onboardingAnswers.costPref,
+  ]);
+
+  // /?focus=1 arrives from the "I'll type it in" path. Focus the location
+  // input once the city input ref has mounted; clear the URL param so a
+  // later reload doesn't keep stealing focus.
+  const locInputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (!focusLocationFlag) return;
+    const t = window.setTimeout(() => {
+      locInputRef.current?.focus();
+      router.replace("/", { scroll: false });
+    }, 50);
+    return () => window.clearTimeout(t);
+  }, [focusLocationFlag, router]);
+
   const submitSuggestion = async () => {
     const text = suggestText.trim();
     if (!text || text.length > 500 || suggestBusy) return;
@@ -583,6 +650,12 @@ export default function Home() {
           nearby: places,
           ratings: ratingByQuest,
           excludeIds,
+          onboardingPrefs: onboardingDone
+            ? {
+                vibe_categories: onboardingAnswers.vibeCategories,
+                cost_pref: onboardingAnswers.costPref ?? undefined,
+              }
+            : undefined,
         },
         count,
       );
@@ -768,6 +841,7 @@ export default function Home() {
             </span>
             <div className="ds-loc-field">
               <input
+                ref={locInputRef}
                 value={city}
                 onChange={(e) => {
                   setCity(e.target.value);
