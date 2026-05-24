@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { RatingRecord, RATING_STORAGE_KEY } from "@/lib/ratings";
 import {
-  ADMIN_AUTH_KEY,
-  ADMIN_PASSWORD,
   ADMIN_STATE_KEY,
   AdminState,
   EMPTY_ADMIN_STATE,
@@ -251,9 +250,7 @@ function Trend({ net }: { net: number }) {
 // ---------- Page ----------
 
 export default function AdminPage() {
-  const [authed, setAuthed] = useState(false);
-  const [pwInput, setPwInput] = useState("");
-  const [pwError, setPwError] = useState(false);
+  const router = useRouter();
 
   const [records, setRecords] = useState<RatingRecord[]>([]);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
@@ -264,16 +261,10 @@ export default function AdminPage() {
   const [copyOk, setCopyOk] = useState(false);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (sessionStorage.getItem(ADMIN_AUTH_KEY) === "1") setAuthed(true);
-  }, []);
-
-  useEffect(() => {
-    if (!authed) return;
     setRecords(loadJSON<RatingRecord[]>(RATING_STORAGE_KEY, []));
     setSuggestions(loadJSON<Suggestion[]>(SUGGEST_STORAGE_KEY, []));
     setAdminState(loadJSON<AdminState>(ADMIN_STATE_KEY, EMPTY_ADMIN_STATE));
-  }, [authed]);
+  }, []);
 
   // ----- derived -----
   const aggs = useMemo(() => aggregate(records), [records]);
@@ -295,7 +286,6 @@ export default function AdminPage() {
 
   // Auto-update the commit JSON editor when approvals change
   useEffect(() => {
-    if (!authed) return;
     const payload = {
       generatedAt: new Date().toISOString(),
       approvedScoreAdjustments: approvedProposals.map((p) => ({
@@ -314,7 +304,6 @@ export default function AdminPage() {
     setCommitText(JSON.stringify(payload, null, 2));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    authed,
     adminState.adjustmentActions,
     adminState.suggestionActions,
     adminState.suggestionEdits,
@@ -322,22 +311,14 @@ export default function AdminPage() {
     suggestions,
   ]);
 
-  // ----- auth -----
-  const tryLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (pwInput === ADMIN_PASSWORD) {
-      sessionStorage.setItem(ADMIN_AUTH_KEY, "1");
-      setAuthed(true);
-      setPwError(false);
-    } else {
-      setPwError(true);
+  const logout = async () => {
+    try {
+      await fetch("/api/admin/logout", { method: "POST" });
+    } catch {
+      // ignore
     }
-  };
-
-  const logout = () => {
-    sessionStorage.removeItem(ADMIN_AUTH_KEY);
-    setAuthed(false);
-    setPwInput("");
+    router.replace("/admin/login");
+    router.refresh();
   };
 
   // ----- admin state mutators -----
@@ -435,51 +416,6 @@ export default function AdminPage() {
   };
 
   // ---------- Render ----------
-
-  if (!authed) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-950 via-purple-950 to-black p-6 text-white">
-        <form
-          onSubmit={tryLogin}
-          className="w-full max-w-sm rounded-2xl border border-amber-500/20 bg-black/60 p-6 shadow-2xl shadow-amber-500/10 backdrop-blur"
-        >
-          <div className="mb-6 text-center">
-            <div className="text-3xl">🔒</div>
-            <h1 className="mt-2 text-2xl font-black tracking-tight">
-              Admin <span className="text-amber-400">Console</span>
-            </h1>
-            <p className="mt-1 text-xs text-white/50">
-              Restricted access. Authorized personnel only.
-            </p>
-          </div>
-          <label className="block">
-            <span className="mb-1.5 block text-xs font-medium uppercase tracking-wider text-white/60">
-              Password
-            </span>
-            <input
-              type="password"
-              value={pwInput}
-              onChange={(e) => {
-                setPwInput(e.target.value);
-                setPwError(false);
-              }}
-              autoFocus
-              className="w-full rounded-lg border border-white/10 bg-black/50 px-3 py-2.5 text-white outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/30"
-            />
-          </label>
-          {pwError && (
-            <p className="mt-2 text-sm text-red-400">Incorrect password.</p>
-          )}
-          <button
-            type="submit"
-            className="mt-5 w-full rounded-lg bg-amber-500 px-4 py-2.5 font-bold text-black transition hover:bg-amber-400 active:scale-[0.98]"
-          >
-            Unlock
-          </button>
-        </form>
-      </main>
-    );
-  }
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-slate-950 via-purple-950 to-black text-white">
