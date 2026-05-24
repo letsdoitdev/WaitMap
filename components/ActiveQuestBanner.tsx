@@ -8,6 +8,7 @@ import {
   Compass,
 } from "@phosphor-icons/react/dist/ssr";
 import { useActiveQuest } from "@/lib/active-quest-context";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { computeElapsedMs, formatElapsed } from "@/lib/quest-lifecycle";
 
@@ -15,6 +16,7 @@ export default function ActiveQuestBanner() {
   const router = useRouter();
   const { active } = useActiveQuest();
   const { user } = useAuth();
+  const pathname = usePathname();
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -23,6 +25,7 @@ export default function ActiveQuestBanner() {
     return () => window.clearInterval(id);
   }, [active]);
 
+  if (pathname?.startsWith("/onboarding")) return null;
   if (!active || !user) return null;
 
   void tick;

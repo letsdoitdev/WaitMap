@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { generateQuests, GeneratedQuest } from "@/lib/generate";
 import { QuestCategory } from "@/lib/quests";
@@ -21,6 +21,7 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth-context";
 import { useActiveQuest } from "@/lib/active-quest-context";
 import { useStats } from "@/lib/stats-context";
+import { useOnboarding } from "@/lib/onboarding-context";
 import { createClient } from "@/lib/supabase/client";
 import SignInModal, { SignInIntent } from "@/components/SignInModal";
 import {
@@ -193,9 +194,23 @@ function formatTimeSince(iso: string): string {
 
 export default function Home() {
   const router = useRouter();
+  const searchParamsHome = useSearchParams();
   const { user } = useAuth();
   const { active, refresh: refreshActive } = useActiveQuest();
   const { completedEvents } = useStats();
+  const {
+    isComplete: onboardingDone,
+    loading: onboardingLoading,
+  } = useOnboarding();
+  const forceFlag = searchParamsHome?.get("force") === "1";
+
+  // New users (no onboarding row, no localStorage progress) get routed to
+  // the guided quiz the first time they hit /. ?force=1 escapes for QA.
+  useEffect(() => {
+    if (onboardingLoading || forceFlag || onboardingDone) return;
+    router.replace("/onboarding?step=1");
+  }, [onboardingLoading, forceFlag, onboardingDone, router]);
+
   const supabase = useMemo(() => createClient(), []);
   const [signInOpen, setSignInOpen] = useState(false);
   const [signInIntent, setSignInIntent] = useState<SignInIntent>("save");
@@ -663,6 +678,12 @@ export default function Home() {
     : sourceList;
 
   const showResultsArea = view === "saved" || quests !== null || rolling;
+
+  // Hide the generator entirely while the redirect to /onboarding is
+  // pending so the user doesn't see a frame of home content.
+  if (!onboardingLoading && !forceFlag && !onboardingDone) {
+    return null;
+  }
 
   return (
     <main className="relative min-h-screen overflow-x-hidden">

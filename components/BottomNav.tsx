@@ -9,6 +9,7 @@ export default function BottomNav() {
   const { user } = useAuth();
   const pathname = usePathname();
   if (!user) return null;
+  if (pathname?.startsWith("/onboarding")) return null;
 
   const isHome = pathname === "/";
   const isHistory = pathname?.startsWith("/history") ?? false;
