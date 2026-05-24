@@ -8,8 +8,29 @@ export async function GET(request: NextRequest) {
 
   if (code) {
     const supabase = createClient();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
+      const user = data.user;
+      if (user) {
+        const displayName =
+          (user.user_metadata?.full_name as string | undefined) ??
+          (user.user_metadata?.name as string | undefined);
+        try {
+          // Only write display_name when the provider gave us one — Apple
+          // returns it on first auth only, so omitting it avoids clobbering
+          // an existing name with null on later sign-ins.
+          const { error: upsertError } = await supabase
+            .from("profiles")
+            .upsert({
+              id: user.id,
+              ...(displayName ? { display_name: displayName } : {}),
+            });
+          if (upsertError) throw upsertError;
+        } catch (err) {
+          // Profile write is best-effort — never block sign-in on it.
+          console.error("[auth/callback] profile upsert failed:", err);
+        }
+      }
       return NextResponse.redirect(`${origin}${next}`);
     }
   }

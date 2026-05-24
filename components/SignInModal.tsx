@@ -12,6 +12,16 @@ import { useAuth } from "@/lib/auth-context";
 
 export type SignInIntent = "save" | "start";
 
+// Official Apple mark, inlined per App Store review requirements (a
+// third-party icon font glyph can be flagged on Sign in with Apple buttons).
+function AppleMark() {
+  return (
+    <svg viewBox="0 0 14 18" width={16} height={18} fill="currentColor" aria-hidden="true">
+      <path d="M10.3 9.6c0-2 1.6-2.9 1.7-3-1-1.4-2.4-1.6-2.9-1.6-1.2-.1-2.4.7-3 .7-.6 0-1.6-.7-2.6-.7-1.3 0-2.6.8-3.3 2-1.4 2.4-.4 6 1 8 .7 1 1.5 2.1 2.6 2 1 0 1.4-.7 2.7-.7 1.2 0 1.6.7 2.7.6 1.1 0 1.8-1 2.5-2 .8-1.2 1.1-2.3 1.1-2.4 0 0-2.2-.8-2.2-3.3zM8.5 3.6c.5-.7.9-1.6.8-2.6-.8 0-1.8.6-2.4 1.2-.5.6-1 1.5-.8 2.5.9.1 1.8-.5 2.4-1.1z" />
+    </svg>
+  );
+}
+
 export default function SignInModal({
   open,
   intent,
@@ -21,10 +31,10 @@ export default function SignInModal({
   intent: SignInIntent;
   onClose: () => void;
 }) {
-  const { signInWithGoogle, signInWithEmail } = useAuth();
+  const { signInWithApple, signInWithGoogle, signInWithEmail } = useAuth();
   const [showEmail, setShowEmail] = useState(false);
   const [email, setEmail] = useState("");
-  const [busy, setBusy] = useState<"google" | "email" | null>(null);
+  const [busy, setBusy] = useState<"apple" | "google" | "email" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [linkSent, setLinkSent] = useState(false);
 
@@ -41,6 +51,17 @@ export default function SignInModal({
     setLinkSent(false);
     setBusy(null);
     onClose();
+  };
+
+  const handleApple = async () => {
+    setBusy("apple");
+    setError(null);
+    const { error } = await signInWithApple();
+    if (error) {
+      setError(error);
+      setBusy(null);
+    }
+    // success → page redirects to Apple
   };
 
   const handleGoogle = async () => {
@@ -127,6 +148,26 @@ export default function SignInModal({
                 className="flex flex-col"
                 style={{ gap: "var(--space-3)", marginTop: "var(--space-5)" }}
               >
+                <button
+                  type="button"
+                  onClick={handleApple}
+                  disabled={!!busy}
+                  className="ds-auth-btn"
+                  style={{ background: "#000", color: "#fff", borderColor: "#000" }}
+                >
+                  {busy === "apple" ? (
+                    <CircleNotch
+                      weight="duotone"
+                      size={18}
+                      aria-hidden="true"
+                      className="animate-spin"
+                    />
+                  ) : (
+                    <AppleMark />
+                  )}
+                  <span>Continue with Apple</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={handleGoogle}
