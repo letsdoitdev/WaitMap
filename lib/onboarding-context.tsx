@@ -172,6 +172,10 @@ export function OnboardingProvider({
           .maybeSingle();
         if (cancelled) return;
         if (data) {
+          // Prefer "any non-null timestamp" across local + supabase so a
+          // stale supabase row (debounced upsert from the just-finished
+          // onboarding hasn't landed yet) can't clobber a freshly-stamped
+          // local completedAt. Same reasoning for review_prompted_at.
           const payload: OnboardingAnswers = {
             groupModes: (data.group_modes ?? []) as GroupMode[],
             vibeCategories: data.vibe_categories ?? [],
@@ -179,8 +183,10 @@ export function OnboardingProvider({
             timeMinutes: data.time_minutes ?? EMPTY_ONBOARDING.timeMinutes,
             canDrive: data.can_drive,
             costPref: data.cost_pref,
-            completedAt: data.onboarding_completed_at,
-            reviewPromptedAt: data.review_prompted_at,
+            completedAt:
+              data.onboarding_completed_at ?? local?.completedAt ?? null,
+            reviewPromptedAt:
+              data.review_prompted_at ?? local?.reviewPromptedAt ?? null,
           };
           dispatch({ type: "hydrate", payload });
           writeLocalStorage(payload);
@@ -270,7 +276,30 @@ export function OnboardingProvider({
     [],
   );
   const markCompleted = useCallback(() => {
-    dispatch({ type: "markCompleted", payload: new Date().toISOString() });
+    const ts = new Date().toISOString();
+    dispatch({ type: "markCompleted", payload: ts });
+    // Atomic synchronous localStorage write so a router.push that follows
+    // immediately can't race the React state→effect→persist chain. The
+    // effect that normally writes localStorage will then see no diff.
+    if (typeof window !== "undefined") {
+      try {
+        const raw = window.localStorage.getItem(ONBOARDING_STORAGE_KEY);
+        const existing = raw
+          ? (JSON.parse(raw) as Partial<OnboardingAnswers>)
+          : {};
+        const merged: OnboardingAnswers = {
+          ...EMPTY_ONBOARDING,
+          ...existing,
+          completedAt: ts,
+        };
+        window.localStorage.setItem(
+          ONBOARDING_STORAGE_KEY,
+          JSON.stringify(merged),
+        );
+      } catch {
+        // ignore quota / privacy mode
+      }
+    }
   }, []);
   const markReviewPrompted = useCallback(() => {
     dispatch({

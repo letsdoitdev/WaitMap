@@ -206,16 +206,52 @@ export default function Home() {
     answers: onboardingAnswers,
     isComplete: onboardingDone,
     loading: onboardingLoading,
+    markCompleted: markOnboardingCompleted,
   } = useOnboarding();
   const forceFlag = searchParamsHome?.get("force") === "1";
   const focusLocationFlag = searchParamsHome?.get("focus") === "1";
 
+  // SSR-safe mount latch — no localStorage reads happen until after this
+  // effect runs on the client, so the initial render matches the server
+  // and we never fire the redirect on the first paint.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // New users (no onboarding row, no localStorage progress) get routed to
   // the guided quiz the first time they hit /. ?force=1 escapes for QA.
+  // Defensive backfill: if a user has clearly used the app (recent quests
+  // exist + at least one onboarding answer populated) but completedAt is
+  // null, stamp it instead of bouncing them through the quiz again. Covers
+  // anyone stuck on a pre-M8.6 build where the persist race dropped the
+  // timestamp on the floor.
   useEffect(() => {
+    if (!mounted) return;
     if (onboardingLoading || forceFlag || onboardingDone) return;
+    const hasAnswers =
+      onboardingAnswers.groupModes.length > 0 ||
+      onboardingAnswers.vibeCategories.length > 0 ||
+      onboardingAnswers.canDrive !== null ||
+      onboardingAnswers.costPref !== null;
+    const hasRecent = loadRecentQuestIds().length > 0;
+    if (hasAnswers && hasRecent) {
+      markOnboardingCompleted();
+      return;
+    }
     router.replace("/onboarding?step=1");
-  }, [onboardingLoading, forceFlag, onboardingDone, router]);
+  }, [
+    mounted,
+    onboardingLoading,
+    forceFlag,
+    onboardingDone,
+    onboardingAnswers.groupModes,
+    onboardingAnswers.vibeCategories,
+    onboardingAnswers.canDrive,
+    onboardingAnswers.costPref,
+    markOnboardingCompleted,
+    router,
+  ]);
 
   const supabase = useMemo(() => createClient(), []);
   const [signInOpen, setSignInOpen] = useState(false);
@@ -780,9 +816,14 @@ export default function Home() {
 
   const showResultsArea = view === "saved" || quests !== null || rolling;
 
-  // Hide the generator entirely while the redirect to /onboarding is
-  // pending so the user doesn't see a frame of home content.
-  if (!onboardingLoading && !forceFlag && !onboardingDone) {
+  // SSR-safe gate. completedAt (truthy) is the single source of truth for
+  // "onboarded"; until we've hydrated localStorage on the client we render
+  // null to avoid both a hydration mismatch and a flash of home content
+  // before the redirect decision.
+  if (!mounted || onboardingLoading) {
+    return null;
+  }
+  if (!forceFlag && !onboardingDone) {
     return null;
   }
 
