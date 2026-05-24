@@ -18,6 +18,13 @@ export const REVIEW_PROMPT_STORAGE_KEY = "unemployment.review_prompted.v1";
 export const FREE_DAILY_REROLLS = 5;
 
 /**
+ * Emails allowed to use the demo tier toggle (M12.2). Server re-checks this on
+ * every /api/admin/tier request — the client visibility gate is convenience
+ * only, never the security boundary.
+ */
+export const ADMIN_EMAILS = ["pullelavishnu18@gmail.com"];
+
+/**
  * UTC date key ("YYYY-MM-DD") used to bucket per-day reroll counts. UTC so the
  * client banner and the server gate agree regardless of the user's timezone.
  */

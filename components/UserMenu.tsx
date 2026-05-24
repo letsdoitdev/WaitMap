@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { SignOut } from "@phosphor-icons/react/dist/ssr";
 import { useAuth } from "@/lib/auth-context";
 import SignInModal from "@/components/SignInModal";
+import DemoTierToggle from "@/components/DemoTierToggle";
 
 export default function UserMenu() {
   const { user, displayName, initial, signOut } = useAuth();
@@ -71,6 +72,7 @@ export default function UserMenu() {
             role="menu"
           >
             <div className="ds-user-menu-name">{displayName}</div>
+            <DemoTierToggle />
             <button
               type="button"
               className="ds-user-menu-item"

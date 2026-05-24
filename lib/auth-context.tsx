@@ -30,6 +30,7 @@ type AuthContextValue = {
   isPro: boolean;
   rerollsToday: number;
   rerollsRemaining: number;
+  refreshTier: () => Promise<void>;
   signInWithGoogle: () => Promise<{ error: string | null }>;
   signInWithApple: () => Promise<{ error: string | null }>;
   signInWithEmail: (email: string) => Promise<{ error: string | null }>;
@@ -71,35 +72,33 @@ export function AuthProvider({
     };
   }, [supabase, router]);
 
-  // Pull the user's tier + reroll ledger from profiles whenever the signed-in
-  // user changes. Signed-out users fall back to the free-tier defaults.
-  useEffect(() => {
+  // Pull the user's tier + reroll ledger from profiles. Exposed as refreshTier
+  // so the demo tier toggle (M12.2) can re-read after flipping tier without a
+  // full reload. Signed-out users fall back to the free-tier defaults.
+  const refreshTier = useCallback(async () => {
     if (!user) {
       setTierState(null);
       return;
     }
-    let cancelled = false;
-    supabase
+    const { data } = await supabase
       .from("profiles")
       .select("tier, tier_expires_at, daily_rerolls")
       .eq("id", user.id)
-      .maybeSingle()
-      .then(({ data }) => {
-        if (cancelled) return;
-        setTierState(
-          data
-            ? {
-                tier: data.tier ?? "free",
-                tier_expires_at: data.tier_expires_at ?? null,
-                daily_rerolls: data.daily_rerolls ?? {},
-              }
-            : null,
-        );
-      });
-    return () => {
-      cancelled = true;
-    };
+      .maybeSingle();
+    setTierState(
+      data
+        ? {
+            tier: data.tier ?? "free",
+            tier_expires_at: data.tier_expires_at ?? null,
+            daily_rerolls: data.daily_rerolls ?? {},
+          }
+        : null,
+    );
   }, [supabase, user]);
+
+  useEffect(() => {
+    void refreshTier();
+  }, [refreshTier]);
 
   const signInWithGoogle = useCallback(async () => {
     setLoading(true);
@@ -187,6 +186,7 @@ export function AuthProvider({
         isPro,
         rerollsToday,
         rerollsRemaining,
+        refreshTier,
         signInWithGoogle,
         signInWithApple,
         signInWithEmail,

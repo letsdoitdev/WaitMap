@@ -29,6 +29,7 @@ import {
 import { createClient } from "@/lib/supabase/client";
 import { FREE_DAILY_REROLLS } from "@/lib/constants";
 import SignInModal, { SignInIntent } from "@/components/SignInModal";
+import OutOfRerollsModal from "@/components/OutOfRerollsModal";
 import {
   ArrowRight,
   BookmarkSimple,
@@ -259,6 +260,8 @@ export default function Home() {
   const [signInIntent, setSignInIntent] = useState<SignInIntent>("save");
   const [startingId, setStartingId] = useState<string | null>(null);
   const [startError, setStartError] = useState<string | null>(null);
+  const [outOfRerollsOpen, setOutOfRerollsOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
   const [city, setCity] = useState("");
   const [groupSize, setGroupSize] = useState(3);
   const [timeMinutes, setTimeMinutes] = useState(90);
@@ -593,13 +596,15 @@ export default function Home() {
     }
   }
 
+  // Returns the generated quests, `null` to signal the local fallback should
+  // run, or "reroll_limit" when the server enforced the free-tier cap (402).
   async function fetchAiQuests(
     places: NearbyPlace[],
     typeCounts: Record<string, number>,
     excludeIds: string[],
     previousTitles: string[],
     category: QuestCategory | null,
-  ): Promise<GeneratedQuest[] | null> {
+  ): Promise<GeneratedQuest[] | null | "reroll_limit"> {
     const groupBand: "solo" | "2" | "group" =
       groupSize === 1 ? "solo" : groupSize === 2 ? "2" : "group";
     try {
@@ -622,6 +627,17 @@ export default function Home() {
           lowCostOnly,
         }),
       });
+      // 402 = reroll cap hit (blocking). Distinct from 5xx/network below: the
+      // cap must NOT fall through to the local generator — that would leak
+      // free quests past the limit. Surface it so the caller opens the upsell.
+      if (r.status === 402) {
+        const data = (await r.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        if (data?.error === "reroll_limit") return "reroll_limit";
+        return null;
+      }
+      // Any other non-OK status (5xx, etc.) → null → local fallback runs.
       if (!r.ok) return null;
       const data = (await r.json()) as {
         ok: boolean;
@@ -632,6 +648,7 @@ export default function Home() {
       }
       return data.quests;
     } catch {
+      // Network throw → null → local fallback runs.
       return null;
     }
   }
@@ -668,13 +685,21 @@ export default function Home() {
 
     const cat =
       overrideCategory !== undefined ? overrideCategory : categoryFilter;
-    let picked = await fetchAiQuests(
+    const aiResult = await fetchAiQuests(
       places,
       typeCounts,
       excludeIds,
       shownTitles,
       cat,
     );
+    // Free-tier cap hit — block here. No local fallback (would leak quests past
+    // the limit), no results rendered; just surface the upsell modal.
+    if (aiResult === "reroll_limit") {
+      setRolling(false);
+      setOutOfRerollsOpen(true);
+      return;
+    }
+    let picked = aiResult;
     let resetShown = false;
     if (!picked) {
       const count = 3 + Math.floor(Math.random() * 3);
@@ -1660,6 +1685,37 @@ export default function Home() {
         intent={signInIntent}
         onClose={() => setSignInOpen(false)}
       />
+      <OutOfRerollsModal
+        open={outOfRerollsOpen}
+        onClose={() => setOutOfRerollsOpen(false)}
+        onGoPro={() => {
+          setOutOfRerollsOpen(false);
+          setToast("Coming soon — we’ll email you when Pro launches");
+          window.setTimeout(() => setToast(null), 3200);
+        }}
+      />
+      {toast && (
+        <div
+          role="status"
+          style={{
+            position: "fixed",
+            bottom: "calc(80px + env(safe-area-inset-bottom))",
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 50,
+            padding: "10px 16px",
+            borderRadius: "var(--radius-pill)",
+            background: "var(--bg-elevated)",
+            border: "1px solid var(--border-strong)",
+            color: "var(--text-primary)",
+            fontFamily: "var(--font-body, inherit)",
+            fontSize: 13,
+            boxShadow: "var(--shadow-card)",
+          }}
+        >
+          {toast}
+        </div>
+      )}
       {startError && (
         <div
           role="status"
