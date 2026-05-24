@@ -22,6 +22,10 @@ import { useAuth } from "@/lib/auth-context";
 import { useActiveQuest } from "@/lib/active-quest-context";
 import { useStats } from "@/lib/stats-context";
 import { useOnboarding } from "@/lib/onboarding-context";
+import {
+  appendRecentQuestIds,
+  loadRecentQuestIds,
+} from "@/lib/recent-quests";
 import { createClient } from "@/lib/supabase/client";
 import SignInModal, { SignInIntent } from "@/components/SignInModal";
 import {
@@ -552,9 +556,21 @@ export default function Home() {
       saveShownTitles(shownTitles);
     }
 
+    // Persistent ring buffer (last 30, localStorage) — survives reload and
+    // tab close so rerolls don't keep surfacing the same set when the user
+    // returns later. Merged with the existing per-session `shown` list.
+    const recent = loadRecentQuestIds();
+    const excludeIds = Array.from(new Set([...shown, ...recent]));
+
     const cat =
       overrideCategory !== undefined ? overrideCategory : categoryFilter;
-    let picked = await fetchAiQuests(places, typeCounts, shown, shownTitles, cat);
+    let picked = await fetchAiQuests(
+      places,
+      typeCounts,
+      excludeIds,
+      shownTitles,
+      cat,
+    );
     let resetShown = false;
     if (!picked) {
       const count = 3 + Math.floor(Math.random() * 3);
@@ -566,7 +582,7 @@ export default function Home() {
           spice,
           nearby: places,
           ratings: ratingByQuest,
-          excludeIds: shown,
+          excludeIds,
         },
         count,
       );
@@ -582,6 +598,18 @@ export default function Home() {
       : [...shownTitles, ...picked.map((q) => q.title)].slice(-9);
     saveShown(nextShown);
     saveShownTitles(nextShownTitles);
+    // Append every picked id into the persistent ring buffer. If generate.ts
+    // signaled a reset, we drop everything except this batch so the buffer
+    // stays in sync with what the user just saw.
+    if (resetShown) {
+      // ring buffer reset path — wipe, then seed with this batch.
+      try {
+        window.localStorage.removeItem("sqRecentQuestsV1");
+      } catch {
+        // ignore
+      }
+    }
+    appendRecentQuestIds(picked.map((q) => q.id));
 
     setQuests(picked);
     setRolling(false);
