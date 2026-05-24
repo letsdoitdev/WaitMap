@@ -7,6 +7,11 @@ import OnboardingShell from "@/components/onboarding/OnboardingShell";
 import ProgressBar from "@/components/onboarding/ProgressBar";
 import StepWelcome from "@/components/onboarding/StepWelcome";
 import StepGroup from "@/components/onboarding/StepGroup";
+import StepVibe from "@/components/onboarding/StepVibe";
+import StepSpice from "@/components/onboarding/StepSpice";
+import StepTime from "@/components/onboarding/StepTime";
+import StepMobility from "@/components/onboarding/StepMobility";
+import StepCost from "@/components/onboarding/StepCost";
 import { useOnboarding } from "@/lib/onboarding-context";
 
 const TOTAL_STEPS = 8;
@@ -57,7 +62,12 @@ function OnboardingInner() {
       <OnboardingShell>
         {step === 1 && <StepWelcome onAdvance={onAdvance} />}
         {step === 2 && <StepGroup onAdvance={onAdvance} />}
-        {step >= 3 && (
+        {step === 3 && <StepVibe onAdvance={onAdvance} />}
+        {step === 4 && <StepSpice onAdvance={onAdvance} />}
+        {step === 5 && <StepTime onAdvance={onAdvance} />}
+        {step === 6 && <StepMobility onAdvance={onAdvance} />}
+        {step === 7 && <StepCost onAdvance={onAdvance} />}
+        {step === 8 && (
           <div className="ds-onboarding-placeholder">
             <p
               className="ds-empty-state-text"
@@ -67,10 +77,10 @@ function OnboardingInner() {
                 color: "var(--text-primary)",
               }}
             >
-              Step {step}
+              Step 8
             </p>
             <p className="ds-empty-state-text">
-              Coming in the next M8 substep.
+              Location pre-prompt lands in M8.4.
             </p>
             <button
               type="button"
