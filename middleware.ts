@@ -1,7 +1,23 @@
-import { type NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { updateSession } from "@/lib/supabase/middleware";
+import { verifyAdminCookieFromHeader } from "@/lib/admin-auth";
 
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Gate /admin (but allow /admin/login through so users can authenticate).
+  if (
+    (pathname === "/admin" || pathname.startsWith("/admin/")) &&
+    pathname !== "/admin/login"
+  ) {
+    const ok = await verifyAdminCookieFromHeader(request.headers.get("cookie"));
+    if (!ok) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/admin/login";
+      return NextResponse.rewrite(url);
+    }
+  }
+
   return await updateSession(request);
 }
 

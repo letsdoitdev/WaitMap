@@ -9,8 +9,6 @@ export type Suggestion = {
 
 export const SUGGEST_STORAGE_KEY = "sqSuggestions";
 export const ADMIN_STATE_KEY = "sqAdminState";
-export const ADMIN_AUTH_KEY = "sqAdminAuthed";
-export const ADMIN_PASSWORD = "SIDEQUEST_ADMIN_2025";
 
 export type AdminState = {
   // suggestion id -> action

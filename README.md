@@ -13,12 +13,17 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-### Required env vars
+### Env vars
 
-```
-NEXT_PUBLIC_SUPABASE_URL=…
-NEXT_PUBLIC_SUPABASE_ANON_KEY=…
-```
+Copy `.env.example` to `.env.local` and fill in:
+
+| Name | Scope | Required | Purpose |
+| --- | --- | --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | client + server | yes | Supabase project URL (auth, storage, database). |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | client + server | yes | Supabase anon key. |
+| `NEXT_PUBLIC_MAPBOX_TOKEN` | client | optional | Mapbox GL JS token. Without it, `/map` renders the offline empty state and geocoding no-ops. |
+| `ADMIN_PASSWORD` | **server only** | yes (for `/admin`) | Password gating the admin training dashboard. Never prefix with `NEXT_PUBLIC_`. Set in the Vercel dashboard for production. |
+| `ADMIN_SESSION_SECRET` | **server only** | yes (for `/admin`) | Random secret used to HMAC-sign the `sq_admin` session cookie. Generate with `openssl rand -hex 32`. Set in the Vercel dashboard for production. |
 
 ## Deploy
 
