@@ -22,6 +22,7 @@ export type QuestEventType =
 export type QuestSource = "ai_generated" | "user_suggested";
 export type QuestReaction = "cooked" | "mid" | "tuff" | "fire";
 
+export type Tier = "free" | "pro";
 export type CostPref = "free" | "cheap" | "any";
 export type GroupMode =
   | "Solo"
@@ -40,18 +41,27 @@ export interface Database {
           display_name: string | null;
           timezone: string;
           created_at: string;
+          tier: Tier;
+          tier_expires_at: string | null;
+          daily_rerolls: Record<string, number>;
         };
         Insert: {
           id: string;
           display_name?: string | null;
           timezone?: string;
           created_at?: string;
+          tier?: Tier;
+          tier_expires_at?: string | null;
+          daily_rerolls?: Record<string, number>;
         };
         Update: {
           id?: string;
           display_name?: string | null;
           timezone?: string;
           created_at?: string;
+          tier?: Tier;
+          tier_expires_at?: string | null;
+          daily_rerolls?: Record<string, number>;
         };
         Relationships: [];
       };
@@ -258,6 +268,10 @@ export interface Database {
       };
       increment_daily_generation_counter: {
         Args: Record<string, never>;
+        Returns: number;
+      };
+      increment_daily_reroll: {
+        Args: { p_date_key: string };
         Returns: number;
       };
     };

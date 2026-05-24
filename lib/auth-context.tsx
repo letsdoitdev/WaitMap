@@ -11,6 +11,14 @@ import {
 import { useRouter } from "next/navigation";
 import type { Session, User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/client";
+import { FREE_DAILY_REROLLS, getUtcDateKey } from "@/lib/constants";
+import type { Tier } from "@/lib/database.types";
+
+type TierState = {
+  tier: Tier;
+  tier_expires_at: string | null;
+  daily_rerolls: Record<string, number>;
+};
 
 type AuthContextValue = {
   user: User | null;
@@ -18,6 +26,10 @@ type AuthContextValue = {
   loading: boolean;
   displayName: string | null;
   initial: string;
+  tier: Tier;
+  isPro: boolean;
+  rerollsToday: number;
+  rerollsRemaining: number;
   signInWithGoogle: () => Promise<{ error: string | null }>;
   signInWithApple: () => Promise<{ error: string | null }>;
   signInWithEmail: (email: string) => Promise<{ error: string | null }>;
@@ -38,6 +50,7 @@ export function AuthProvider({
   const [user, setUser] = useState<User | null>(initialUser);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(false);
+  const [tierState, setTierState] = useState<TierState | null>(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
@@ -57,6 +70,36 @@ export function AuthProvider({
       subscription.subscription.unsubscribe();
     };
   }, [supabase, router]);
+
+  // Pull the user's tier + reroll ledger from profiles whenever the signed-in
+  // user changes. Signed-out users fall back to the free-tier defaults.
+  useEffect(() => {
+    if (!user) {
+      setTierState(null);
+      return;
+    }
+    let cancelled = false;
+    supabase
+      .from("profiles")
+      .select("tier, tier_expires_at, daily_rerolls")
+      .eq("id", user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+        setTierState(
+          data
+            ? {
+                tier: data.tier ?? "free",
+                tier_expires_at: data.tier_expires_at ?? null,
+                daily_rerolls: data.daily_rerolls ?? {},
+              }
+            : null,
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase, user]);
 
   const signInWithGoogle = useCallback(async () => {
     setLoading(true);
@@ -114,6 +157,24 @@ export function AuthProvider({
     .charAt(0)
     .toUpperCase();
 
+  const tier: Tier = tierState?.tier ?? "free";
+
+  const isPro = useMemo(() => {
+    if (!tierState || tierState.tier !== "pro") return false;
+    if (!tierState.tier_expires_at) return true;
+    return new Date(tierState.tier_expires_at).getTime() > Date.now();
+  }, [tierState]);
+
+  const rerollsToday = useMemo(() => {
+    if (!tierState) return 0;
+    return tierState.daily_rerolls[getUtcDateKey()] ?? 0;
+  }, [tierState]);
+
+  const rerollsRemaining = useMemo(() => {
+    if (isPro) return Number.POSITIVE_INFINITY;
+    return Math.max(0, FREE_DAILY_REROLLS - rerollsToday);
+  }, [isPro, rerollsToday]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -122,6 +183,10 @@ export function AuthProvider({
         loading,
         displayName,
         initial,
+        tier,
+        isPro,
+        rerollsToday,
+        rerollsRemaining,
         signInWithGoogle,
         signInWithApple,
         signInWithEmail,

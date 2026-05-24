@@ -5,6 +5,8 @@ import path from "path";
 import { QuestCategory, QUESTS, QuestTemplate } from "@/lib/quests";
 import { GeneratedQuest } from "@/lib/generate";
 import { NearbyBucket, NearbyPlace } from "@/lib/nearby";
+import { createClient } from "@/lib/supabase/server";
+import { FREE_DAILY_REROLLS, getUtcDateKey } from "@/lib/constants";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -758,6 +760,43 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // ----- M12.1 reroll gate (runs BEFORE any generation work) -----
+  // Free users get FREE_DAILY_REROLLS generations per UTC day. Pro users skip
+  // the gate entirely. Anonymous (unauthenticated) requests have no profile to
+  // meter against, so they pass through ungated.
+  const dateKey = getUtcDateKey();
+  const supabase = createClient();
+  const {
+    data: { user: gateUser },
+  } = await supabase.auth.getUser();
+  let meterFreeUser = false;
+  if (gateUser) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("tier, tier_expires_at, daily_rerolls")
+      .eq("id", gateUser.id)
+      .maybeSingle();
+    const isPro =
+      profile?.tier === "pro" &&
+      (!profile.tier_expires_at ||
+        new Date(profile.tier_expires_at).getTime() > Date.now());
+    if (!isPro) {
+      meterFreeUser = true;
+      const used = profile?.daily_rerolls?.[dateKey] ?? 0;
+      if (used >= FREE_DAILY_REROLLS) {
+        return NextResponse.json(
+          {
+            error: "reroll_limit",
+            requiresUpgrade: true,
+            rerollsToday: used,
+            resetAt: "midnight UTC",
+          },
+          { status: 402 },
+        );
+      }
+    }
+  }
+
   let body: GenerateBody;
   try {
     body = (await req.json()) as GenerateBody;
@@ -948,6 +987,12 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
         { ok: false, error: "no valid quests" },
         { status: 503 },
       );
+    }
+
+    // Charge the reroll only once a generation actually succeeded. Atomic
+    // jsonb_set inside the RPC — never a read-then-write here.
+    if (meterFreeUser) {
+      await supabase.rpc("increment_daily_reroll", { p_date_key: dateKey });
     }
 
     return NextResponse.json({ ok: true, quests });
