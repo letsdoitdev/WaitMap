@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
+  AppleLogo,
   CircleNotch,
   EnvelopeSimple,
   GoogleLogo,
@@ -21,10 +22,10 @@ export default function SignInModal({
   intent: SignInIntent;
   onClose: () => void;
 }) {
-  const { signInWithGoogle, signInWithEmail } = useAuth();
+  const { signInWithApple, signInWithGoogle, signInWithEmail } = useAuth();
   const [showEmail, setShowEmail] = useState(false);
   const [email, setEmail] = useState("");
-  const [busy, setBusy] = useState<"google" | "email" | null>(null);
+  const [busy, setBusy] = useState<"apple" | "google" | "email" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [linkSent, setLinkSent] = useState(false);
 
@@ -41,6 +42,17 @@ export default function SignInModal({
     setLinkSent(false);
     setBusy(null);
     onClose();
+  };
+
+  const handleApple = async () => {
+    setBusy("apple");
+    setError(null);
+    const { error } = await signInWithApple();
+    if (error) {
+      setError(error);
+      setBusy(null);
+    }
+    // success → page redirects to Apple
   };
 
   const handleGoogle = async () => {
@@ -127,6 +139,25 @@ export default function SignInModal({
                 className="flex flex-col"
                 style={{ gap: "var(--space-3)", marginTop: "var(--space-5)" }}
               >
+                <button
+                  type="button"
+                  onClick={handleApple}
+                  disabled={!!busy}
+                  className="ds-auth-btn"
+                >
+                  {busy === "apple" ? (
+                    <CircleNotch
+                      weight="duotone"
+                      size={18}
+                      aria-hidden="true"
+                      className="animate-spin"
+                    />
+                  ) : (
+                    <AppleLogo weight="fill" size={18} aria-hidden="true" />
+                  )}
+                  <span>Continue with Apple</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={handleGoogle}
