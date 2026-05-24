@@ -10,6 +10,7 @@ import {
 } from "@phosphor-icons/react/dist/ssr";
 import type { Map as MapboxMap, Marker as MapboxMarker } from "mapbox-gl";
 import { useStats } from "@/lib/stats-context";
+import { useAuth } from "@/lib/auth-context";
 import {
   geocodeLocation,
   hasMapboxToken,
@@ -69,6 +70,7 @@ export default function HistoryMap({
 }: Props) {
   const router = useRouter();
   const { quests, refresh: refreshStats } = useStats();
+  const { isPro } = useAuth();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const overlayRef = useRef<SVGSVGElement | null>(null);
   const mapRef = useRef<MapboxMap | null>(null);
@@ -594,17 +596,20 @@ export default function HistoryMap({
       hidden={!visible}
       aria-hidden={!visible}
     >
+      {/* Free tier sees a permanently blurred map (M12.1); Pro sees it sharp. */}
       <div
         ref={containerRef}
         className="ds-history-map-canvas"
         role="application"
         aria-label="Quest map"
+        style={isPro ? undefined : { filter: "blur(8px)" }}
       />
       <svg
         ref={overlayRef}
         className="ds-map-overlay"
         aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
+        style={isPro ? undefined : { filter: "blur(8px)" }}
       />
 
       {showEmpty && (

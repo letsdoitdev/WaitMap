@@ -27,6 +27,7 @@ import {
   loadRecentQuestIds,
 } from "@/lib/recent-quests";
 import { createClient } from "@/lib/supabase/client";
+import { FREE_DAILY_REROLLS } from "@/lib/constants";
 import SignInModal, { SignInIntent } from "@/components/SignInModal";
 import {
   ArrowRight,
@@ -199,7 +200,7 @@ function formatTimeSince(iso: string): string {
 export default function Home() {
   const router = useRouter();
   const searchParamsHome = useSearchParams();
-  const { user } = useAuth();
+  const { user, isPro, rerollsRemaining } = useAuth();
   const { active, refresh: refreshActive } = useActiveQuest();
   const { completedEvents } = useStats();
   const {
@@ -998,6 +999,25 @@ export default function Home() {
               </Link>
             )}
           </div>
+
+          {/* REROLL METER — free tier only (M12.1). Pro is uncapped. */}
+          {!isPro && (
+            <p
+              className="ds-hero-helper"
+              role="status"
+              style={{
+                marginTop: "var(--space-4)",
+                textAlign: "center",
+                ...(rerollsRemaining <= 0
+                  ? { color: "var(--warning)" }
+                  : {}),
+              }}
+            >
+              {rerollsRemaining > 0
+                ? `${rerollsRemaining}/${FREE_DAILY_REROLLS} rerolls remaining today`
+                : `${FREE_DAILY_REROLLS}/${FREE_DAILY_REROLLS} rerolls used today. Resets at midnight UTC.`}
+            </p>
+          )}
 
           {/* GENERATE BUTTON — design v2 CTA */}
           <div className="mt-6 flex flex-col items-center">
