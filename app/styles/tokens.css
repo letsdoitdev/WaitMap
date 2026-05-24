@@ -2986,3 +2986,305 @@
   z-index: 2;
 }
 
+
+/* -----------------------------------------------------------------------------
+ * M8.2 — onboarding shell + welcome / group steps.
+ *
+ * Mobile-first. The column maxes at 28rem (md) on phones and 32rem (lg)
+ * from md: up. Primary CTA is fixed to the viewport bottom on mobile with
+ * safe-area inset padding; on md+ it floats inline at the end of the column.
+ * Reuses existing tokens — no new colors, no new fonts.
+ * --------------------------------------------------------------------------- */
+
+.ds-onboarding-root {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+}
+
+.ds-onboarding-frame {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* 4px gradient progress bar pinned to the top of the viewport. */
+.ds-onboarding-progress-track {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  height: 4px;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+
+.ds-onboarding-progress-fill {
+  height: 100%;
+  background: var(--accent-grad);
+  background-size: 200% 100%;
+  transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-onboarding-progress-fill {
+    transition: none;
+  }
+}
+
+.ds-onboarding-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  height: 56px;
+  padding: 0 var(--space-4);
+}
+
+.ds-onboarding-back {
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+  color: var(--text-tertiary);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.ds-onboarding-back:hover {
+  color: var(--text-primary);
+  background: var(--bg-glass-strong);
+}
+
+button.ds-onboarding-back:active {
+  transform: scale(0.96);
+}
+
+.ds-onboarding-shell {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: 28rem;
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-4)
+    calc(var(--space-7) + 88px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+@media (min-width: 768px) {
+  .ds-onboarding-shell {
+    max-width: 32rem;
+    padding-bottom: var(--space-7);
+  }
+}
+
+.ds-onboarding-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  flex: 1 1 auto;
+}
+
+.ds-onboarding-step--center {
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  /* Reserve enough vertical room that the wordmark doesn't visually jump
+   * between steps if a future step is shorter. */
+  min-height: 60dvh;
+}
+
+.ds-onboarding-wordmark {
+  font-family: var(--font-display, serif);
+  font-weight: 400;
+  font-size: clamp(56px, 16vw, 96px);
+  line-height: 0.95;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.ds-onboarding-sub {
+  font-family: var(--font-body, inherit);
+  font-size: 17px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  margin: 0;
+  max-width: 22rem;
+}
+
+.ds-onboarding-h2 {
+  font-family: var(--font-display, serif);
+  font-weight: 400;
+  font-size: clamp(28px, 7vw, 36px);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.ds-onboarding-helper {
+  font-family: var(--font-body, inherit);
+  font-size: 14px;
+  color: var(--text-tertiary);
+  margin: calc(var(--space-3) * -1) 0 0;
+}
+
+.ds-onboarding-pillgrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+
+@media (min-width: 480px) {
+  .ds-onboarding-pillgrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.ds-onboarding-pill {
+  position: relative;
+  min-height: 56px;
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-md);
+  background: var(--bg-glass);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-family: var(--font-body, inherit);
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    transform 100ms ease;
+  display: inline-flex;
+  align-items: center;
+}
+
+.ds-onboarding-pill:hover {
+  background: var(--bg-glass-strong);
+  border-color: var(--border-strong);
+}
+
+.ds-onboarding-pill:active {
+  transform: scale(0.98);
+}
+
+.ds-onboarding-pill[data-selected="true"] {
+  background: var(--bg-elevated);
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1px transparent;
+}
+.ds-onboarding-pill[data-selected="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.5px;
+  background: var(--accent-grad);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+          mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Primary CTA — fixed bottom on mobile, inline on md+. */
+.ds-onboarding-cta-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  padding:
+    var(--space-3) var(--space-4)
+    calc(var(--space-4) + env(safe-area-inset-bottom));
+  background: linear-gradient(
+    to top,
+    var(--bg) 70%,
+    rgba(26, 22, 20, 0)
+  );
+  pointer-events: none;
+}
+
+.ds-onboarding-cta-dock > * {
+  pointer-events: auto;
+}
+
+@media (min-width: 768px) {
+  .ds-onboarding-cta-dock {
+    position: static;
+    padding: 0;
+    background: none;
+    margin-top: var(--space-5);
+  }
+}
+
+.ds-onboarding-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 28rem;
+  margin: 0 auto;
+  min-height: 56px;
+  padding: 0 var(--space-6);
+  border-radius: 999px;
+  background: var(--accent-grad);
+  color: #1a1614;
+  font-family: var(--font-body, inherit);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+  border: 0;
+  cursor: pointer;
+  box-shadow: 0 8px 24px -8px rgba(125, 211, 192, 0.25);
+  transition:
+    transform 150ms ease-out,
+    box-shadow 150ms ease-out,
+    filter 150ms ease-out;
+}
+
+@media (min-width: 768px) {
+  .ds-onboarding-cta {
+    max-width: 32rem;
+  }
+}
+
+.ds-onboarding-cta:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 32px -8px rgba(125, 211, 192, 0.4);
+}
+
+.ds-onboarding-cta:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.ds-onboarding-cta:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.ds-onboarding-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-3);
+  padding-top: var(--space-7);
+}

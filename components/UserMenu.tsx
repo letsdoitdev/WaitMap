@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { SignOut } from "@phosphor-icons/react/dist/ssr";
 import { useAuth } from "@/lib/auth-context";
@@ -8,9 +9,11 @@ import SignInModal from "@/components/SignInModal";
 
 export default function UserMenu() {
   const { user, displayName, initial, signOut } = useAuth();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [signInOpen, setSignInOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const onOnboarding = pathname?.startsWith("/onboarding") ?? false;
 
   useEffect(() => {
     if (!open) return;
@@ -23,6 +26,8 @@ export default function UserMenu() {
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
   }, [open]);
+
+  if (onOnboarding) return null;
 
   if (!user) {
     return (
