@@ -22,6 +22,15 @@ export type QuestEventType =
 export type QuestSource = "ai_generated" | "user_suggested";
 export type QuestReaction = "cooked" | "mid" | "tuff" | "fire";
 
+export type CostPref = "free" | "cheap" | "any";
+export type GroupMode =
+  | "Solo"
+  | "Partner"
+  | "Roommates"
+  | "Close friends"
+  | "Bigger group"
+  | "Family";
+
 export interface Database {
   public: {
     Tables: {
@@ -190,6 +199,48 @@ export interface Database {
         };
         Relationships: [];
       };
+      user_onboarding: {
+        Row: {
+          user_id: string;
+          group_modes: string[];
+          vibe_categories: string[];
+          spice: number | null;
+          time_minutes: number | null;
+          can_drive: boolean | null;
+          cost_pref: CostPref | null;
+          onboarding_completed_at: string | null;
+          review_prompted_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          user_id: string;
+          group_modes?: string[];
+          vibe_categories?: string[];
+          spice?: number | null;
+          time_minutes?: number | null;
+          can_drive?: boolean | null;
+          cost_pref?: CostPref | null;
+          onboarding_completed_at?: string | null;
+          review_prompted_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          user_id?: string;
+          group_modes?: string[];
+          vibe_categories?: string[];
+          spice?: number | null;
+          time_minutes?: number | null;
+          can_drive?: boolean | null;
+          cost_pref?: CostPref | null;
+          onboarding_completed_at?: string | null;
+          review_prompted_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: { [key: string]: never };
     Functions: {
@@ -222,6 +273,7 @@ export type Quest = Tables<"quests">;
 export type QuestEvent = Tables<"quest_events">;
 export type QuestMedia = Tables<"quest_media">;
 export type Profile = Tables<"profiles">;
+export type UserOnboarding = Tables<"user_onboarding">;
 
 export const QUEST_MEDIA_BUCKET = "quest-media";
 export const MAX_MEDIA_PER_COMPLETION = 4;
