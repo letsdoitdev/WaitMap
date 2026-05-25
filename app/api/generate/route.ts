@@ -765,17 +765,23 @@ export async function POST(req: NextRequest) {
   // the gate entirely. Anonymous (unauthenticated) requests have no profile to
   // meter against, so they pass through ungated.
   const dateKey = getUtcDateKey();
-  const supabase = createClient();
+  // Pass req so mobile Bearer-token requests authenticate (M12.3); the web app
+  // still uses cookie auth because createClient prefers a cookie session.
+  const supabase = createClient(req);
   const {
     data: { user: gateUser },
   } = await supabase.auth.getUser();
   let meterFreeUser = false;
+  // Surfaced in the success response (M12.3) so the mobile UI can render the
+  // tier chip + reroll count without a second round-trip.
+  let responseTier: "free" | "pro" = "free";
   if (gateUser) {
     const { data: profile } = await supabase
       .from("profiles")
       .select("tier, tier_expires_at, daily_rerolls")
       .eq("id", gateUser.id)
       .maybeSingle();
+    responseTier = profile?.tier === "pro" ? "pro" : "free";
     const isPro =
       profile?.tier === "pro" &&
       (!profile.tier_expires_at ||
@@ -990,12 +996,28 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
     }
 
     // Charge the reroll only once a generation actually succeeded. Atomic
-    // jsonb_set inside the RPC — never a read-then-write here.
+    // jsonb_set inside the RPC — never a read-then-write here. The RPC returns
+    // the post-increment count, which feeds rerollsRemaining below.
+    // rerollsRemaining is a number for metered free users, null for pro and
+    // anonymous callers.
+    let rerollsRemaining: number | null = null;
     if (meterFreeUser) {
-      await supabase.rpc("increment_daily_reroll", { p_date_key: dateKey });
+      const { data: newCount } = await supabase.rpc(
+        "increment_daily_reroll",
+        { p_date_key: dateKey },
+      );
+      rerollsRemaining = Math.max(
+        0,
+        FREE_DAILY_REROLLS - (typeof newCount === "number" ? newCount : 0),
+      );
     }
 
-    return NextResponse.json({ ok: true, quests });
+    return NextResponse.json({
+      ok: true,
+      quests,
+      tier: responseTier,
+      rerollsRemaining,
+    });
   } catch (err) {
     clearTimeout(timer);
     return NextResponse.json(
