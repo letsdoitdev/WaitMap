@@ -900,7 +900,7 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
       const temperature = requestedCategory ? 0.95 : 0.9;
       const response = await client.messages.create(
         {
-          model: "claude-sonnet-4-5",
+          model: "gpt-4o-mini",
           max_tokens: 1500,
           temperature,
           system: [
