@@ -18,9 +18,8 @@ import type { Icon } from "@phosphor-icons/react";
 import { useAuth } from "@/lib/auth-context";
 import { useOnboarding } from "@/lib/onboarding-context";
 import { track } from "@/lib/analytics";
-import { generateQuests, type GeneratedQuest } from "@/lib/generate";
-import { GROUP_MODE_SIZE } from "@/lib/onboarding-context";
-import { appendRecentQuestIds, loadRecentQuestIds } from "@/lib/recent-quests";
+import { type GeneratedQuest } from "@/lib/generate";
+import { appendRecentQuestIds } from "@/lib/recent-quests";
 import SignInModal from "@/components/SignInModal";
 import type { QuestCategory } from "@/lib/quests";
 
@@ -47,49 +46,60 @@ export default function TeaserPage() {
   const [saveDismissed, setSaveDismissed] = useState(false);
   const tracked = useRef(false);
 
-  // Derive group size from the spec mapping, taking MAX across selected
-  // modes. Defaults to 3 if the user somehow lands here with no group
-  // modes (deep-linked /onboarding/teaser without finishing the quiz).
-  const groupSize = useMemo(() => {
-    if (answers.groupModes.length === 0) return 3;
-    return Math.max(
-      ...answers.groupModes.map((m) => GROUP_MODE_SIZE[m] ?? 3),
-    );
-  }, [answers.groupModes]);
-
-  // Single deterministic-ish pick from the user's prefs. We respect the
-  // recent-quests ring buffer so the teaser doesn't show a quest the user
-  // will immediately see again on the home reroll.
+  // Static preview teaser. The personalized local generator was removed
+  // (AI-only migration); the teaser now shows a single curated example
+  // chosen by the user's spice tier so it still feels tonally aligned with
+  // their onboarding answers without requiring a network call here.
   const teaser = useMemo<GeneratedQuest | null>(() => {
     if (loading) return null;
-    const city =
-      (typeof window !== "undefined" &&
-        localStorage.getItem("sqLocation")) ||
-      "your city";
-    const recent = loadRecentQuestIds();
-    const result = generateQuests(
+    const spice = answers.spice;
+    const TEASER_SAMPLES: GeneratedQuest[] = [
       {
-        city,
-        groupSize,
-        timeMinutes: answers.timeMinutes,
-        spice: answers.spice,
-        excludeIds: recent,
-        onboardingPrefs: {
-          vibe_categories: answers.vibeCategories,
-          cost_pref: answers.costPref ?? undefined,
-        },
+        id: "teaser-chill",
+        title: "Highest Point Before Sunrise",
+        description:
+          "Split into pairs, race without navigation to find the highest elevation spot in your area before sunrise. Meet at the top and watch it together.",
+        category: "Outdoor",
+        spice: 2,
+        minGroup: 2,
+        maxGroup: 6,
+        minTime: 60,
+        maxTime: 120,
+        cost: "free",
+        nearbyDetected: false,
       },
-      1,
-    );
-    return result.quests[0] ?? null;
-  }, [
-    loading,
-    groupSize,
-    answers.timeMinutes,
-    answers.spice,
-    answers.vibeCategories,
-    answers.costPref,
-  ]);
+      {
+        id: "teaser-mid",
+        title: "Bowling Loser Cooks",
+        description:
+          "One game, one rule: lowest score has to cook a full breakfast for the group the next morning. No handicaps, no mercy.",
+        category: "Social",
+        spice: 5,
+        minGroup: 2,
+        maxGroup: 6,
+        minTime: 60,
+        maxTime: 90,
+        cost: "$",
+        nearbyDetected: false,
+      },
+      {
+        id: "teaser-spicy",
+        title: "Home Depot Fake Emergency",
+        description:
+          "Each person uses an AI image generator to create a photorealistic fake home emergency (car crashed into kitchen, raccoon in dishwasher, ball pit filling basement). Walk into Home Depot, show the image to an employee, ask for serious repair advice. Cannot break character. Others watch from a distance.",
+        category: "Chaos",
+        spice: 8,
+        minGroup: 2,
+        maxGroup: 6,
+        minTime: 45,
+        maxTime: 75,
+        cost: "free",
+        nearbyDetected: false,
+      },
+    ];
+    const tier = spice <= 3 ? 0 : spice <= 6 ? 1 : 2;
+    return TEASER_SAMPLES[tier];
+  }, [loading, answers.spice]);
 
   useEffect(() => {
     if (!teaser || tracked.current) return;

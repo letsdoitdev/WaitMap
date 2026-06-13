@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { generateQuests, GeneratedQuest } from "@/lib/generate";
+import { GeneratedQuest } from "@/lib/generate";
 import { QuestCategory } from "@/lib/quests";
 import { NearbyPlace, NearbyResponse } from "@/lib/nearby";
 import {
@@ -699,31 +699,18 @@ export default function Home() {
       setOutOfRerollsOpen(true);
       return;
     }
-    let picked = aiResult;
-    let resetShown = false;
-    if (!picked) {
-      const count = 3 + Math.floor(Math.random() * 3);
-      const result = generateQuests(
-        {
-          city,
-          groupSize,
-          timeMinutes,
-          spice,
-          nearby: places,
-          ratings: ratingByQuest,
-          excludeIds,
-          onboardingPrefs: onboardingDone
-            ? {
-                vibe_categories: onboardingAnswers.vibeCategories,
-                cost_pref: onboardingAnswers.costPref ?? undefined,
-              }
-            : undefined,
-        },
-        count,
-      );
-      picked = result.quests;
-      resetShown = result.resetShown;
+    // AI-only generation: if the API call returns null (network/5xx/parse
+    // failure), surface an error to the user. There is no local fallback —
+    // we deliberately removed the template-based generator so the model is
+    // the single source of truth.
+    if (!aiResult) {
+      setRolling(false);
+      setToast("Couldn't generate quests right now. Please try again.");
+      setTimeout(() => setToast(null), 4000);
+      return;
     }
+    const picked = aiResult;
+    const resetShown = false;
 
     const nextShown = resetShown
       ? picked.map((q) => q.id)
