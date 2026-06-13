@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import fs from "fs";
 import path from "path";
-import { QuestCategory, QUESTS, QuestTemplate } from "@/lib/quests";
+import { QuestCategory } from "@/lib/quests";
 import { GeneratedQuest } from "@/lib/generate";
 import { NearbyBucket, NearbyPlace } from "@/lib/nearby";
 import { createClient } from "@/lib/supabase/server";
@@ -426,14 +426,119 @@ type DiversitySeed = {
   group_dynamic: string;
 };
 
-function pickDiversitySeed(): DiversitySeed {
-  const pick = <T>(pool: readonly T[]): T =>
-    pool[Math.floor(Math.random() * pool.length)];
+// ---------- Recent-vibe detection ----------
+//
+// Bucket previousTitles into coarse "vibe" categories so pickDiversitySeed
+// can steer away from what the user just saw. Keyword sets per the spec.
+
+type VibeBucket = "food" | "outdoor" | "retail" | "indoor";
+
+const VIBE_KEYWORDS: Record<VibeBucket, string[]> = {
+  food: [
+    "diner",
+    "food",
+    "eat",
+    "restaurant",
+    "coffee",
+    "cook",
+    "breakfast",
+    "lunch",
+    "dinner",
+    "snack",
+    "burger",
+    "pizza",
+    "taco",
+    "drink",
+  ],
+  outdoor: [
+    "park",
+    "hike",
+    "sunrise",
+    "trail",
+    "lake",
+    "river",
+    "hill",
+    "nature",
+    "outside",
+    "drive",
+    "viewpoint",
+  ],
+  retail: [
+    "walmart",
+    "target",
+    "ikea",
+    "store",
+    "mall",
+    "costco",
+    "home depot",
+    "aisle",
+    "register",
+    "employee",
+  ],
+  indoor: ["home", "couch", "living room", "inside", "apartment", "kitchen"],
+};
+
+function detectRecentBuckets(previousTitles: string[]): Set<VibeBucket> {
+  const buckets = new Set<VibeBucket>();
+  if (!previousTitles.length) return buckets;
+  const hay = previousTitles.join("  ").toLowerCase();
+  (Object.keys(VIBE_KEYWORDS) as VibeBucket[]).forEach((b) => {
+    if (VIBE_KEYWORDS[b].some((kw) => hay.includes(kw))) buckets.add(b);
+  });
+  return buckets;
+}
+
+// Map each axis option to the vibe bucket it would reinforce. Options not
+// in a map have no strong affinity and are always eligible.
+const VERB_VIBE: Partial<Record<string, VibeBucket>> = {
+  cook: "food",
+  barter: "retail",
+  swap: "retail",
+  trade: "retail",
+  deliver: "retail",
+  race: "outdoor",
+  stargaze: "outdoor",
+  "skip-stones": "outdoor",
+  photograph: "outdoor",
+};
+
+const SETTING_VIBE: Partial<Record<string, VibeBucket>> = {
+  outdoors: "outdoor",
+  natural: "outdoor",
+  rooftop: "outdoor",
+  indoors: "indoor",
+  residential: "indoor",
+  commercial: "retail",
+};
+
+const PROP_VIBE: Partial<Record<string, VibeBucket>> = {
+  "food-based": "food",
+};
+
+function pickAxis<T extends string>(
+  pool: readonly T[],
+  vibeMap: Partial<Record<string, VibeBucket>>,
+  avoid: Set<VibeBucket>,
+): T {
+  const eligible = pool.filter((opt) => {
+    const v = vibeMap[opt];
+    return !v || !avoid.has(v);
+  });
+  const source = eligible.length > 0 ? eligible : pool;
+  return source[Math.floor(Math.random() * source.length)];
+}
+
+function pickDiversitySeed(previousTitles: string[]): DiversitySeed {
+  const avoid = detectRecentBuckets(previousTitles);
   return {
-    verb: pick(DIVERSITY_AXES.verb),
-    setting: pick(DIVERSITY_AXES.setting),
-    prop: pick(DIVERSITY_AXES.prop),
-    group_dynamic: pick(DIVERSITY_AXES.group_dynamic),
+    verb: pickAxis(DIVERSITY_AXES.verb, VERB_VIBE, avoid),
+    setting: pickAxis(DIVERSITY_AXES.setting, SETTING_VIBE, avoid),
+    prop: pickAxis(DIVERSITY_AXES.prop, PROP_VIBE, avoid),
+    // group_dynamic has no strong vibe affinity — always uniform random.
+    group_dynamic:
+      DIVERSITY_AXES.group_dynamic[
+        Math.floor(Math.random() * DIVERSITY_AXES.group_dynamic.length)
+      ],
   };
 }
 
@@ -445,48 +550,131 @@ function renderDiversitySeed(seed: DiversitySeed): string {
 - group dynamic hint: ${seed.group_dynamic}`;
 }
 
-function spiceTier(s: number): 1 | 2 | 3 | 4 {
-  if (s <= 3) return 1;
-  if (s <= 6) return 2;
-  if (s <= 8) return 3;
-  return 4;
+// ---------- Few-shot gold examples ----------
+//
+// Hand-picked exemplars of the SKILL.md philosophy, two per spiciness tier.
+// We grouped by tiers 1–3 / 4–6 / 7–10 so picker tiers cleanly match the
+// user's spice slider. These are intentionally inline (not pulled from any
+// template library) so the prompt is grounded in known-good shapes.
+
+type FewShotExample = {
+  title: string;
+  description: string;
+  spice: number;
+};
+
+const FEW_SHOT_GOLD: { tier: 1 | 2 | 3; examples: FewShotExample[] }[] = [
+  {
+    tier: 1,
+    examples: [
+      {
+        title: "Highest Point Before Sunrise",
+        description:
+          "Split into pairs, race without navigation to find the highest elevation spot in your area before sunrise. Meet at the top and watch it together.",
+        spice: 2,
+      },
+      {
+        title: "24-Hour Diner at 1am",
+        description:
+          "Drive to the nearest 24-hour diner at 1am. Order nothing except coffee and something you've never tried on the menu. Stay until someone orders breakfast.",
+        spice: 2,
+      },
+    ],
+  },
+  {
+    tier: 2,
+    examples: [
+      {
+        title: "Bowling Loser Cooks",
+        description:
+          "One game, one rule: lowest score has to cook a full breakfast for the group the next morning. No handicaps, no mercy.",
+        spice: 5,
+      },
+      {
+        title: "IKEA Fake Couples",
+        description:
+          "Pair off and pretend to be couples looking for furniture for your first home. Ask 3 different employees which sectional says 'we're young and in love.' Stay in character.",
+        spice: 5,
+      },
+    ],
+  },
+  {
+    tier: 3,
+    examples: [
+      {
+        title: "Walmart Pickle Oil",
+        description:
+          "The whole group walks into Walmart. Buy exactly 3 pickles and one bottle of baby oil — nothing else. Everyone present at the register.",
+        spice: 8,
+      },
+      {
+        title: "Home Depot Fake Emergency",
+        description:
+          "Each person uses an AI image generator to create a photorealistic fake home emergency (car crashed into kitchen, raccoon in dishwasher, ball pit filling basement). Walk into Home Depot, show the image to an employee, ask for serious repair advice. Cannot break character. Others watch from a distance.",
+        spice: 8,
+      },
+    ],
+  },
+];
+
+function fewShotTier(spice: number): 1 | 2 | 3 {
+  if (spice <= 3) return 1;
+  if (spice <= 6) return 2;
+  return 3;
 }
 
-function representativeGroup(band: GroupSizeBand): number {
-  if (band === "solo") return 1;
-  if (band === "2") return 2;
-  return 4;
+function pickFewShot(userSpice: number): FewShotExample[] {
+  const t = fewShotTier(userSpice);
+  const entry = FEW_SHOT_GOLD.find((g) => g.tier === t);
+  return entry ? entry.examples.slice() : [];
 }
 
-function pickFewShot(
-  band: GroupSizeBand,
-  userSpice: number,
-  requestedCategory: string | null,
-  k: number,
-): QuestTemplate[] {
-  const userTier = spiceTier(userSpice);
-  const rep = representativeGroup(band);
-  const pool = QUESTS.filter((q) => {
-    if (spiceTier(q.spice) !== userTier) return false;
-    if (rep < q.minGroup || rep > q.maxGroup) return false;
-    if (requestedCategory && requestedCategory !== q.category) return false;
-    return true;
-  });
-  const source = pool.length >= k ? pool : QUESTS.filter((q) => spiceTier(q.spice) === userTier);
-  const shuffled = source.slice().sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, k);
-}
-
-function renderFewShot(quests: QuestTemplate[]): string {
-  if (quests.length === 0) return "";
-  const lines = quests
-    .map((q, i) => {
-      const title = q.title.replaceAll("{city}", "your area").replaceAll("{venue}", "a nearby spot");
-      const desc = q.description.replaceAll("{city}", "your area").replaceAll("{venue}", "a nearby spot");
-      return `${i + 1}. ${title} — ${desc}`;
-    })
+function renderFewShot(examples: FewShotExample[]): string {
+  if (examples.length === 0) return "";
+  const lines = examples
+    .map((q, i) => `${i + 1}. ${q.title} — ${q.description}`)
     .join("\n");
   return `\n\nExamples of the quality and STYLE we want (do NOT copy verbatim, match the shape and energy):\n${lines}\n\nNotice these examples are intrinsically fun without naming specific real venues. They use generic anchors like "a 24-hour diner" not "Joe's Diner." Match this style.`;
+}
+
+// ---------- Food-bias post-check ----------
+//
+// Stricter keyword-based food detector that runs as a final pass after the
+// regular validator loop. The skill's "max 1 food per batch" rule is hard,
+// so when the existing belt fails we retry the model ONCE with an explicit
+// food-bias correction message before giving up.
+
+const FOOD_KEYWORDS = [
+  "restaurant",
+  "cafe",
+  "coffee",
+  "food",
+  "eat",
+  "diner",
+  "burger",
+  "pizza",
+  "taco",
+  "snack",
+  "breakfast",
+  "lunch",
+  "dinner",
+  "drink",
+  "bar",
+  "pub",
+  "brewery",
+  "sushi",
+  "dessert",
+  "ice cream",
+  "menu",
+  "order food",
+  "drive-thru",
+  "fast food",
+];
+
+function isFoodQuest(quest: ClaudeQuest): boolean {
+  const text = `${quest.title ?? ""} ${quest.description ?? ""}`.toLowerCase();
+  if ((quest.category ?? "") === "Food") return true;
+  return FOOD_KEYWORDS.some((kw) => text.includes(kw));
 }
 
 // ---------- Validator ----------
@@ -863,9 +1051,9 @@ export async function POST(req: NextRequest) {
     ? " Constraint: free or very low cost only — each quest must cost under $5 per person, ideally $0. No paid venues, ticketed events, or quests that require any meaningful purchase."
     : "";
   const histogram = buildHistogram(typeCounts);
-  const fewShot = pickFewShot(groupSize, spiceLevel, requestedCategory, 6);
+  const fewShot = pickFewShot(spiceLevel);
   const fewShotStr = renderFewShot(fewShot);
-  const diversitySeed = pickDiversitySeed();
+  const diversitySeed = pickDiversitySeed(previousTitles);
   const diversityStr = renderDiversitySeed(diversitySeed);
 
   const baseUserMessage = `${categoryPrefix}Generate exactly 3 side quests. Light context: the user is in ${location} (atmosphere only — NOT a venue list to draw from).
@@ -970,6 +1158,93 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
         { ok: false, error: "no valid model output" },
         { status: 503 },
       );
+    }
+
+    // ---------- Food-bias post-check + single retry ----------
+    //
+    // Stricter keyword detector applied AFTER the regular validator/retry
+    // loop. If we still have ≥2 food-flavored quests in the batch and the
+    // user did not explicitly request the Food category, fire ONE final
+    // retry with an explicit correction message. If that retry still fails
+    // the bar we accept the response anyway (and log it).
+    const foodCheckUserRequested =
+      requestedCategory && requestedCategory.toLowerCase() === "food";
+    if (!foodCheckUserRequested) {
+      const foodCount = lastParsed.filter(isFoodQuest).length;
+      if (foodCount >= 2) {
+        console.log("[generate] food-bias post-check failed", { foodCount });
+        messages.push({
+          role: "assistant",
+          content: JSON.stringify(lastParsed),
+        });
+        messages.push({
+          role: "user",
+          content: `CRITICAL: Your previous response had ${foodCount} food/eating quests. The hard rule is AT MOST 1. The next 2+ quests MUST be completely non-food categories: outdoor, social stunts, physical challenges, creative, exploration. No eating, no restaurants, no cafes, no food as reward or penalty.`,
+        });
+
+        const foodRetryController = new AbortController();
+        const foodRetryTimer = setTimeout(
+          () => foodRetryController.abort(),
+          25_000,
+        );
+        try {
+          const retryResponse = await client.messages.create(
+            {
+              model: "claude-haiku-4-5",
+              max_tokens: 1500,
+              temperature: 0.9,
+              system: [
+                {
+                  type: "text",
+                  text: SYSTEM_PROMPT,
+                  cache_control: { type: "ephemeral" },
+                },
+              ],
+              messages,
+            },
+            { signal: foodRetryController.signal },
+          );
+          clearTimeout(foodRetryTimer);
+          const retryTextBlock = retryResponse.content.find(
+            (b) => b.type === "text",
+          );
+          const retryText =
+            retryTextBlock && retryTextBlock.type === "text"
+              ? retryTextBlock.text
+              : "";
+          let retryParsed: unknown = null;
+          try {
+            retryParsed = extractJsonArray(retryText);
+          } catch {
+            retryParsed = null;
+          }
+          if (Array.isArray(retryParsed)) {
+            const retryArr = (retryParsed as ClaudeQuest[]).slice(0, 3);
+            const retryFoodCount = retryArr.filter(isFoodQuest).length;
+            console.log("[generate] food-bias retry", {
+              before: foodCount,
+              after: retryFoodCount,
+              accepted: true,
+            });
+            // Accept the retry unconditionally — the spec says only one retry
+            // and we accept whatever comes back. The existing scrub still runs
+            // below against the original violations list, which is a no-op
+            // when the retry response had no venue leaks.
+            lastParsed = retryArr;
+            const retryReport = detectViolations(
+              retryArr,
+              rawNames,
+              spiceLevel,
+              requestedCategory,
+              previousTitles,
+            );
+            lastViolations = retryReport.violations;
+          }
+        } catch (err) {
+          clearTimeout(foodRetryTimer);
+          console.log("[generate] food-bias retry failed", err);
+        }
+      }
     }
 
     // Final-pass server-side scrub if violations remained after retries.
