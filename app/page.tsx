@@ -108,43 +108,60 @@ const ALL_CATEGORIES: QuestCategory[] = [
 const SHOWN_KEY = "sqShown";
 const SHOWN_TITLES_KEY = "sqShownTitles";
 const BOOKMARK_KEY = "sqBookmarks";
+// 24h TTL across diversity-related localStorage. Long enough that closing
+// the tab and coming back tomorrow still suppresses repeats; short enough
+// that a true week-later session feels fresh again.
+const DIVERSITY_TTL_MS = 24 * 60 * 60 * 1000;
 
-function loadShown(): string[] {
-  if (typeof window === "undefined") return [];
+type TtlEnvelope<T> = { value: T; expiresAt: number };
+
+function readTtl<T>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
   try {
-    const raw = sessionStorage.getItem(SHOWN_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as string[]) : [];
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw) as Partial<TtlEnvelope<T>>;
+    if (
+      !parsed ||
+      typeof parsed.expiresAt !== "number" ||
+      Date.now() > parsed.expiresAt
+    ) {
+      localStorage.removeItem(key);
+      return fallback;
+    }
+    return (parsed.value as T) ?? fallback;
   } catch {
-    return [];
+    return fallback;
   }
 }
-function saveShown(ids: string[]) {
+
+function writeTtl<T>(key: string, value: T) {
+  if (typeof window === "undefined") return;
   try {
-    sessionStorage.setItem(SHOWN_KEY, JSON.stringify(ids));
+    const envelope: TtlEnvelope<T> = {
+      value,
+      expiresAt: Date.now() + DIVERSITY_TTL_MS,
+    };
+    localStorage.setItem(key, JSON.stringify(envelope));
   } catch {
     // ignore
   }
+}
+
+function loadShown(): string[] {
+  const titles = readTtl<string[]>(SHOWN_KEY, []);
+  return Array.isArray(titles) ? titles : [];
+}
+function saveShown(ids: string[]) {
+  writeTtl(SHOWN_KEY, ids.slice(-30));
 }
 
 function loadShownTitles(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = sessionStorage.getItem(SHOWN_TITLES_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as string[]) : [];
-  } catch {
-    return [];
-  }
+  const titles = readTtl<string[]>(SHOWN_TITLES_KEY, []);
+  return Array.isArray(titles) ? titles : [];
 }
 function saveShownTitles(titles: string[]) {
-  try {
-    sessionStorage.setItem(SHOWN_TITLES_KEY, JSON.stringify(titles));
-  } catch {
-    // ignore
-  }
+  writeTtl(SHOWN_TITLES_KEY, titles.slice(-30));
 }
 
 function loadBookmarks(): GeneratedQuest[] {
