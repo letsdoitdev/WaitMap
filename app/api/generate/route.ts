@@ -449,6 +449,10 @@ const VIBE_KEYWORDS: Record<VibeBucket, string[]> = {
     "pizza",
     "taco",
     "drink",
+    "fast food",
+    "drive-through",
+    "cook-off",
+    "menu",
   ],
   outdoor: [
     "park",
@@ -474,6 +478,11 @@ const VIBE_KEYWORDS: Record<VibeBucket, string[]> = {
     "aisle",
     "register",
     "employee",
+    "supermarket",
+    "grocery",
+    "checkout",
+    "produce aisle",
+    "deli counter",
   ],
   indoor: ["home", "couch", "living room", "inside", "apartment", "kitchen"],
 };
@@ -681,11 +690,20 @@ const FOOD_KEYWORDS = [
   "order food",
   "drive-thru",
   "fast food",
+  "cook-off",
+  "cook off",
+  "drive-through",
+  "takeout",
+  "take-out",
+  "meal",
+  "brunch",
+  "cuisine",
 ];
 
 function isFoodQuest(quest: ClaudeQuest): boolean {
-  const text = `${quest.title ?? ""} ${quest.description ?? ""}`.toLowerCase();
+  // isFoodQuest check order: (1) category field, (2) title keywords, (3) description keywords
   if ((quest.category ?? "") === "Food") return true;
+  const text = `${quest.title ?? ""} ${quest.description ?? ""}`.toLowerCase();
   return FOOD_KEYWORDS.some((kw) => text.includes(kw));
 }
 
@@ -1053,7 +1071,7 @@ export async function POST(req: NextRequest) {
         ? "2 people"
         : "3+ people";
   const previousStr = previousTitles.length
-    ? `\n\nPreviously generated quest titles to AVOID repeating or closely resembling: ${previousTitles.join("; ")}. Generate quests that are meaningfully different in theme, venue type, and action.`
+    ? `\n\nBANNED TITLES — do NOT generate any quest with a title that closely matches these (exact or near-paraphrase):\n${previousTitles.join("\n")}\n\nGenerating a banned title is a failure. Treat this list as a blocklist, not a suggestion.`
     : "";
   const categoryPrefix = requestedCategory
     ? `Generate quests in the ${requestedCategory} category. `
