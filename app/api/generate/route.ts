@@ -629,6 +629,18 @@ function pickFewShot(userSpice: number): FewShotExample[] {
   return entry ? entry.examples.slice() : [];
 }
 
+// Negative examples teach the model the shape of generic, off-brand quests
+// it should NOT emit. Injected after the gold few-shot so the model has the
+// good→bad ordering fresh in context.
+const NEGATIVE_EXAMPLES = `
+
+AVOID quests like these — they are generic, boring, or off-brand:
+- "Draw chalk art on the sidewalk" — solitary, no stakes, no group dynamic
+- "Go to a coffee shop and try something new" — food bias, zero adventure
+- "Walk in the park and count birds" — no social element, no story
+- "Visit a museum and pick a favorite exhibit" — tourist activity, not a side quest
+- "Try a new restaurant downtown" — food again, no creativity required`;
+
 function renderFewShot(examples: FewShotExample[]): string {
   if (examples.length === 0) return "";
   const lines = examples
@@ -1056,13 +1068,15 @@ export async function POST(req: NextRequest) {
   const diversitySeed = pickDiversitySeed(previousTitles);
   const diversityStr = renderDiversitySeed(diversitySeed);
 
-  const baseUserMessage = `${categoryPrefix}Generate exactly 3 side quests. Light context: the user is in ${location} (atmosphere only — NOT a venue list to draw from).
+  const baseUserMessage = `${categoryPrefix}Generate exactly 3 side quests. Light context: the user is in ${location} (atmosphere only — NOT a venue list to draw from).${fewShotStr}${NEGATIVE_EXAMPLES}
 
 Venue TYPES available nearby (soft hint only — do NOT make all 3 quests at the dominant type): ${histogram}
 
-For example, if they have parks, your quest can say "a nearby park" — do NOT name the park.${fewShotStr}${diversityStr}
+For example, if they have parks, your quest can say "a nearby park" — do NOT name the park.${diversityStr}
 
 Inputs: spice level ${spiceLevel}/10, group size ${groupSizeHint}, time available ${timeAvailable} minutes.${driveStr}${costStr}${previousStr}
+
+HARD CONSTRAINT: Generate at most 1 food-related quest (category Food, or activities centered on eating/drinking at a venue). If nearby venues are food-heavy, still find non-food angles.
 
 Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defined in the system prompt. No markdown, no explanation, just the raw JSON array. If you produce more than 3, only the first 3 will be used.`;
 
@@ -1083,13 +1097,15 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       // When the category is locked, the model's distribution narrows hard
       // and we see the same handful of templates remixed across rerolls.
-      // Bumping temperature only for category-locked calls keeps
-      // unfocused "All" requests calm.
-      const temperature = requestedCategory ? 0.95 : 0.9;
+      // 3 quests need ~750 output tokens. We hold both branches at 0.75 —
+      // higher temperatures were biasing toward JSON schema drift and the
+      // category-locked branch never actually benefited from the bump in
+      // practice.
+      const temperature = 0.75;
       const response = await client.messages.create(
         {
           model: "claude-haiku-4-5",
-          max_tokens: 1500,
+          max_tokens: 900,
           temperature,
           system: [
             {
@@ -1160,39 +1176,47 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
       );
     }
 
-    // ---------- Food-bias post-check + single retry ----------
+    // ---------- Food-bias post-check + smart top-up ----------
     //
-    // Stricter keyword detector applied AFTER the regular validator/retry
-    // loop. If we still have ≥2 food-flavored quests in the batch and the
-    // user did not explicitly request the Food category, fire ONE final
-    // retry with an explicit correction message. If that retry still fails
-    // the bar we accept the response anyway (and log it).
+    // Old behavior: a full second 3-quest regeneration whenever food count
+    // ≥ 2 — doubled tail latency in the worst case. New: keep at most one
+    // food quest, filter the rest, and only request the missing N quests
+    // with a tiny max_tokens ceiling. Strictly faster end-to-end (smaller
+    // prompt, smaller completion) and we never throw away the good non-food
+    // quests we already had.
     const foodCheckUserRequested =
       requestedCategory && requestedCategory.toLowerCase() === "food";
     if (!foodCheckUserRequested) {
       const foodCount = lastParsed.filter(isFoodQuest).length;
       if (foodCount >= 2) {
-        console.log("[generate] food-bias post-check failed", { foodCount });
-        messages.push({
-          role: "assistant",
-          content: JSON.stringify(lastParsed),
-        });
-        messages.push({
-          role: "user",
-          content: `CRITICAL: Your previous response had ${foodCount} food/eating quests. The hard rule is AT MOST 1. The next 2+ quests MUST be completely non-food categories: outdoor, social stunts, physical challenges, creative, exploration. No eating, no restaurants, no cafes, no food as reward or penalty.`,
+        const nonFood: ClaudeQuest[] = [];
+        let keptFood = 0;
+        for (const q of lastParsed) {
+          if (isFoodQuest(q)) {
+            if (keptFood === 0) {
+              nonFood.push(q);
+              keptFood = 1;
+            }
+            // else: drop the excess food quest
+          } else {
+            nonFood.push(q);
+          }
+        }
+        const needed = 3 - nonFood.length;
+        console.log("[generate] food-bias post-check failed", {
+          foodCount,
+          dropped: needed,
+          kept: nonFood.length,
         });
 
-        const foodRetryController = new AbortController();
-        const foodRetryTimer = setTimeout(
-          () => foodRetryController.abort(),
-          25_000,
-        );
-        try {
-          const retryResponse = await client.messages.create(
-            {
+        if (needed > 0) {
+          // Top-up call: short prompt, tight max_tokens, no AbortController
+          // ceiling so a slow link doesn't bounce a healthy completion.
+          try {
+            const topupResponse = await client.messages.create({
               model: "claude-haiku-4-5",
-              max_tokens: 1500,
-              temperature: 0.9,
+              max_tokens: 400,
+              temperature: 0.75,
               system: [
                 {
                   type: "text",
@@ -1200,49 +1224,57 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
                   cache_control: { type: "ephemeral" },
                 },
               ],
-              messages,
-            },
-            { signal: foodRetryController.signal },
-          );
-          clearTimeout(foodRetryTimer);
-          const retryTextBlock = retryResponse.content.find(
-            (b) => b.type === "text",
-          );
-          const retryText =
-            retryTextBlock && retryTextBlock.type === "text"
-              ? retryTextBlock.text
-              : "";
-          let retryParsed: unknown = null;
-          try {
-            retryParsed = extractJsonArray(retryText);
-          } catch {
-            retryParsed = null;
-          }
-          if (Array.isArray(retryParsed)) {
-            const retryArr = (retryParsed as ClaudeQuest[]).slice(0, 3);
-            const retryFoodCount = retryArr.filter(isFoodQuest).length;
-            console.log("[generate] food-bias retry", {
-              before: foodCount,
-              after: retryFoodCount,
-              accepted: true,
+              messages: [
+                {
+                  role: "user",
+                  content: `Generate exactly ${needed} non-food side quest${needed === 1 ? "" : "s"}. Same location (${location}) and spice level (${spiceLevel}/10). JSON array only.`,
+                },
+              ],
             });
-            // Accept the retry unconditionally — the spec says only one retry
-            // and we accept whatever comes back. The existing scrub still runs
-            // below against the original violations list, which is a no-op
-            // when the retry response had no venue leaks.
-            lastParsed = retryArr;
-            const retryReport = detectViolations(
-              retryArr,
-              rawNames,
-              spiceLevel,
-              requestedCategory,
-              previousTitles,
+            const topupTextBlock = topupResponse.content.find(
+              (b) => b.type === "text",
             );
-            lastViolations = retryReport.violations;
+            const topupText =
+              topupTextBlock && topupTextBlock.type === "text"
+                ? topupTextBlock.text
+                : "";
+            let topupParsed: unknown = null;
+            try {
+              topupParsed = extractJsonArray(topupText);
+            } catch {
+              topupParsed = null;
+            }
+            if (Array.isArray(topupParsed)) {
+              const topupArr = (topupParsed as ClaudeQuest[])
+                .filter((q) => q && typeof q.title === "string")
+                .filter((q) => !isFoodQuest(q))
+                .slice(0, needed);
+              lastParsed = [...nonFood, ...topupArr].slice(0, 3);
+              console.log("[generate] food-bias topup", {
+                requested: needed,
+                received: topupArr.length,
+                finalFood: lastParsed.filter(isFoodQuest).length,
+              });
+              // Re-run violation detection on the merged batch so the scrub
+              // below sees an accurate picture.
+              const mergedReport = detectViolations(
+                lastParsed,
+                rawNames,
+                spiceLevel,
+                requestedCategory,
+                previousTitles,
+              );
+              lastViolations = mergedReport.violations;
+            } else {
+              // Couldn't parse the top-up — fall back to the trimmed batch
+              // (≤2 quests) rather than the original food-heavy one.
+              lastParsed = nonFood;
+            }
+          } catch (err) {
+            console.log("[generate] food-bias topup failed", err);
+            // Keep the trimmed batch — at minimum we removed the duplicates.
+            lastParsed = nonFood;
           }
-        } catch (err) {
-          clearTimeout(foodRetryTimer);
-          console.log("[generate] food-bias retry failed", err);
         }
       }
     }
