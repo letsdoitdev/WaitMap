@@ -1107,6 +1107,8 @@ Inputs: spice level ${spiceLevel}/10, group size ${groupSizeHint}, time availabl
 
 HARD CONSTRAINT: Generate at most 1 food-related quest (category Food, or activities centered on eating/drinking at a venue). If nearby venues are food-heavy, still find non-food angles.
 
+BREVITY: Each description must be 2 short sentences, ~30 words max — concrete and punchy, no filler. Titles 5-8 words.
+
 Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defined in the system prompt. No markdown, no explanation, just the raw JSON array. If you produce more than 3, only the first 3 will be used.`;
 
   const rawNames = places.map((p) => p.name);
@@ -1128,7 +1130,9 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
   // confirm prompt caching is actually being HIT.
   const llmStageMs: number[] = [];
   const llmUsage: Array<Record<string, number | undefined>> = [];
-  let topupMs = 0;
+  // Retained in the timing log for continuity; the food top-up call was
+  // removed (it doubled p95), so this stays 0.
+  const topupMs = 0;
 
   function recordUsage(u: Anthropic.Messages.Usage | undefined): void {
     if (!u) return;
@@ -1153,9 +1157,10 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
       const response = await client.messages.create(
         {
           model: "claude-haiku-4-5",
-          // 3 quests need ~450-550 output tokens; 768 is a safe ceiling that
-          // avoids the model rambling past the JSON array.
-          max_tokens: 768,
+          // Output generation is now the single biggest cost (one call, no
+          // top-up). 3 concise quests fit in ~400-450 tokens; a 600 ceiling
+          // keeps the tail bounded without truncating valid JSON.
+          max_tokens: 600,
           temperature,
           system: [
             {
@@ -1245,100 +1250,19 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
     const foodCheckUserRequested =
       requestedCategory && requestedCategory.toLowerCase() === "food";
     if (!foodCheckUserRequested) {
+      // p95: a food-heavy batch no longer triggers a second LLM round-trip.
+      // The old top-up fired a full extra Haiku call whenever >=2 quests
+      // looked food-related — and isFoodQuest is broad (bar/drink/cook/menu/
+      // meal...), so on a restaurant-dense city it false-positived and
+      // roughly DOUBLED latency on nearly every reroll. The single-call
+      // prompt already pushes hard for "max 1 food per batch"; we just log
+      // slips and ship the 3 quests we have instead of paying ~2-3s to
+      // regenerate.
       const foodCount = lastParsed.filter(isFoodQuest).length;
       if (foodCount >= 2) {
-        const nonFood: ClaudeQuest[] = [];
-        let keptFood = 0;
-        for (const q of lastParsed) {
-          if (isFoodQuest(q)) {
-            if (keptFood === 0) {
-              nonFood.push(q);
-              keptFood = 1;
-            }
-            // else: drop the excess food quest
-          } else {
-            nonFood.push(q);
-          }
-        }
-        const needed = 3 - nonFood.length;
-        console.log("[generate] food-bias post-check failed", {
+        console.log("[generate] food-bias slip (accepted, no top-up)", {
           foodCount,
-          dropped: needed,
-          kept: nonFood.length,
         });
-
-        if (needed > 0) {
-          // Top-up call: short prompt, tight max_tokens, no AbortController
-          // ceiling so a slow link doesn't bounce a healthy completion.
-          try {
-            const topupStart = Date.now();
-            const topupResponse = await client.messages.create({
-              model: "claude-haiku-4-5",
-              // 1-2 short quests — keep the ceiling tight so this rare extra
-              // round-trip stays cheap.
-              max_tokens: 320,
-              temperature: 0.75,
-              system: [
-                {
-                  type: "text",
-                  text: SYSTEM_PROMPT,
-                  cache_control: { type: "ephemeral" },
-                },
-              ],
-              messages: [
-                {
-                  role: "user",
-                  content: `Generate exactly ${needed} non-food side quest${needed === 1 ? "" : "s"}. Same location (${location}) and spice level (${spiceLevel}/10). JSON array only.`,
-                },
-              ],
-            });
-            topupMs = Date.now() - topupStart;
-            recordUsage(topupResponse.usage);
-            const topupTextBlock = topupResponse.content.find(
-              (b) => b.type === "text",
-            );
-            const topupText =
-              topupTextBlock && topupTextBlock.type === "text"
-                ? topupTextBlock.text
-                : "";
-            let topupParsed: unknown = null;
-            try {
-              topupParsed = extractJsonArray(topupText);
-            } catch {
-              topupParsed = null;
-            }
-            if (Array.isArray(topupParsed)) {
-              const topupArr = (topupParsed as ClaudeQuest[])
-                .filter((q) => q && typeof q.title === "string")
-                .filter((q) => !isFoodQuest(q))
-                .slice(0, needed);
-              lastParsed = [...nonFood, ...topupArr].slice(0, 3);
-              console.log("[generate] food-bias topup", {
-                requested: needed,
-                received: topupArr.length,
-                finalFood: lastParsed.filter(isFoodQuest).length,
-              });
-              // Re-run violation detection on the merged batch so the scrub
-              // below sees an accurate picture.
-              const mergedReport = detectViolations(
-                lastParsed,
-                rawNames,
-                spiceLevel,
-                requestedCategory,
-                previousTitles,
-              );
-              lastViolations = mergedReport.violations;
-            } else {
-              // Couldn't parse the top-up — fall back to the trimmed batch
-              // (≤2 quests) rather than the original food-heavy one.
-              lastParsed = nonFood;
-            }
-          } catch (err) {
-            console.log("[generate] food-bias topup failed", err);
-            // Keep the trimmed batch — at minimum we removed the duplicates.
-            lastParsed = nonFood;
-          }
-        }
       }
     }
 
