@@ -11,7 +11,6 @@ import {
   normalize,
   scrub,
   findSafetyViolation,
-  isFoodQuest,
   isUiCategory,
   clamp,
   type GenerateBody,
@@ -218,8 +217,6 @@ export async function POST(req: NextRequest) {
     async start(ctrl) {
       const seen = new Set<string>(excludeIds);
       const emitted: GeneratedQuest[] = [];
-      const emittedTitles = new Set<string>();
-      let foodEmitted = 0;
       let firstQuestMs = 0;
       const abort = new AbortController();
       const timer = setTimeout(() => abort.abort(), 25_000);
@@ -241,21 +238,19 @@ export async function POST(req: NextRequest) {
         // Strip any leaked venue names first (matches the JSON path).
         scrub([q], places);
         const haystack = `${q.title} ${q.description}`;
+        // SAFETY is the ONLY reason to suppress a streamed quest — a quest that
+        // still trips a hard safety rule after scrub() is held (never shown).
+        // We deliberately do NOT drop for food-density or title dupes here: the
+        // JSON path ships those as-is (post #43), and dropping them mid-stream
+        // with no top-up was silently yielding 2 quests instead of 3 in
+        // food-dense areas. Keeping parity guarantees 3 unless a rare genuine
+        // safety hold applies.
         if (findSafetyViolation(haystack)) {
           console.log("[generate/stream] held unsafe quest", { title: q.title });
           return;
         }
-        // Best-effort batch rules in stream mode (can't retract a shown quest):
-        // cap food at 1, skip exact-title dupes.
-        const key = q.title.trim().toLowerCase();
-        if (emittedTitles.has(key)) return;
-        if (isFoodQuest(q)) {
-          if (foodEmitted >= 1) return;
-          foodEmitted++;
-        }
         const normalized = normalize(q, seen, categoryOverride, normalizeDefaults);
         if (!normalized) return;
-        emittedTitles.add(key);
         emitted.push(normalized);
         if (!firstQuestMs) firstQuestMs = Date.now() - t0;
         ctrl.enqueue(sse({ type: "quest", quest: normalized }));
@@ -291,6 +286,14 @@ export async function POST(req: NextRequest) {
               consider(obj);
               if (emitted.length >= 3) break;
             }
+            if (emitted.length >= 3) break;
+          }
+        }
+        // Insurance: flush any complete object still buffered when the stream
+        // ended (e.g. the final quest, closed by `}]` with no trailing comma).
+        if (emitted.length < 3) {
+          for (const obj of scanObjects(buf, scan)) {
+            consider(obj);
             if (emitted.length >= 3) break;
           }
         }
