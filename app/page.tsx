@@ -680,8 +680,11 @@ export default function Home() {
     setNearbyStatus("loading");
     setView("results");
 
-    const { places, typeCounts } = await fetchNearby(city);
-    setNearbyStatus(places.length > 0 ? "ok" : "fallback");
+    // Fire the nearby-places fetch immediately and let the synchronous
+    // localStorage setup below overlap the network wait instead of stacking
+    // strictly after it. We await the promise just before the generate call,
+    // which is the only consumer of `places`/`typeCounts`.
+    const nearbyPromise = fetchNearby(city);
 
     let shown = loadShown();
     let shownTitles = loadShownTitles();
@@ -699,6 +702,9 @@ export default function Home() {
     // returns later. Merged with the existing per-session `shown` list.
     const recent = loadRecentQuestIds();
     const excludeIds = Array.from(new Set([...shown, ...recent]));
+
+    const { places, typeCounts } = await nearbyPromise;
+    setNearbyStatus(places.length > 0 ? "ok" : "fallback");
 
     const cat =
       overrideCategory !== undefined ? overrideCategory : categoryFilter;

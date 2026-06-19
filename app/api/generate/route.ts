@@ -1111,6 +1111,11 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
   let lastViolations: string[] = [];
   const MAX_RETRIES = 2;
 
+  // Per-stage timing — mirrors the [nearby-places] breakdown so before/after
+  // p95 work can be measured rather than guessed.
+  const llmStageMs: number[] = [];
+  let topupMs = 0;
+
   try {
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       // When the category is locked, the model's distribution narrows hard
@@ -1120,6 +1125,7 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
       // category-locked branch never actually benefited from the bump in
       // practice.
       const temperature = 0.75;
+      const llmStart = Date.now();
       const response = await client.messages.create(
         {
           model: "claude-haiku-4-5",
@@ -1136,6 +1142,7 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
         },
         { signal: controller.signal },
       );
+      llmStageMs.push(Date.now() - llmStart);
 
       const textBlock = response.content.find((b) => b.type === "text");
       const text =
@@ -1231,6 +1238,7 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
           // Top-up call: short prompt, tight max_tokens, no AbortController
           // ceiling so a slow link doesn't bounce a healthy completion.
           try {
+            const topupStart = Date.now();
             const topupResponse = await client.messages.create({
               model: "claude-haiku-4-5",
               max_tokens: 400,
@@ -1249,6 +1257,7 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
                 },
               ],
             });
+            topupMs = Date.now() - topupStart;
             const topupTextBlock = topupResponse.content.find(
               (b) => b.type === "text",
             );
@@ -1336,6 +1345,13 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
         FREE_DAILY_REROLLS - (typeof newCount === "number" ? newCount : 0),
       );
     }
+
+    console.log("[generate] timing", {
+      llmStageMs,
+      llmTotalMs: llmStageMs.reduce((a, b) => a + b, 0),
+      topupMs,
+      attempts: llmStageMs.length,
+    });
 
     return NextResponse.json({
       ok: true,
