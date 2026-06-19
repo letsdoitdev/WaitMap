@@ -18,11 +18,15 @@ const FINAL_TOTAL_CAP = 20;
 
 // ---------- Performance knobs ----------
 //
-// Hard per-fetch timeout. Both the Nominatim geocode and the Overpass query
-// are wrapped in an AbortController with this deadline so a slow upstream can
-// never drag the request past the ~5s p95 budget (geocode is typically
-// ~300ms, so the realistic worst case is well under 2 * the timeout).
-const FETCH_TIMEOUT_MS = 2_500;
+// Hard per-fetch AbortController deadlines. An earlier 2.5s shared cap was too
+// aggressive: Overpass from us-east regularly needs ~3s, so it ALWAYS aborted,
+// venue context was always empty, and the "generic quests" banner fired every
+// run. The client now (a) fires this request in parallel with generation and
+// (b) memoizes the result per city, so nearby latency is hidden behind the LLM
+// call and paid at most once per city. That lets us give Overpass enough room
+// to actually succeed while geocode keeps a tighter bound.
+const GEOCODE_TIMEOUT_MS = Number(process.env.GEOCODE_TIMEOUT_MS) || 3_000;
+const OVERPASS_TIMEOUT_MS = Number(process.env.OVERPASS_TIMEOUT_MS) || 4_500;
 
 // Overpass endpoint + search radius are config-overridable so a faster mirror
 // (e.g. https://overpass.kumi.systems/api/interpreter) or a smaller radius can
@@ -103,7 +107,7 @@ async function geocode(location: string): Promise<StageResult<Geo | null>> {
     const res = await fetchWithTimeout(
       url,
       { headers: { "User-Agent": UA, "Accept-Language": "en" } },
-      FETCH_TIMEOUT_MS,
+      GEOCODE_TIMEOUT_MS,
     );
     if (!res.ok) return { value: null, cached: false, timedOut: false };
     const data = (await res.json()) as Array<{
@@ -158,7 +162,7 @@ out body 80;`;
         },
         body: "data=" + encodeURIComponent(query),
       },
-      FETCH_TIMEOUT_MS,
+      OVERPASS_TIMEOUT_MS,
     );
     if (!res.ok) return { value: [], cached: false, timedOut: false };
     const data = (await res.json()) as {

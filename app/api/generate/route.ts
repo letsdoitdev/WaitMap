@@ -15,6 +15,10 @@ type GroupSizeBand = "solo" | "2" | "group";
 
 type GenerateBody = {
   location?: string;
+  /** Coarse resolved region descriptor (e.g. "Ashburn, Virginia, USA") used
+   * ONLY for geographic plausibility — never to name venues. Falls back to
+   * `location` when absent. */
+  region?: string;
   /** Full place objects (still needed for the venue-leak detector and the
    * scrub-time category placeholder). Histogram is built from typeCounts,
    * not from this list. */
@@ -1029,6 +1033,11 @@ export async function POST(req: NextRequest) {
   }
 
   const location = (body.location ?? "").trim() || "your area";
+  // Region is a coarse locale descriptor for geographic plausibility only.
+  // Prefer the geocoded region; fall back to the raw location string so the
+  // model always has *some* locale signal (the raw city is enough to avoid
+  // "surf in landlocked Arizona" style misfires).
+  const region = (body.region ?? "").trim() || location;
   const places = Array.isArray(body.nearbyPlaces)
     ? body.nearbyPlaces
         .filter((p) => p && typeof p.name === "string" && typeof p.type === "string")
@@ -1086,7 +1095,9 @@ export async function POST(req: NextRequest) {
   const diversitySeed = pickDiversitySeed(previousTitles);
   const diversityStr = renderDiversitySeed(diversitySeed);
 
-  const baseUserMessage = `${categoryPrefix}Generate exactly 3 side quests. Light context: the user is in ${location} (atmosphere only — NOT a venue list to draw from).${fewShotStr}${NEGATIVE_EXAMPLES}
+  const baseUserMessage = `${categoryPrefix}Generate exactly 3 side quests. Light context: the user is in ${region} (atmosphere only — NOT a venue list to draw from).
+
+GEOGRAPHIC PLAUSIBILITY: Use "${region}" only to keep quests physically possible for the area's climate, terrain, and density — e.g. no surfing/tide-pools in a landlocked region, no "hit 30 bars in an hour" in a rural town, no ski quests in a desert. Do NOT name any specific venue, street, or landmark; this is a sanity check on quest TYPE, not a place to drop proper nouns.${fewShotStr}${NEGATIVE_EXAMPLES}
 
 Venue TYPES available nearby (soft hint only — do NOT make all 3 quests at the dominant type): ${histogram}
 
@@ -1112,9 +1123,22 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
   const MAX_RETRIES = 2;
 
   // Per-stage timing — mirrors the [nearby-places] breakdown so before/after
-  // p95 work can be measured rather than guessed.
+  // p95 work can be measured rather than guessed. `llmUsage` captures the
+  // per-call token accounting (incl. cache_read vs cache_creation) so we can
+  // confirm prompt caching is actually being HIT.
   const llmStageMs: number[] = [];
+  const llmUsage: Array<Record<string, number | undefined>> = [];
   let topupMs = 0;
+
+  function recordUsage(u: Anthropic.Messages.Usage | undefined): void {
+    if (!u) return;
+    llmUsage.push({
+      input: u.input_tokens,
+      output: u.output_tokens,
+      cacheCreate: u.cache_creation_input_tokens ?? undefined,
+      cacheRead: u.cache_read_input_tokens ?? undefined,
+    });
+  }
 
   try {
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -1129,7 +1153,9 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
       const response = await client.messages.create(
         {
           model: "claude-haiku-4-5",
-          max_tokens: 900,
+          // 3 quests need ~450-550 output tokens; 768 is a safe ceiling that
+          // avoids the model rambling past the JSON array.
+          max_tokens: 768,
           temperature,
           system: [
             {
@@ -1143,6 +1169,7 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
         { signal: controller.signal },
       );
       llmStageMs.push(Date.now() - llmStart);
+      recordUsage(response.usage);
 
       const textBlock = response.content.find((b) => b.type === "text");
       const text =
@@ -1179,16 +1206,22 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
         leaked: report.leakedNames,
       });
 
-      if (report.violations.length === 0 || attempt === MAX_RETRIES) break;
+      // p95 budget: a full corrective round-trip costs ~2-3s, so we only spend
+      // one on violations that post-processing CANNOT repair — i.e. safety
+      // bans. Venue leaks are fixed by scrub() below, food-density by the
+      // top-up pass, and spice/dupe/similarity are cosmetic; retrying for
+      // those was the main driver of the 6.8-10.8s tail. Accept the first
+      // draft for everything except a hard safety hit.
+      const blocking = report.violations.filter((v) =>
+        v.startsWith("VIOLATION_SAFETY"),
+      );
+      if (blocking.length === 0 || attempt === MAX_RETRIES) break;
 
-      // Append assistant + corrective user, then loop.
+      // Append assistant + corrective user, then loop (safety-only).
       messages.push({ role: "assistant", content: text });
-      const leakList = report.leakedNames.length
-        ? ` Specifically avoid these venue names that leaked: ${report.leakedNames.join(", ")}.`
-        : "";
       messages.push({
         role: "user",
-        content: `Previous attempt violated rules: ${report.violations.join("; ")}. Generate 3 NEW quests fixing these issues.${leakList} Use generic placeholders like "a nearby park", "a local cafe", "a community space".`,
+        content: `Previous attempt violated a hard safety rule: ${blocking.join("; ")}. Generate 3 NEW quests that fix this. Keep everything else (no named venues, max 1 food quest, spice ceiling).`,
       });
     }
 
@@ -1241,7 +1274,9 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
             const topupStart = Date.now();
             const topupResponse = await client.messages.create({
               model: "claude-haiku-4-5",
-              max_tokens: 400,
+              // 1-2 short quests — keep the ceiling tight so this rare extra
+              // round-trip stays cheap.
+              max_tokens: 320,
               temperature: 0.75,
               system: [
                 {
@@ -1258,6 +1293,7 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
               ],
             });
             topupMs = Date.now() - topupStart;
+            recordUsage(topupResponse.usage);
             const topupTextBlock = topupResponse.content.find(
               (b) => b.type === "text",
             );
@@ -1351,6 +1387,27 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
       llmTotalMs: llmStageMs.reduce((a, b) => a + b, 0),
       topupMs,
       attempts: llmStageMs.length,
+      // cacheRead > 0 on calls after the first confirms the system prompt is
+      // being served from cache rather than re-billed as cache_creation.
+      usage: llmUsage,
+    });
+
+    // Lightweight quality-review log: the inputs that shaped this batch and the
+    // 3 quests we shipped, so the owner can later mine patterns and feed
+    // improvements back into the skill. Titles + descriptions only — no PII.
+    console.log("[generate] result", {
+      location,
+      region,
+      histogram,
+      spiceLevel,
+      groupSize,
+      category: requestedCategory,
+      quests: quests.map((q) => ({
+        title: q.title,
+        description: q.description,
+        category: q.category,
+        spice: q.spice,
+      })),
     });
 
     return NextResponse.json({
