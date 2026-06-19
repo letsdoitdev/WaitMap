@@ -1108,11 +1108,31 @@ Return ONLY a minified JSON array of EXACTLY 3 objects in the slim OUTPUT FORMAT
 
   function recordUsage(u: Anthropic.Messages.Usage | undefined): void {
     if (!u) return;
+    const read = u.cache_read_input_tokens ?? 0;
+    const create = u.cache_creation_input_tokens ?? 0;
+    const create1h = u.cache_creation?.ephemeral_1h_input_tokens ?? 0;
+    const create5m = u.cache_creation?.ephemeral_5m_input_tokens ?? 0;
+    // HIT = the cached prefix was read; MISS = we re-paid to (re)create it.
+    const cacheHit = read > 0 && create === 0;
     llmUsage.push({
       input: u.input_tokens,
       output: u.output_tokens,
-      cacheCreate: u.cache_creation_input_tokens ?? undefined,
-      cacheRead: u.cache_read_input_tokens ?? undefined,
+      cacheRead: read,
+      cacheCreate: create,
+      create1h,
+      create5m,
+      cacheHit: cacheHit ? 1 : 0,
+    });
+    // One-glance regime read in the Vercel function logs: scan a handful of
+    // these and the hit fraction is immediately obvious. create1h > 0 on a
+    // miss confirms the 1h extended TTL is actually being applied.
+    console.log("[generate] cache", {
+      hit: cacheHit,
+      read,
+      create,
+      create1h,
+      create5m,
+      output: u.output_tokens,
     });
   }
 
