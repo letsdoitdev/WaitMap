@@ -222,50 +222,45 @@ export async function POST(req: NextRequest) {
       const abort = new AbortController();
       const timer = setTimeout(() => abort.abort(), 25_000);
 
-      // Tracks emitted quests by title so the end-of-stream backstop never
-      // re-emits one the incremental parser already sent.
-      const emittedKeys = new Set<string>();
-
-      // Decide whether a quest may be revealed, then push it. SAFETY is the
-      // ONLY reason to suppress one — a quest that still trips a hard safety
-      // rule after scrub() is HELD (never shown). We do NOT drop for
-      // food-density or title dupes (the JSON path ships those as-is post #43).
-      // `skipIfSeen` is used only by the backstop to avoid double-emitting.
-      function considerQuest(q: ClaudeQuest, skipIfSeen = false): void {
-        if (emitted.length >= 3) return;
+      // True iff the quest survives the per-quest gate: valid shape, and after
+      // scrub() it does not trip a hard safety rule. SAFETY is the ONLY reason
+      // a quest is withheld (we do NOT drop for food-density or dupes — the
+      // JSON path ships those as-is post #43).
+      function isSafe(q: ClaudeQuest): boolean {
         if (
           !q ||
           typeof q.title !== "string" ||
           typeof q.description !== "string"
         ) {
-          return;
+          return false;
         }
-        // Strip any leaked venue names first (matches the JSON path).
-        scrub([q], places);
-        const haystack = `${q.title} ${q.description}`;
-        if (findSafetyViolation(haystack)) {
+        scrub([q], places); // strip leaked venue names in place (matches JSON path)
+        if (findSafetyViolation(`${q.title} ${q.description}`)) {
           console.log("[generate/stream] held unsafe quest", { title: q.title });
-          return;
+          return false;
         }
-        const key = q.title.trim().toLowerCase();
-        if (skipIfSeen && emittedKeys.has(key)) return;
+        return true;
+      }
+
+      // Normalize + emit one already-safe, already-scrubbed quest.
+      function emit(q: ClaudeQuest): void {
         const normalized = normalize(q, seen, categoryOverride, normalizeDefaults);
         if (!normalized) return;
-        emittedKeys.add(key);
         emitted.push(normalized);
         if (!firstQuestMs) firstQuestMs = Date.now() - t0;
         ctrl.enqueue(sse({ type: "quest", quest: normalized }));
       }
 
-      // Parse one streamed object string and route it through considerQuest.
+      // Progressive path: a freshly-completed streamed object → emit if safe.
       function consider(raw: string): void {
+        if (emitted.length >= 3) return;
         let q: ClaudeQuest;
         try {
           q = JSON.parse(raw) as ClaudeQuest;
         } catch {
           return;
         }
-        considerQuest(q);
+        if (isSafe(q)) emit(q);
       }
 
       try {
@@ -290,39 +285,35 @@ export async function POST(req: NextRequest) {
           { signal: abort.signal },
         );
 
+        // Progressive emission is best-effort and purely cosmetic: render each
+        // quest the moment the SDK surfaces its completed object. Reliability of
+        // the FINAL count does NOT depend on this — see the authoritative
+        // reconcile below. Using .on("text") (SDK-accumulated deltas) instead of
+        // raw-event iteration avoids any event-shape/tail edge cases.
         let buf = "";
         const scan = makeScanState();
-        for await (const event of llm) {
-          if (
-            event.type === "content_block_delta" &&
-            event.delta.type === "text_delta"
-          ) {
-            buf += event.delta.text;
-            for (const obj of scanObjects(buf, scan)) {
-              consider(obj);
-              if (emitted.length >= 3) break;
-            }
+        llm.on("text", (delta: string) => {
+          if (emitted.length >= 3) return;
+          buf += delta;
+          for (const obj of scanObjects(buf, scan)) {
+            consider(obj);
             if (emitted.length >= 3) break;
           }
-        }
-        // Authoritative backstop: parse the COMPLETE message with the same
-        // extractJsonArray() the (reliable) JSON path uses, and emit any quest
-        // the incremental parser didn't (e.g. a final object whose closing
-        // brace landed in the last stream frame). This guarantees the stream
-        // ships 3 whenever the model produced 3 — the streaming iteration is no
-        // longer trusted to surface the tail. stop_reason is logged so a true
-        // max_tokens truncation (where even this can't recover a 3rd) is
-        // unambiguous in the function logs.
-        let stopReason: string | null = null;
-        let fullText = buf;
-        try {
-          const finalMsg = await llm.finalMessage();
-          stopReason = finalMsg.stop_reason ?? null;
-          const tb = finalMsg.content.find((b) => b.type === "text");
-          if (tb && tb.type === "text") fullText = tb.text;
-        } catch {
-          // keep the accumulated buffer
-        }
+        });
+
+        // Authoritative reconcile: finalMessage() is the COMPLETE response. We
+        // parse it with the SAME extractJsonArray() the reliable JSON path uses,
+        // filter to the safe set IN ORDER, and emit the suffix the progressive
+        // pass hasn't sent yet (matched by position, not title — so a missed
+        // tail OR a duplicate title still yields 3). This makes the stream's
+        // final count equal to the JSON path's.
+        const finalMsg = await llm.finalMessage();
+        clearTimeout(timer);
+        const stopReason = finalMsg.stop_reason ?? null;
+        const tb = finalMsg.content.find((b) => b.type === "text");
+        const fullText = tb && tb.type === "text" ? tb.text : buf;
+
+        let parsedLen = 0;
         if (emitted.length < 3) {
           let parsed: unknown = null;
           try {
@@ -331,13 +322,15 @@ export async function POST(req: NextRequest) {
             parsed = null;
           }
           if (Array.isArray(parsed)) {
-            for (const item of parsed as ClaudeQuest[]) {
-              if (emitted.length >= 3) break;
-              considerQuest(item, true);
+            parsedLen = parsed.length;
+            // Safe set in model order; the progressive pass already emitted a
+            // prefix of exactly this list, so emit from emitted.length onward.
+            const safe = (parsed as ClaudeQuest[]).filter((q) => isSafe(q));
+            for (let i = emitted.length; i < safe.length && emitted.length < 3; i++) {
+              emit(safe[i]);
             }
           }
         }
-        clearTimeout(timer);
 
         // Charge the reroll only once at least one quest actually shipped.
         let rerollsRemaining: number | null = null;
@@ -356,7 +349,12 @@ export async function POST(req: NextRequest) {
           totalMs: Date.now() - t0,
           firstQuestMs,
           emitted: emitted.length,
-          // stopReason === "max_tokens" + emitted < 3 == genuine truncation.
+          // Diagnosis aids: parsedLen is how many objects the authoritative
+          // full-message parse found. parsedLen===3 + emitted<3 would mean the
+          // reconcile/emit dropped one; parsedLen<3 + stopReason "end_turn"
+          // means the model truly produced fewer; stopReason "max_tokens" means
+          // genuine truncation.
+          parsedLen,
           stopReason,
           textLen: fullText.length,
           region,
