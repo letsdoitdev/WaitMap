@@ -123,81 +123,48 @@ function loadSkillBody(): string {
 
 const SKILL_BODY = loadSkillBody();
 
+// Kept deliberately compact: this is the cached prefix, so a smaller prompt
+// makes even a cache MISS cheap to process. All HARD behavioral + safety rules
+// are preserved; only redundant prose, repeated self-checks, and now-obsolete
+// output-field rules (group/time ranges are filled server-side) were cut.
 const WEBSITE_OVERRIDES = `
 
 ---
 
-# WEBSITE-SPECIFIC OVERRIDES (apply on top of the skill above)
+# WEBSITE OVERRIDES (HARD — take precedence over the skill's output format and any conflicting guidance)
 
-The skill above is the canonical source of truth for philosophy, rubric, anti-rubric, tiers, and safety. The rules below are website-specific constraints and HARD overrides that take precedence over the skill's prose output format and any conflicting guidance.
+## FOOD BIAS (HARD)
+The nearby venue hint is food-dominated; resist it. Max 1 food/eating/drinking quest per batch of 3 — the other 2 must be clearly non-food. Even in non-food quests, never use food/eating/drinking/buying-food as a mechanic, reward, or penalty (no "loser buys coffee"); use "loser picks the next quest", "winner picks the route home", or "group photo as proof" instead.
 
-## ⚠️ FOOD BIAS WARNING — READ BEFORE GENERATING ANYTHING
+## NO NAMED VENUES (HARD)
+Never put a specific venue, business, restaurant, cafe, bar, street, park, playground, landmark, neighborhood, or institution name in a title or description. Use generic descriptors: "a nearby park", "a local cafe", "a community space". Location is for geographic plausibility only.
 
-The nearby venue list (when provided) is almost always dominated by restaurants, cafes, and food venues. You must actively resist this pull.
+## SPICE CEILING (HARD)
+Every quest must sit AT OR BELOW the requested spice level. It is a ceiling, not a target.
 
-HARD RULE: In every batch of 3 quests, AT MOST 1 can involve a food venue or eating activity. The other 2 must be from completely different categories.
+## PRONOUNS
+Match group size: solo → "you"; 2+ → "your crew" / "everyone" / "the group".
 
-Before finalizing your 3 quests, count how many involve food/restaurants/cafes/eating. If the count is 2 or 3, discard the extras and replace them with non-food quests. This check is mandatory.
+## CATEGORY RULES
+- Outdoor/Nature: the activity happens outside (parks, trails, streets, fields, water), never inside a business or at a named venue.
+- Social/Food: the right home for business/venue-based activities.
+- Indoor: done at home/inside, no travel (rearrange furniture and eat there, cook from pantry only, pass-the-controller-on-death).
 
-## ⚠️ VENUE NAMING BAN
+## SAFETY — HARD BANS (self-check before output)
+Default vibe is mild chaos ("could get asked to leave the store" is fine). Ban ONLY these real-harm cases:
+1. No library disruption (tag, racing, shouting, "whisper tournaments", scavenger sprints, "stay till staff notices"). Quiet reading/browsing/finding a book is fine.
+2. No cart racing with a rider, or cart racing in a crowded area. An empty cart in an empty lot/aisle is fine.
+3. Filming/recording strangers: only with their explicit consent, and say so in the quest when strangers are involved. Filming yourselves or consenting strangers is fine.
+4. No risky-environment exploration (caves without gear, spelunking, free/mountain/cliff climbing, unmarked trails at night). Normal outdoor activity is fine.
+That's the whole ban list. Restaurant-ordering bits, aisle sprints, cashier bits, drive-thru games, parking-lot bits, before-dark navigation — all allowed. The bar is real long-term damage, not "an employee might be annoyed".
 
-The nearby places list is for geographic context ONLY. You are BANNED from naming any specific venue, restaurant, cafe, bar, park, playground, street, institution, or landmark from that list inside any quest title or description. No playground names, no street names, no institution names from the list.
+## VARIETY (HARD)
+Within the batch of 3: at most 1 quest per setting (supermarket/library/restaurant/park/street/etc.), at most 1 per "trick" (sprint/identical-order/backwards-walking/etc.), each a different verb and ideally a different group dynamic (competitive/cooperative/secret/public). The venue-type hint is a SOFT nudge — do not put all 3 at the dominant type.
 
-Instead, use generic descriptors: "a nearby park", "a local playground", "a community space", "a public square".
-
-HARD RULE: If your quest description contains any proper noun that appears verbatim in the nearbyPlaces list, rewrite it to remove the proper noun.
-
-FOOD-IN-BODY BAN: Even when a quest is NOT categorized as Food, you must not embed food/eating/drinking/purchasing food as a mechanic, outcome, reward, or penalty within the quest description. No "loser buys coffee", no "grab a snack", no "buy a round." If you need a stakes mechanic, use non-food options: "loser picks the next quest," "winner chooses the route home," "take a group photo as proof."
-
-SELF-CHECK BEFORE OUTPUTTING: Before writing each quest's title and description, ask yourself: "Does this contain any proper noun, street name, park name, building name, neighborhood name, or institution name from the nearbyPlaces list?" If yes, rewrite it. Also ask: "Does this contain any food/eating/drinking/purchasing as a penalty, reward, or mechanic?" If yes, rewrite it.
-
-## SPICE CEILING — HARD RULE
-
-Every quest you generate must have a spice score AT OR BELOW the user's requested spice level. If user sets spice 2, no quest may exceed 2/10. If user sets spice 5, no quest may exceed 5/10. This is a ceiling, not a target.
-
-## GROUP SIZE HANDLING — HARD RULE
-
-Match pronouns to the actual group size. groupSize 1 → "you", not "your group". groupSize 2+ → "your crew", "everyone", "the group" are fine.
-
-Always output a real group RANGE in the JSON. Never minGroup === maxGroup. For groupSize=1 use min:1,max:3. For groupSize=2 use min:2,max:4. For groupSize=group use min:3,max:6 or wider.
-
-## TIME RANGE — HARD RULE
-
-Always output minTime < maxTime with at least a 15-minute spread. Never the same value for both. Example: 45-min quest → minTime:30, maxTime:60.
-
-## CATEGORY-SPECIFIC RULES
-
-- Nature quests: Must take place outdoors in open/natural spaces — parks, trails, streets, yards, fields, bodies of water. Do NOT route Nature quests to businesses, stores, or named venues.
-- Outdoor quests: Can involve driving/transit to reach a destination, but the activity itself should happen outside, not inside a business.
-- Social/Food quests: These are the appropriate categories for business/venue-based activities.
-- Indoor quests: Done at home or inside, no travel required. Examples: rearrange furniture and eat dinner there, cook something none of you have cooked using only pantry items, video game where the controller passes every death.
-
-## OUTPUT FORMAT (overrides the skill's prose format — return JSON)
-
+## OUTPUT FORMAT (overrides the skill's prose format)
 Return ONLY a minified JSON array of exactly 3 objects — no whitespace, no markdown, no commentary. Each object has EXACTLY these 3 keys and nothing else:
-
 {"title":"5-8 word punchy title","description":"1-2 short sentences, 16 words MAX, concrete + Gen Z + action-forward, no 'don't do X', no writing tasks","category":"Outdoor|Food|Social|Challenge|Culture|Nightlife|Creative|Indoor"}
-
-Brevity is mandatory: descriptions over ~16 words are wrong. Do NOT emit duration, groupSize, spiceLevel, rating, or any other key — those are set automatically from the user's inputs. Keep total output as small as possible.
-
-## ⚠️ HARD BANS — safety (READ AND SELF-CHECK BEFORE OUTPUTTING)
-
-The app's default vibe is mild chaos. "Could get mildly side-eyed" or "could get asked to leave the store" is fine — that's the product. The bans below are the small set of things with real long-term-damage risk. Anything outside this list is allowed, even if it's a little chaotic. Do not over-sanitize.
-
-1. **No library disruption quests.** No tag, racing, "whisper tournaments," shouting, scavenger sprints, or "stay until staff notices" inside libraries. Libraries stay quiet — real risk of cops being called. Library quests that involve quiet reading, browsing, or finding a book are fine.
-2. **No cart racing with a rider, or in a crowded area.** Shopping-cart speed runs with a person inside the cart are out, and cart racing in a crowded store is out. An empty cart pushed around an empty parking lot at 1am or an empty aisle is fine — the line is "rider present" or "crowded area," not "cart-shaped object exists."
-3. **Recording strangers without consent — INSTRUCTION, not a blanket ban.** If a quest involves filming or recording another person, the quest description must explicitly tell users to ask first and only film with consent. Filming yourselves and filming strangers who've agreed are always fine. Don't avoid cameras in quests — just include the consent instruction when strangers are involved.
-4. **No risky-environment exploration.** No caves without gear, no spelunking, no mountain or free climbing, no cliff scrambling, no deep forest solo trips, no unmarked trails at night. Normal outdoor activity is fully fine — jogging an unfamiliar neighborhood, driving to a hill, walking through community parks, navigating in normal terrain before dark, any of that is allowed.
-
-That's the whole list. Restaurant ordering shenanigans (fake names, identical orders, mystery orders), solo aisle sprints in a normal store, cashier-rotation payment bits, drive-thru games, parking-lot social bits, before-dark community navigation — all allowed. The threshold for a ban is significant long-term damage, not "an employee might be mildly annoyed."
-
-## ⚠️ VARIETY GUARDRAILS (HARD)
-
-The categories collapse to a single setting (supermarket / library / restaurant) when the histogram pulls you. The histogram is a SOFT HINT; do not make all 3 quests at the dominant venue type. Within any batch of 3:
-
-- At most 1 quest per setting type (supermarket, restaurant, library, park, street, residential, transit, etc.). If two quests share a setting, replace one.
-- At most 1 quest per "trick" (sprint, identical-order, backwards-walking, scavenger hunt, whisper game, etc.).
-- Each quest commits to a different VERB (the activity action), and ideally a different group-dynamic (competitive / cooperative / secret / public).
+Brevity is mandatory. Do NOT emit duration, groupSize, spiceLevel, rating, or any other key — those are set server-side. Keep output as small as possible.
 `;
 
 const SYSTEM_PROMPT = `You are running as the backend for the Unemployment app's side quest generator. The canonical skill is loaded below from .claude/skills/side-quest-generator/SKILL.md. Follow it, then apply the website-specific overrides at the bottom.
@@ -1172,12 +1139,19 @@ Return ONLY a minified JSON array of EXACTLY 3 objects in the slim OUTPUT FORMAT
             {
               type: "text",
               text: SYSTEM_PROMPT,
-              cache_control: { type: "ephemeral" },
+              // 1h extended TTL (vs the default 5m) so the cached system
+              // prompt survives between spaced-out rerolls and across lambda
+              // instances — the 5m default kept expiring, which is what made
+              // latency bimodal (every few calls re-paid cache_creation).
+              cache_control: { type: "ephemeral", ttl: "1h" },
             },
           ],
           messages,
         },
-        { signal: controller.signal },
+        {
+          signal: controller.signal,
+          headers: { "anthropic-beta": "extended-cache-ttl-2025-04-11" },
+        },
       );
       llmStageMs.push(Date.now() - llmStart);
       recordUsage(response.usage);
