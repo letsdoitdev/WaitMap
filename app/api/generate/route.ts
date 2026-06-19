@@ -38,16 +38,20 @@ type GenerateBody = {
   lowCostOnly?: boolean;
 };
 
-// v4 schema as returned by the model
+// Slim schema as returned by the model. To keep output tokens (the dominant
+// latency term for a single Haiku call) minimal, the model now returns only
+// title/description/category — duration, groupSize and spiceLevel are filled
+// server-side from the user's own inputs. The extra fields stay optional so a
+// model that still emits them is parsed without error.
 type ClaudeQuest = {
   id?: string;
   title: string;
   description: string;
   category: string;
-  duration: string; // "1-2 hours", "30 minutes"
-  groupSize: string; // "2-4 people", "solo"
-  spiceLevel: number;
-  rating: null;
+  duration?: string; // optional; "1-2 hours", "30 minutes"
+  groupSize?: string; // optional; "2-4 people", "solo"
+  spiceLevel?: number; // optional
+  rating?: null;
 };
 
 const V4_CATEGORIES = [
@@ -170,19 +174,11 @@ Always output minTime < maxTime with at least a 15-minute spread. Never the same
 
 ## OUTPUT FORMAT (overrides the skill's prose format — return JSON)
 
-Return a JSON array of exactly 3 quest objects. No markdown. No extra text. Each object:
+Return ONLY a minified JSON array of exactly 3 objects — no whitespace, no markdown, no commentary. Each object has EXACTLY these 3 keys and nothing else:
 
-\`\`\`
-{
-  "title": "5-8 word punchy title",
-  "description": "2-3 sentences, concrete and specific, Gen Z tone, action-forward. NO 'don't do X' language. NO academic/writing tasks.",
-  "category": one of ["Outdoor", "Food", "Social", "Challenge", "Culture", "Nightlife", "Creative", "Indoor"],
-  "duration": "e.g. 1-2 hours",
-  "groupSize": "e.g. 2-4 people",
-  "spiceLevel": number 1-10,
-  "rating": null
-}
-\`\`\`
+{"title":"5-8 word punchy title","description":"1-2 short sentences, 16 words MAX, concrete + Gen Z + action-forward, no 'don't do X', no writing tasks","category":"Outdoor|Food|Social|Challenge|Culture|Nightlife|Creative|Indoor"}
+
+Brevity is mandatory: descriptions over ~16 words are wrong. Do NOT emit duration, groupSize, spiceLevel, rating, or any other key — those are set automatically from the user's inputs. Keep total output as small as possible.
 
 ## ⚠️ HARD BANS — safety (READ AND SELF-CHECK BEFORE OUTPUTTING)
 
@@ -267,6 +263,11 @@ function normalize(
   q: ClaudeQuest,
   excludeIds: Set<string>,
   categoryOverride: QuestCategory | null,
+  defaults: {
+    spice: number;
+    time: { min: number; max: number };
+    group: { min: number; max: number };
+  },
 ): GeneratedQuest | null {
   if (!q || typeof q.title !== "string" || typeof q.description !== "string") {
     return null;
@@ -276,9 +277,15 @@ function normalize(
     ? V4_TO_QUEST_CATEGORY[v4Cat]
     : "Social";
   const category: QuestCategory = categoryOverride ?? inferredCategory;
-  const spice = clamp(Math.round(Number(q.spiceLevel) || 5), 1, 10);
-  const time = parseDuration(q.duration);
-  const group = parseGroupSizeString(q.groupSize);
+  // Spice/time/group come from the user's request (the spice value is also the
+  // ceiling). Fall back to the model's fields only if it still emits them.
+  const spice = clamp(
+    Math.round(Number(q.spiceLevel) || defaults.spice),
+    1,
+    defaults.spice,
+  );
+  const time = q.duration ? parseDuration(q.duration) : defaults.time;
+  const group = q.groupSize ? parseGroupSizeString(q.groupSize) : defaults.group;
   const minTime = time.min;
   const maxTime =
     time.min === time.max ? Math.min(360, time.min + 30) : time.max;
@@ -583,13 +590,13 @@ const FEW_SHOT_GOLD: { tier: 1 | 2 | 3; examples: FewShotExample[] }[] = [
       {
         title: "Highest Point Before Sunrise",
         description:
-          "Split into pairs, race without navigation to find the highest elevation spot in your area before sunrise. Meet at the top and watch it together.",
+          "Race in pairs, no GPS, to the highest nearby spot before sunrise. Watch it together.",
         spice: 2,
       },
       {
         title: "24-Hour Diner at 1am",
         description:
-          "Drive to the nearest 24-hour diner at 1am. Order nothing except coffee and something you've never tried on the menu. Stay until someone orders breakfast.",
+          "Hit a 24-hour diner at 1am. Order only coffee and something new. Stay till breakfast.",
         spice: 2,
       },
     ],
@@ -600,13 +607,13 @@ const FEW_SHOT_GOLD: { tier: 1 | 2 | 3; examples: FewShotExample[] }[] = [
       {
         title: "Bowling Loser Cooks",
         description:
-          "One game, one rule: lowest score has to cook a full breakfast for the group the next morning. No handicaps, no mercy.",
+          "One game, one rule: lowest score cooks the whole crew breakfast tomorrow. No handicaps.",
         spice: 5,
       },
       {
         title: "IKEA Fake Couples",
         description:
-          "Pair off and pretend to be couples looking for furniture for your first home. Ask 3 different employees which sectional says 'we're young and in love.' Stay in character.",
+          "Pair off as couples furnishing your first home. Ask three employees which sectional says 'young love.'",
         spice: 5,
       },
     ],
@@ -617,13 +624,13 @@ const FEW_SHOT_GOLD: { tier: 1 | 2 | 3; examples: FewShotExample[] }[] = [
       {
         title: "Walmart Pickle Oil",
         description:
-          "The whole group walks into Walmart. Buy exactly 3 pickles and one bottle of baby oil — nothing else. Everyone present at the register.",
+          "Whole crew enters Walmart, buys exactly three pickles and one baby oil — nothing else. All at the register.",
         spice: 8,
       },
       {
         title: "Home Depot Fake Emergency",
         description:
-          "Each person uses an AI image generator to create a photorealistic fake home emergency (car crashed into kitchen, raccoon in dishwasher, ball pit filling basement). Walk into Home Depot, show the image to an employee, ask for serious repair advice. Cannot break character. Others watch from a distance.",
+          "Generate an absurd fake home-emergency photo, show an employee, ask serious repair advice. Don't break character.",
         spice: 8,
       },
     ],
@@ -1107,9 +1114,7 @@ Inputs: spice level ${spiceLevel}/10, group size ${groupSizeHint}, time availabl
 
 HARD CONSTRAINT: Generate at most 1 food-related quest (category Food, or activities centered on eating/drinking at a venue). If nearby venues are food-heavy, still find non-food angles.
 
-BREVITY: Each description must be 2 short sentences, ~30 words max — concrete and punchy, no filler. Titles 5-8 words.
-
-Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defined in the system prompt. No markdown, no explanation, just the raw JSON array. If you produce more than 3, only the first 3 will be used.`;
+Return ONLY a minified JSON array of EXACTLY 3 objects in the slim OUTPUT FORMAT from the system prompt — keys title/description/category only, each description 16 words MAX. No markdown, no whitespace, no commentary.`;
 
   const rawNames = places.map((p) => p.name);
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -1157,10 +1162,11 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
       const response = await client.messages.create(
         {
           model: "claude-haiku-4-5",
-          // Output generation is now the single biggest cost (one call, no
-          // top-up). 3 concise quests fit in ~400-450 tokens; a 600 ceiling
-          // keeps the tail bounded without truncating valid JSON.
-          max_tokens: 600,
+          // Output generation is the single biggest latency term for the one
+          // call we make. With the slim 3-key schema + 16-word descriptions,
+          // 3 quests fit in ~180-220 tokens; 384 is a hard backstop that
+          // bounds the tail without truncating valid minified JSON.
+          max_tokens: 384,
           temperature,
           system: [
             {
@@ -1276,9 +1282,24 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
       requestedCategory && isUiCategory(requestedCategory)
         ? requestedCategory
         : null;
+    // Defaults derived from the user's own request — used to fill the fields
+    // we no longer ask the model to emit (keeps output tokens minimal).
+    const groupRange =
+      groupSize === "solo"
+        ? { min: 1, max: 3 }
+        : groupSize === "2"
+          ? { min: 2, max: 4 }
+          : { min: 3, max: 6 };
+    const tMin = clamp(Math.round(timeAvailable * 0.6), 5, 345);
+    const tMax = clamp(Math.max(timeAvailable, tMin + 15), 5, 360);
+    const normalizeDefaults = {
+      spice: spiceLevel,
+      time: { min: tMin, max: tMax },
+      group: groupRange,
+    };
     const quests: GeneratedQuest[] = [];
     for (const item of lastParsed) {
-      const normalized = normalize(item, seen, categoryOverride);
+      const normalized = normalize(item, seen, categoryOverride, normalizeDefaults);
       if (normalized) quests.push(normalized);
     }
 
