@@ -11,9 +11,9 @@ import { FREE_DAILY_REROLLS, getUtcDateKey } from "@/lib/constants";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-type GroupSizeBand = "solo" | "2" | "group";
+export type GroupSizeBand = "solo" | "2" | "group";
 
-type GenerateBody = {
+export type GenerateBody = {
   location?: string;
   /** Coarse resolved region descriptor (e.g. "Ashburn, Virginia, USA") used
    * ONLY for geographic plausibility — never to name venues. Falls back to
@@ -43,7 +43,7 @@ type GenerateBody = {
 // title/description/category — duration, groupSize and spiceLevel are filled
 // server-side from the user's own inputs. The extra fields stay optional so a
 // model that still emits them is parsed without error.
-type ClaudeQuest = {
+export type ClaudeQuest = {
   id?: string;
   title: string;
   description: string;
@@ -90,7 +90,7 @@ const UI_CATEGORIES: QuestCategory[] = [
   "Exploration",
   "Indoor",
 ];
-function isUiCategory(s: string): s is QuestCategory {
+export function isUiCategory(s: string): s is QuestCategory {
   return (UI_CATEGORIES as string[]).includes(s);
 }
 function isV4Category(s: string): boolean {
@@ -167,13 +167,13 @@ Return ONLY a minified JSON array of exactly 3 objects — no whitespace, no mar
 Brevity is mandatory. Do NOT emit duration, groupSize, spiceLevel, rating, or any other key — those are set server-side. Keep output as small as possible.
 `;
 
-const SYSTEM_PROMPT = `You are running as the backend for the Unemployment app's side quest generator. The canonical skill is loaded below from .claude/skills/side-quest-generator/SKILL.md. Follow it, then apply the website-specific overrides at the bottom.
+export const SYSTEM_PROMPT = `You are running as the backend for the Unemployment app's side quest generator. The canonical skill is loaded below from .claude/skills/side-quest-generator/SKILL.md. Follow it, then apply the website-specific overrides at the bottom.
 
 ${SKILL_BODY}${WEBSITE_OVERRIDES}`;
 
 // ---------- Helpers ----------
 
-function clamp(n: number, lo: number, hi: number): number {
+export function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
 }
 
@@ -219,14 +219,14 @@ function makeId(title: string): string {
   return `${slug}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function extractJsonArray(text: string): unknown {
+export function extractJsonArray(text: string): unknown {
   const trimmed = text.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
   const candidate = fenced ? fenced[1] : trimmed;
   return JSON.parse(candidate);
 }
 
-function normalize(
+export function normalize(
   q: ClaudeQuest,
   excludeIds: Set<string>,
   categoryOverride: QuestCategory | null,
@@ -678,7 +678,7 @@ const FOOD_KEYWORDS = [
   "cuisine",
 ];
 
-function isFoodQuest(quest: ClaudeQuest): boolean {
+export function isFoodQuest(quest: ClaudeQuest): boolean {
   // isFoodQuest check order: (1) category field, (2) title keywords, (3) description keywords
   if ((quest.category ?? "") === "Food") return true;
   const text = `${quest.title ?? ""} ${quest.description ?? ""}`.toLowerCase();
@@ -737,7 +737,7 @@ const SAFETY_RULES: SafetyRule[] = [
   },
 ];
 
-function findSafetyViolation(
+export function findSafetyViolation(
   haystack: string,
 ): { name: string; match: string } | null {
   for (const rule of SAFETY_RULES) {
@@ -929,7 +929,7 @@ function placeholderForType(osmType: string): string {
   return "a nearby spot";
 }
 
-function scrub(
+export function scrub(
   quests: ClaudeQuest[],
   places: Array<Pick<NearbyPlace, "name" | "type">>,
 ): void {
@@ -947,6 +947,58 @@ function scrub(
 }
 
 // ---------- Handler ----------
+
+// Shared prompt builder — used by both the JSON POST handler and the streaming
+// endpoint so the two paths can never drift. Returns the user message plus the
+// histogram (computed once here because buildHistogram() shuffles, so the value
+// logged for review must be the same one that went into the prompt).
+export function buildUserMessage(p: {
+  region: string;
+  spiceLevel: number;
+  groupSize: GroupSizeBand;
+  timeAvailable: number;
+  requestedCategory: string | null;
+  canDrive: boolean;
+  lowCostOnly: boolean;
+  typeCounts: Record<string, number>;
+  previousTitles: string[];
+}): { userMessage: string; histogram: string } {
+  const groupSizeHint =
+    p.groupSize === "solo"
+      ? "1 person"
+      : p.groupSize === "2"
+        ? "2 people"
+        : "3+ people";
+  const previousStr = p.previousTitles.length
+    ? `\n\nBANNED TITLES — do NOT generate any quest with a title that closely matches these (exact or near-paraphrase):\n${p.previousTitles.join("\n")}\n\nGenerating a banned title is a failure. Treat this list as a blocklist, not a suggestion.`
+    : "";
+  const categoryPrefix = p.requestedCategory
+    ? `Generate quests in the ${p.requestedCategory} category. `
+    : "";
+  const driveStr = p.canDrive ? "" : " Constraint: walking distance only, no car.";
+  const costStr = p.lowCostOnly
+    ? " Constraint: free or very low cost only — each quest must cost under $5 per person, ideally $0. No paid venues, ticketed events, or quests that require any meaningful purchase."
+    : "";
+  const histogram = buildHistogram(p.typeCounts);
+  const fewShotStr = renderFewShot(pickFewShot(p.spiceLevel));
+  const diversityStr = renderDiversitySeed(pickDiversitySeed(p.previousTitles));
+
+  const userMessage = `${categoryPrefix}Generate exactly 3 side quests. Light context: the user is in ${p.region} (atmosphere only — NOT a venue list to draw from).
+
+GEOGRAPHIC PLAUSIBILITY: Use "${p.region}" only to keep quests physically possible for the area's climate, terrain, and density — e.g. no surfing/tide-pools in a landlocked region, no "hit 30 bars in an hour" in a rural town, no ski quests in a desert. Do NOT name any specific venue, street, or landmark; this is a sanity check on quest TYPE, not a place to drop proper nouns.${fewShotStr}${NEGATIVE_EXAMPLES}
+
+Venue TYPES available nearby (soft hint only — do NOT make all 3 quests at the dominant type): ${histogram}
+
+For example, if they have parks, your quest can say "a nearby park" — do NOT name the park.${diversityStr}
+
+Inputs: spice level ${p.spiceLevel}/10, group size ${groupSizeHint}, time available ${p.timeAvailable} minutes.${driveStr}${costStr}${previousStr}
+
+HARD CONSTRAINT: Generate at most 1 food-related quest (category Food, or activities centered on eating/drinking at a venue). If nearby venues are food-heavy, still find non-food angles.
+
+Return ONLY a minified JSON array of EXACTLY 3 objects in the slim OUTPUT FORMAT from the system prompt — keys title/description/category only, each description 16 words MAX. No markdown, no whitespace, no commentary.`;
+
+  return { userMessage, histogram };
+}
 
 export async function POST(req: NextRequest) {
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -1047,41 +1099,17 @@ export async function POST(req: NextRequest) {
   const canDrive = body.canDrive !== false;
   const lowCostOnly = body.lowCostOnly === true;
 
-  const groupSizeHint =
-    groupSize === "solo"
-      ? "1 person"
-      : groupSize === "2"
-        ? "2 people"
-        : "3+ people";
-  const previousStr = previousTitles.length
-    ? `\n\nBANNED TITLES — do NOT generate any quest with a title that closely matches these (exact or near-paraphrase):\n${previousTitles.join("\n")}\n\nGenerating a banned title is a failure. Treat this list as a blocklist, not a suggestion.`
-    : "";
-  const categoryPrefix = requestedCategory
-    ? `Generate quests in the ${requestedCategory} category. `
-    : "";
-  const driveStr = canDrive ? "" : " Constraint: walking distance only, no car.";
-  const costStr = lowCostOnly
-    ? " Constraint: free or very low cost only — each quest must cost under $5 per person, ideally $0. No paid venues, ticketed events, or quests that require any meaningful purchase."
-    : "";
-  const histogram = buildHistogram(typeCounts);
-  const fewShot = pickFewShot(spiceLevel);
-  const fewShotStr = renderFewShot(fewShot);
-  const diversitySeed = pickDiversitySeed(previousTitles);
-  const diversityStr = renderDiversitySeed(diversitySeed);
-
-  const baseUserMessage = `${categoryPrefix}Generate exactly 3 side quests. Light context: the user is in ${region} (atmosphere only — NOT a venue list to draw from).
-
-GEOGRAPHIC PLAUSIBILITY: Use "${region}" only to keep quests physically possible for the area's climate, terrain, and density — e.g. no surfing/tide-pools in a landlocked region, no "hit 30 bars in an hour" in a rural town, no ski quests in a desert. Do NOT name any specific venue, street, or landmark; this is a sanity check on quest TYPE, not a place to drop proper nouns.${fewShotStr}${NEGATIVE_EXAMPLES}
-
-Venue TYPES available nearby (soft hint only — do NOT make all 3 quests at the dominant type): ${histogram}
-
-For example, if they have parks, your quest can say "a nearby park" — do NOT name the park.${diversityStr}
-
-Inputs: spice level ${spiceLevel}/10, group size ${groupSizeHint}, time available ${timeAvailable} minutes.${driveStr}${costStr}${previousStr}
-
-HARD CONSTRAINT: Generate at most 1 food-related quest (category Food, or activities centered on eating/drinking at a venue). If nearby venues are food-heavy, still find non-food angles.
-
-Return ONLY a minified JSON array of EXACTLY 3 objects in the slim OUTPUT FORMAT from the system prompt — keys title/description/category only, each description 16 words MAX. No markdown, no whitespace, no commentary.`;
+  const { userMessage: baseUserMessage, histogram } = buildUserMessage({
+    region,
+    spiceLevel,
+    groupSize,
+    timeAvailable,
+    requestedCategory,
+    canDrive,
+    lowCostOnly,
+    typeCounts,
+    previousTitles,
+  });
 
   const rawNames = places.map((p) => p.name);
   const client = new Anthropic({

@@ -697,6 +697,91 @@ export default function Home() {
     }
   }
 
+  // Streaming variant: posts to /api/generate/stream (SSE) and invokes
+  // `onQuest` for each quest as the model finishes it, so cards render
+  // progressively (first-quest-visible well before the full batch). Returns the
+  // full batch on success, "reroll_limit" on the 402 cap, or null to signal the
+  // caller should fall back to the non-streaming JSON endpoint (old deploy,
+  // network error, or a stream that produced zero quests).
+  async function fetchAiQuestsStreaming(
+    region: string | null,
+    places: NearbyPlace[],
+    typeCounts: Record<string, number>,
+    excludeIds: string[],
+    previousTitles: string[],
+    category: QuestCategory | null,
+    onQuest: (q: GeneratedQuest) => void,
+  ): Promise<GeneratedQuest[] | null | "reroll_limit"> {
+    const groupBand: "solo" | "2" | "group" =
+      groupSize === 1 ? "solo" : groupSize === 2 ? "2" : "group";
+    try {
+      const r = await fetch("/api/generate/stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          location: city,
+          region: region ?? city,
+          nearbyPlaces: places
+            .map((p) => ({ name: p.name, type: p.type, bucket: p.bucket }))
+            .slice(0, 20),
+          typeCounts,
+          spiceLevel: spice,
+          groupSize: groupBand,
+          timeAvailable: timeMinutes,
+          excludeIds,
+          previousTitles,
+          category,
+          canDrive,
+          lowCostOnly,
+        }),
+      });
+      if (r.status === 402) {
+        const data = (await r.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        if (data?.error === "reroll_limit") return "reroll_limit";
+        return null;
+      }
+      // Non-OK or no stream body → fall back to the JSON endpoint.
+      if (!r.ok || !r.body) return null;
+
+      const reader = r.body.getReader();
+      const decoder = new TextDecoder();
+      const collected: GeneratedQuest[] = [];
+      let buf = "";
+      // Parse the SSE frames ("data: {...}\n\n") as they arrive.
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let sep: number;
+        while ((sep = buf.indexOf("\n\n")) !== -1) {
+          const frame = buf.slice(0, sep);
+          buf = buf.slice(sep + 2);
+          const line = frame.split("\n").find((l) => l.startsWith("data:"));
+          if (!line) continue;
+          let evt: { type?: string; quest?: GeneratedQuest } | null = null;
+          try {
+            evt = JSON.parse(line.slice(5).trim());
+          } catch {
+            evt = null;
+          }
+          if (!evt) continue;
+          if (evt.type === "quest" && evt.quest) {
+            collected.push(evt.quest);
+            onQuest(evt.quest);
+          }
+          // "error"/"done" need no special handling — loop ends on stream close;
+          // zero collected quests falls back to the JSON endpoint below.
+        }
+      }
+      // Any quests we streamed are a usable result; zero → fall back to JSON.
+      return collected.length > 0 ? collected : null;
+    } catch {
+      return null;
+    }
+  }
+
   const generate = async (
     overrideCategory?: QuestCategory | null,
   ) => {
@@ -755,14 +840,37 @@ export default function Home() {
 
     const cat =
       overrideCategory !== undefined ? overrideCategory : categoryFilter;
-    const aiResult = await fetchAiQuests(
+
+    // Try the streaming endpoint first: render each quest the moment it lands
+    // so the first card is visible well before the full batch finishes. Quests
+    // arriving via the callback are shown progressively; the spinner clears on
+    // the first one. Falls back to the JSON endpoint on null (old deploy,
+    // network error, or zero quests streamed).
+    const streamed: GeneratedQuest[] = [];
+    let aiResult = await fetchAiQuestsStreaming(
       region,
       places,
       typeCounts,
       excludeIds,
       shownTitles,
       cat,
+      (q) => {
+        streamed.push(q);
+        setQuests([...streamed]);
+        setRolling(false);
+      },
     );
+    if (aiResult === null) {
+      // Streaming unavailable/failed with nothing rendered → JSON fallback.
+      aiResult = await fetchAiQuests(
+        region,
+        places,
+        typeCounts,
+        excludeIds,
+        shownTitles,
+        cat,
+      );
+    }
     // Free-tier cap hit — block here. No local fallback (would leak quests past
     // the limit), no results rendered; just surface the upsell modal.
     if (aiResult === "reroll_limit") {
