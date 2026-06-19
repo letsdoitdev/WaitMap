@@ -1084,7 +1084,14 @@ HARD CONSTRAINT: Generate at most 1 food-related quest (category Food, or activi
 Return ONLY a minified JSON array of EXACTLY 3 objects in the slim OUTPUT FORMAT from the system prompt — keys title/description/category only, each description 16 words MAX. No markdown, no whitespace, no commentary.`;
 
   const rawNames = places.map((p) => p.name);
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const client = new Anthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY,
+    // The extended (1h) prompt-cache TTL is only honored when this beta header
+    // is on the ACTUAL HTTP request. Setting it as a client default guarantees
+    // it ships on every call — a per-request header is easy to get silently
+    // wrong, and without it the API falls back to the default 5m TTL.
+    defaultHeaders: { "anthropic-beta": "extended-cache-ttl-2025-04-11" },
+  });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 25_000);
 
@@ -1132,6 +1139,10 @@ Return ONLY a minified JSON array of EXACTLY 3 objects in the slim OUTPUT FORMAT
       create,
       create1h,
       create5m,
+      // Raw breakdown straight from the API — if a MISS shows create1h>0 the
+      // extended TTL is on the wire; if it only ever shows 5m, the beta header
+      // isn't being applied.
+      raw: u.cache_creation,
       output: u.output_tokens,
     });
   }
@@ -1168,10 +1179,7 @@ Return ONLY a minified JSON array of EXACTLY 3 objects in the slim OUTPUT FORMAT
           ],
           messages,
         },
-        {
-          signal: controller.signal,
-          headers: { "anthropic-beta": "extended-cache-ttl-2025-04-11" },
-        },
+        { signal: controller.signal },
       );
       llmStageMs.push(Date.now() - llmStart);
       recordUsage(response.usage);
