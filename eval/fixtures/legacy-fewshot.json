@@ -1,0 +1,26 @@
+{
+  "_comment": "Snapshot of the few-shot gold set as it existed in app/api/generate/route.ts BEFORE this PR (commit a5c3d64). 3 tiers, two examples each, with brand proper nouns baked in (Walmart / IKEA / Home Depot). Kept here so eval/run.mjs --exemplars can score before vs after deterministically. Do not edit.",
+  "fewShotGold": [
+    {
+      "tier": 1,
+      "examples": [
+        { "title": "Highest Point Before Sunrise", "description": "Split into pairs, race without navigation to find the highest elevation spot in your area before sunrise. Meet at the top and watch it together.", "category": "Outdoor", "spice": 2 },
+        { "title": "24-Hour Diner at 1am", "description": "Drive to the nearest 24-hour diner at 1am. Order nothing except coffee and something you've never tried on the menu. Stay until someone orders breakfast.", "category": "Food", "spice": 2 }
+      ]
+    },
+    {
+      "tier": 2,
+      "examples": [
+        { "title": "Bowling Loser Cooks", "description": "One game, one rule: lowest score has to cook a full breakfast for the group the next morning. No handicaps, no mercy.", "category": "Challenge", "spice": 5 },
+        { "title": "IKEA Fake Couples", "description": "Pair off and pretend to be couples looking for furniture for your first home. Ask 3 different employees which sectional says 'we're young and in love.' Stay in character.", "category": "Social", "spice": 5 }
+      ]
+    },
+    {
+      "tier": 3,
+      "examples": [
+        { "title": "Walmart Pickle Oil", "description": "The whole group walks into Walmart. Buy exactly 3 pickles and one bottle of baby oil — nothing else. Everyone present at the register.", "category": "Social", "spice": 8 },
+        { "title": "Home Depot Fake Emergency", "description": "Each person uses an AI image generator to create a photorealistic fake home emergency (car crashed into kitchen, raccoon in dishwasher, ball pit filling basement). Walk into Home Depot, show the image to an employee, ask for serious repair advice. Cannot break character. Others watch from a distance.", "category": "Social", "spice": 8 }
+      ]
+    }
+  ]
+}

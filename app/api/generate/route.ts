@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import fs from "fs";
-import path from "path";
 import { QuestCategory } from "@/lib/quests";
 import { GeneratedQuest } from "@/lib/generate";
 import { NearbyBucket, NearbyPlace } from "@/lib/nearby";
 import { createClient } from "@/lib/supabase/server";
 import { FREE_DAILY_REROLLS, getUtcDateKey } from "@/lib/constants";
+import {
+  SYSTEM_PROMPT,
+  renderTierPointer,
+  isFoodQuest,
+} from "@/lib/quest-prompt";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -88,121 +91,6 @@ function isUiCategory(s: string): s is QuestCategory {
 function isV4Category(s: string): boolean {
   return (V4_CATEGORIES as readonly string[]).includes(s);
 }
-
-// ---------- Load skill body at module load ----------
-
-function loadSkillBody(): string {
-  const candidates = [
-    path.join(process.cwd(), ".claude/skills/side-quest-generator/SKILL.md"),
-    path.join(
-      process.cwd(),
-      ".next/server/.claude/skills/side-quest-generator/SKILL.md",
-    ),
-  ];
-  for (const p of candidates) {
-    try {
-      const raw = fs.readFileSync(p, "utf8");
-      // Strip YAML frontmatter between leading `---` markers.
-      return raw.replace(/^---\n[\s\S]*?\n---\n+/, "");
-    } catch {
-      // try next
-    }
-  }
-  // Should never happen in deployed envs; keep a tiny fallback so the route
-  // can still respond if the file is somehow missing.
-  return "Side Quest Generator v4. Generate fun real-world group quests organized by spiciness tier.";
-}
-
-const SKILL_BODY = loadSkillBody();
-
-const WEBSITE_OVERRIDES = `
-
----
-
-# WEBSITE-SPECIFIC OVERRIDES (apply on top of the skill above)
-
-The skill above is the canonical source of truth for philosophy, rubric, anti-rubric, tiers, and safety. The rules below are website-specific constraints and HARD overrides that take precedence over the skill's prose output format and any conflicting guidance.
-
-## ⚠️ FOOD BIAS WARNING — READ BEFORE GENERATING ANYTHING
-
-The nearby venue list (when provided) is almost always dominated by restaurants, cafes, and food venues. You must actively resist this pull.
-
-HARD RULE: In every batch of 3 quests, AT MOST 1 can involve a food venue or eating activity. The other 2 must be from completely different categories.
-
-Before finalizing your 3 quests, count how many involve food/restaurants/cafes/eating. If the count is 2 or 3, discard the extras and replace them with non-food quests. This check is mandatory.
-
-## ⚠️ VENUE NAMING BAN
-
-The nearby places list is for geographic context ONLY. You are BANNED from naming any specific venue, restaurant, cafe, bar, park, playground, street, institution, or landmark from that list inside any quest title or description. No playground names, no street names, no institution names from the list.
-
-Instead, use generic descriptors: "a nearby park", "a local playground", "a community space", "a public square".
-
-HARD RULE: If your quest description contains any proper noun that appears verbatim in the nearbyPlaces list, rewrite it to remove the proper noun.
-
-FOOD-IN-BODY BAN: Even when a quest is NOT categorized as Food, you must not embed food/eating/drinking/purchasing food as a mechanic, outcome, reward, or penalty within the quest description. No "loser buys coffee", no "grab a snack", no "buy a round." If you need a stakes mechanic, use non-food options: "loser picks the next quest," "winner chooses the route home," "take a group photo as proof."
-
-SELF-CHECK BEFORE OUTPUTTING: Before writing each quest's title and description, ask yourself: "Does this contain any proper noun, street name, park name, building name, neighborhood name, or institution name from the nearbyPlaces list?" If yes, rewrite it. Also ask: "Does this contain any food/eating/drinking/purchasing as a penalty, reward, or mechanic?" If yes, rewrite it.
-
-## SPICE CEILING — HARD RULE
-
-Every quest you generate must have a spice score AT OR BELOW the user's requested spice level. If user sets spice 2, no quest may exceed 2/10. If user sets spice 5, no quest may exceed 5/10. This is a ceiling, not a target.
-
-## GROUP SIZE HANDLING — HARD RULE
-
-Match pronouns to the actual group size. groupSize 1 → "you", not "your group". groupSize 2+ → "your crew", "everyone", "the group" are fine.
-
-Always output a real group RANGE in the JSON. Never minGroup === maxGroup. For groupSize=1 use min:1,max:3. For groupSize=2 use min:2,max:4. For groupSize=group use min:3,max:6 or wider.
-
-## TIME RANGE — HARD RULE
-
-Always output minTime < maxTime with at least a 15-minute spread. Never the same value for both. Example: 45-min quest → minTime:30, maxTime:60.
-
-## CATEGORY-SPECIFIC RULES
-
-- Nature quests: Must take place outdoors in open/natural spaces — parks, trails, streets, yards, fields, bodies of water. Do NOT route Nature quests to businesses, stores, or named venues.
-- Outdoor quests: Can involve driving/transit to reach a destination, but the activity itself should happen outside, not inside a business.
-- Social/Food quests: These are the appropriate categories for business/venue-based activities.
-- Indoor quests: Done at home or inside, no travel required. Examples: rearrange furniture and eat dinner there, cook something none of you have cooked using only pantry items, video game where the controller passes every death.
-
-## OUTPUT FORMAT (overrides the skill's prose format — return JSON)
-
-Return a JSON array of exactly 3 quest objects. No markdown. No extra text. Each object:
-
-\`\`\`
-{
-  "title": "5-8 word punchy title",
-  "description": "2-3 sentences, concrete and specific, Gen Z tone, action-forward. NO 'don't do X' language. NO academic/writing tasks.",
-  "category": one of ["Outdoor", "Food", "Social", "Challenge", "Culture", "Nightlife", "Creative", "Indoor"],
-  "duration": "e.g. 1-2 hours",
-  "groupSize": "e.g. 2-4 people",
-  "spiceLevel": number 1-10,
-  "rating": null
-}
-\`\`\`
-
-## ⚠️ HARD BANS — safety (READ AND SELF-CHECK BEFORE OUTPUTTING)
-
-The app's default vibe is mild chaos. "Could get mildly side-eyed" or "could get asked to leave the store" is fine — that's the product. The bans below are the small set of things with real long-term-damage risk. Anything outside this list is allowed, even if it's a little chaotic. Do not over-sanitize.
-
-1. **No library disruption quests.** No tag, racing, "whisper tournaments," shouting, scavenger sprints, or "stay until staff notices" inside libraries. Libraries stay quiet — real risk of cops being called. Library quests that involve quiet reading, browsing, or finding a book are fine.
-2. **No cart racing with a rider, or in a crowded area.** Shopping-cart speed runs with a person inside the cart are out, and cart racing in a crowded store is out. An empty cart pushed around an empty parking lot at 1am or an empty aisle is fine — the line is "rider present" or "crowded area," not "cart-shaped object exists."
-3. **Recording strangers without consent — INSTRUCTION, not a blanket ban.** If a quest involves filming or recording another person, the quest description must explicitly tell users to ask first and only film with consent. Filming yourselves and filming strangers who've agreed are always fine. Don't avoid cameras in quests — just include the consent instruction when strangers are involved.
-4. **No risky-environment exploration.** No caves without gear, no spelunking, no mountain or free climbing, no cliff scrambling, no deep forest solo trips, no unmarked trails at night. Normal outdoor activity is fully fine — jogging an unfamiliar neighborhood, driving to a hill, walking through community parks, navigating in normal terrain before dark, any of that is allowed.
-
-That's the whole list. Restaurant ordering shenanigans (fake names, identical orders, mystery orders), solo aisle sprints in a normal store, cashier-rotation payment bits, drive-thru games, parking-lot social bits, before-dark community navigation — all allowed. The threshold for a ban is significant long-term damage, not "an employee might be mildly annoyed."
-
-## ⚠️ VARIETY GUARDRAILS (HARD)
-
-The categories collapse to a single setting (supermarket / library / restaurant) when the histogram pulls you. The histogram is a SOFT HINT; do not make all 3 quests at the dominant venue type. Within any batch of 3:
-
-- At most 1 quest per setting type (supermarket, restaurant, library, park, street, residential, transit, etc.). If two quests share a setting, replace one.
-- At most 1 quest per "trick" (sprint, identical-order, backwards-walking, scavenger hunt, whisper game, etc.).
-- Each quest commits to a different VERB (the activity action), and ideally a different group-dynamic (competitive / cooperative / secret / public).
-`;
-
-const SYSTEM_PROMPT = `You are running as the backend for the Unemployment app's side quest generator. The canonical skill is loaded below from .claude/skills/side-quest-generator/SKILL.md. Follow it, then apply the website-specific overrides at the bottom.
-
-${SKILL_BODY}${WEBSITE_OVERRIDES}`;
 
 // ---------- Helpers ----------
 
@@ -559,153 +447,14 @@ function renderDiversitySeed(seed: DiversitySeed): string {
 - group dynamic hint: ${seed.group_dynamic}`;
 }
 
-// ---------- Few-shot gold examples ----------
-//
-// Hand-picked exemplars of the SKILL.md philosophy, two per spiciness tier.
-// We grouped by tiers 1–3 / 4–6 / 7–10 so picker tiers cleanly match the
-// user's spice slider. These are intentionally inline (not pulled from any
-// template library) so the prompt is grounded in known-good shapes.
-
-type FewShotExample = {
-  title: string;
-  description: string;
-  spice: number;
-};
-
-const FEW_SHOT_GOLD: { tier: 1 | 2 | 3; examples: FewShotExample[] }[] = [
-  {
-    tier: 1,
-    examples: [
-      {
-        title: "Highest Point Before Sunrise",
-        description:
-          "Split into pairs, race without navigation to find the highest elevation spot in your area before sunrise. Meet at the top and watch it together.",
-        spice: 2,
-      },
-      {
-        title: "24-Hour Diner at 1am",
-        description:
-          "Drive to the nearest 24-hour diner at 1am. Order nothing except coffee and something you've never tried on the menu. Stay until someone orders breakfast.",
-        spice: 2,
-      },
-    ],
-  },
-  {
-    tier: 2,
-    examples: [
-      {
-        title: "Bowling Loser Cooks",
-        description:
-          "One game, one rule: lowest score has to cook a full breakfast for the group the next morning. No handicaps, no mercy.",
-        spice: 5,
-      },
-      {
-        title: "IKEA Fake Couples",
-        description:
-          "Pair off and pretend to be couples looking for furniture for your first home. Ask 3 different employees which sectional says 'we're young and in love.' Stay in character.",
-        spice: 5,
-      },
-    ],
-  },
-  {
-    tier: 3,
-    examples: [
-      {
-        title: "Walmart Pickle Oil",
-        description:
-          "The whole group walks into Walmart. Buy exactly 3 pickles and one bottle of baby oil — nothing else. Everyone present at the register.",
-        spice: 8,
-      },
-      {
-        title: "Home Depot Fake Emergency",
-        description:
-          "Each person uses an AI image generator to create a photorealistic fake home emergency (car crashed into kitchen, raccoon in dishwasher, ball pit filling basement). Walk into Home Depot, show the image to an employee, ask for serious repair advice. Cannot break character. Others watch from a distance.",
-        spice: 8,
-      },
-    ],
-  },
-];
-
-function fewShotTier(spice: number): 1 | 2 | 3 {
-  if (spice <= 3) return 1;
-  if (spice <= 6) return 2;
-  return 3;
-}
-
-function pickFewShot(userSpice: number): FewShotExample[] {
-  const t = fewShotTier(userSpice);
-  const entry = FEW_SHOT_GOLD.find((g) => g.tier === t);
-  return entry ? entry.examples.slice() : [];
-}
-
-// Negative examples teach the model the shape of generic, off-brand quests
-// it should NOT emit. Injected after the gold few-shot so the model has the
-// good→bad ordering fresh in context.
-const NEGATIVE_EXAMPLES = `
-
-AVOID quests like these — they are generic, boring, or off-brand:
-- "Draw chalk art on the sidewalk" — solitary, no stakes, no group dynamic
-- "Go to a coffee shop and try something new" — food bias, zero adventure
-- "Walk in the park and count birds" — no social element, no story
-- "Visit a museum and pick a favorite exhibit" — tourist activity, not a side quest
-- "Try a new restaurant downtown" — food again, no creativity required`;
-
-function renderFewShot(examples: FewShotExample[]): string {
-  if (examples.length === 0) return "";
-  const lines = examples
-    .map((q, i) => `${i + 1}. ${q.title} — ${q.description}`)
-    .join("\n");
-  return `\n\nExamples of the quality and STYLE we want (do NOT copy verbatim, match the shape and energy):\n${lines}\n\nNotice these examples are intrinsically fun without naming specific real venues. They use generic anchors like "a 24-hour diner" not "Joe's Diner." Match this style.`;
-}
-
 // ---------- Food-bias post-check ----------
 //
-// Stricter keyword-based food detector that runs as a final pass after the
-// regular validator loop. The skill's "max 1 food per batch" rule is hard,
-// so when the existing belt fails we retry the model ONCE with an explicit
+// The few-shot gold set, negative examples, food-keyword list, and isFoodQuest
+// detector now live in lib/quest-prompt.ts (single source of truth shared with
+// the eval harness). The keyword-based detector runs as a final pass after the
+// regular validator loop. The skill's "max 1 food per batch" rule is hard, so
+// when the existing belt fails we retry the model ONCE with an explicit
 // food-bias correction message before giving up.
-
-const FOOD_KEYWORDS = [
-  "restaurant",
-  "cafe",
-  "coffee",
-  "food",
-  "eat",
-  "diner",
-  "burger",
-  "pizza",
-  "taco",
-  "snack",
-  "breakfast",
-  "lunch",
-  "dinner",
-  "drink",
-  "bar",
-  "pub",
-  "brewery",
-  "sushi",
-  "dessert",
-  "ice cream",
-  "menu",
-  "order food",
-  "drive-thru",
-  "fast food",
-  "cook-off",
-  "cook off",
-  "drive-through",
-  "takeout",
-  "take-out",
-  "meal",
-  "brunch",
-  "cuisine",
-];
-
-function isFoodQuest(quest: ClaudeQuest): boolean {
-  // isFoodQuest check order: (1) category field, (2) title keywords, (3) description keywords
-  if ((quest.category ?? "") === "Food") return true;
-  const text = `${quest.title ?? ""} ${quest.description ?? ""}`.toLowerCase();
-  return FOOD_KEYWORDS.some((kw) => text.includes(kw));
-}
 
 // ---------- Validator ----------
 
@@ -1081,12 +830,13 @@ export async function POST(req: NextRequest) {
     ? " Constraint: free or very low cost only — each quest must cost under $5 per person, ideally $0. No paid venues, ticketed events, or quests that require any meaningful purchase."
     : "";
   const histogram = buildHistogram(typeCounts);
-  const fewShot = pickFewShot(spiceLevel);
-  const fewShotStr = renderFewShot(fewShot);
+  // The few-shot gold set + negative examples now live in the cached system
+  // prompt; here we only point the model at the tier that matches this spice.
+  const tierPointer = renderTierPointer(spiceLevel);
   const diversitySeed = pickDiversitySeed(previousTitles);
   const diversityStr = renderDiversitySeed(diversitySeed);
 
-  const baseUserMessage = `${categoryPrefix}Generate exactly 3 side quests. Light context: the user is in ${location} (atmosphere only — NOT a venue list to draw from).${fewShotStr}${NEGATIVE_EXAMPLES}
+  const baseUserMessage = `${categoryPrefix}Generate exactly 3 side quests. Light context: the user is in ${location} (atmosphere only — NOT a venue list to draw from).${tierPointer}
 
 Venue TYPES available nearby (soft hint only — do NOT make all 3 quests at the dominant type): ${histogram}
 

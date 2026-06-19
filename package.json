@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "eval": "node eval/run.mjs --exemplars",
+    "eval:live": "node eval/run.mjs --live http://localhost:3000",
+    "eval:mine": "node eval/mine-ratings.mjs",
+    "eval:cache": "node eval/check-cache.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.97.1",

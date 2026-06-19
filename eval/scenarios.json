@@ -1,0 +1,95 @@
+{
+  "_comment": "Fixed eval scenarios for the side-quest generator. 15 scenarios spanning cities x group sizes x spice tiers x category locks x constraints. `nearbyNames` are real proper nouns the generator is FORBIDDEN from leaking (the rubric's venue-leak check tests output against this list). `typeCounts` is the post-cap histogram the route would receive; several are deliberately food-heavy to stress the food-cap rule. `body` is the exact JSON the eval posts to /api/generate in --live mode.",
+  "scenarios": [
+    {
+      "id": "s01-portland-group-chill",
+      "city": "Portland, OR",
+      "nearbyNames": ["Mount Tabor Park", "Stumptown Coffee", "Powell's Books", "Salt & Straw"],
+      "body": { "location": "Portland, OR", "spiceLevel": 2, "groupSize": "group", "timeAvailable": 120, "typeCounts": { "cafe": 6, "park": 3, "restaurant": 4, "library": 1 }, "nearbyPlaces": [{ "name": "Mount Tabor Park", "type": "park" }, { "name": "Stumptown Coffee", "type": "cafe" }, { "name": "Powell's Books", "type": "library" }, { "name": "Salt & Straw", "type": "cafe" }] }
+    },
+    {
+      "id": "s02-austin-pair-chill",
+      "city": "Austin, TX",
+      "nearbyNames": ["Zilker Park", "Torchy's Tacos", "Barton Springs", "BookPeople"],
+      "body": { "location": "Austin, TX", "spiceLevel": 3, "groupSize": "2", "timeAvailable": 90, "typeCounts": { "fast_food": 5, "park": 4, "restaurant": 5, "viewpoint": 1 }, "nearbyPlaces": [{ "name": "Zilker Park", "type": "park" }, { "name": "Torchy's Tacos", "type": "fast_food" }, { "name": "Barton Springs", "type": "viewpoint" }, { "name": "BookPeople", "type": "library" }] }
+    },
+    {
+      "id": "s03-nyc-group-mid",
+      "city": "Brooklyn, NY",
+      "nearbyNames": ["Prospect Park", "Joe's Pizza", "Brooklyn Roasting", "Barclays Center"],
+      "body": { "location": "Brooklyn, NY", "spiceLevel": 5, "groupSize": "group", "timeAvailable": 150, "typeCounts": { "restaurant": 8, "cafe": 5, "park": 2, "stadium": 1 }, "nearbyPlaces": [{ "name": "Prospect Park", "type": "park" }, { "name": "Joe's Pizza", "type": "restaurant" }, { "name": "Brooklyn Roasting", "type": "cafe" }, { "name": "Barclays Center", "type": "stadium" }] }
+    },
+    {
+      "id": "s04-chicago-pair-mid",
+      "city": "Chicago, IL",
+      "nearbyNames": ["Millennium Park", "Lou Malnati's", "Intelligentsia Coffee"],
+      "body": { "location": "Chicago, IL", "spiceLevel": 6, "groupSize": "2", "timeAvailable": 120, "typeCounts": { "restaurant": 7, "cafe": 4, "museum": 2, "park": 2 }, "nearbyPlaces": [{ "name": "Millennium Park", "type": "park" }, { "name": "Lou Malnati's", "type": "restaurant" }, { "name": "Intelligentsia Coffee", "type": "cafe" }] }
+    },
+    {
+      "id": "s05-denver-group-spicy",
+      "city": "Denver, CO",
+      "nearbyNames": ["Washington Park", "Snooze Eatery", "Tattered Cover", "REI Flagship"],
+      "body": { "location": "Denver, CO", "spiceLevel": 8, "groupSize": "group", "timeAvailable": 180, "typeCounts": { "restaurant": 6, "supermarket": 3, "mall": 2, "park": 2 }, "nearbyPlaces": [{ "name": "Washington Park", "type": "park" }, { "name": "Snooze Eatery", "type": "restaurant" }, { "name": "Tattered Cover", "type": "library" }, { "name": "REI Flagship", "type": "mall" }] }
+    },
+    {
+      "id": "s06-seattle-pair-spicy",
+      "city": "Seattle, WA",
+      "nearbyNames": ["Gas Works Park", "Dick's Drive-In", "Elliott Bay Book Company"],
+      "body": { "location": "Seattle, WA", "spiceLevel": 7, "groupSize": "2", "timeAvailable": 120, "typeCounts": { "fast_food": 6, "cafe": 5, "park": 2, "library": 1 }, "nearbyPlaces": [{ "name": "Gas Works Park", "type": "park" }, { "name": "Dick's Drive-In", "type": "fast_food" }, { "name": "Elliott Bay Book Company", "type": "library" }] }
+    },
+    {
+      "id": "s07-miami-group-chaos",
+      "city": "Miami, FL",
+      "nearbyNames": ["South Pointe Park", "Joe's Stone Crab", "Books & Books"],
+      "body": { "location": "Miami, FL", "spiceLevel": 9, "groupSize": "group", "timeAvailable": 180, "typeCounts": { "restaurant": 9, "bar": 4, "mall": 2, "park": 1 }, "nearbyPlaces": [{ "name": "South Pointe Park", "type": "park" }, { "name": "Joe's Stone Crab", "type": "restaurant" }, { "name": "Books & Books", "type": "library" }] }
+    },
+    {
+      "id": "s08-la-group-chaos",
+      "city": "Los Angeles, CA",
+      "nearbyNames": ["Griffith Park", "In-N-Out Burger", "The Grove", "Amoeba Music"],
+      "body": { "location": "Los Angeles, CA", "spiceLevel": 10, "groupSize": "group", "timeAvailable": 240, "typeCounts": { "mall": 4, "restaurant": 6, "supermarket": 3, "attraction": 2 }, "nearbyPlaces": [{ "name": "Griffith Park", "type": "park" }, { "name": "In-N-Out Burger", "type": "fast_food" }, { "name": "The Grove", "type": "mall" }, { "name": "Amoeba Music", "type": "mall" }] }
+    },
+    {
+      "id": "s09-boston-group-mid-foodheavy",
+      "city": "Boston, MA",
+      "nearbyNames": ["Boston Common", "Mike's Pastry", "Tatte Bakery", "Faneuil Hall"],
+      "body": { "location": "Boston, MA", "spiceLevel": 5, "groupSize": "group", "timeAvailable": 120, "typeCounts": { "restaurant": 10, "cafe": 8, "bar": 4, "park": 1 }, "nearbyPlaces": [{ "name": "Boston Common", "type": "park" }, { "name": "Mike's Pastry", "type": "cafe" }, { "name": "Tatte Bakery", "type": "cafe" }, { "name": "Faneuil Hall", "type": "attraction" }] }
+    },
+    {
+      "id": "s10-sf-pair-chill-walking",
+      "city": "San Francisco, CA",
+      "nearbyNames": ["Dolores Park", "Tartine Bakery", "Bi-Rite Creamery"],
+      "body": { "location": "San Francisco, CA", "spiceLevel": 2, "groupSize": "2", "timeAvailable": 90, "canDrive": false, "typeCounts": { "cafe": 7, "restaurant": 6, "park": 2 }, "nearbyPlaces": [{ "name": "Dolores Park", "type": "park" }, { "name": "Tartine Bakery", "type": "cafe" }, { "name": "Bi-Rite Creamery", "type": "cafe" }] }
+    },
+    {
+      "id": "s11-nashville-group-spicy-lowcost",
+      "city": "Nashville, TN",
+      "nearbyNames": ["Centennial Park", "Hattie B's", "Parnassus Books"],
+      "body": { "location": "Nashville, TN", "spiceLevel": 8, "groupSize": "group", "timeAvailable": 150, "lowCostOnly": true, "typeCounts": { "restaurant": 7, "bar": 5, "park": 2, "library": 1 }, "nearbyPlaces": [{ "name": "Centennial Park", "type": "park" }, { "name": "Hattie B's", "type": "restaurant" }, { "name": "Parnassus Books", "type": "library" }] }
+    },
+    {
+      "id": "s12-phoenix-solo-mid",
+      "city": "Phoenix, AZ",
+      "nearbyNames": ["Papago Park", "Pizzeria Bianco", "Changing Hands Bookstore"],
+      "body": { "location": "Phoenix, AZ", "spiceLevel": 5, "groupSize": "solo", "timeAvailable": 90, "typeCounts": { "restaurant": 6, "park": 3, "supermarket": 2, "gym": 1 }, "nearbyPlaces": [{ "name": "Papago Park", "type": "park" }, { "name": "Pizzeria Bianco", "type": "restaurant" }, { "name": "Changing Hands Bookstore", "type": "library" }] }
+    },
+    {
+      "id": "s13-minneapolis-group-mid-outdoorlock",
+      "city": "Minneapolis, MN",
+      "nearbyNames": ["Lake Harriet", "Matt's Bar", "Magers & Quinn"],
+      "body": { "location": "Minneapolis, MN", "spiceLevel": 6, "groupSize": "group", "timeAvailable": 120, "category": "Outdoor", "typeCounts": { "park": 5, "restaurant": 4, "viewpoint": 2 }, "nearbyPlaces": [{ "name": "Lake Harriet", "type": "park" }, { "name": "Matt's Bar", "type": "bar" }, { "name": "Magers & Quinn", "type": "library" }] }
+    },
+    {
+      "id": "s14-atlanta-group-spicy",
+      "city": "Atlanta, GA",
+      "nearbyNames": ["Piedmont Park", "The Varsity", "Ponce City Market"],
+      "body": { "location": "Atlanta, GA", "spiceLevel": 7, "groupSize": "group", "timeAvailable": 150, "typeCounts": { "mall": 3, "restaurant": 7, "park": 2, "fast_food": 4 }, "nearbyPlaces": [{ "name": "Piedmont Park", "type": "park" }, { "name": "The Varsity", "type": "fast_food" }, { "name": "Ponce City Market", "type": "mall" }] }
+    },
+    {
+      "id": "s15-sandiego-pair-chaos",
+      "city": "San Diego, CA",
+      "nearbyNames": ["Balboa Park", "Hodad's", "The Whaley House"],
+      "body": { "location": "San Diego, CA", "spiceLevel": 9, "groupSize": "2", "timeAvailable": 180, "typeCounts": { "restaurant": 6, "attraction": 3, "park": 2, "mall": 2 }, "nearbyPlaces": [{ "name": "Balboa Park", "type": "park" }, { "name": "Hodad's", "type": "restaurant" }, { "name": "The Whaley House", "type": "attraction" }] }
+    }
+  ]
+}

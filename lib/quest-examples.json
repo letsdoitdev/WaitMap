@@ -1,0 +1,140 @@
+{
+  "_comment": "Single source of truth for the side-quest few-shot exemplars and negative examples. Imported by app/api/generate/route.ts (via lib/quest-prompt.ts) AND scored by the eval harness in eval/. Curated to the SKILL.md rubric: every gold example uses GENERIC anchors (no brand/venue proper nouns), keeps at most 1 food example per tier, uses non-food stakes, and is concrete + filmable + story-generating. Negative examples are tagged with the exact failure mode the skill names so the model learns the shape to avoid.",
+  "version": "v5",
+  "fewShotGold": [
+    {
+      "tier": 1,
+      "spiceRange": [1, 3],
+      "examples": [
+        {
+          "title": "Highest Point Before Sunrise",
+          "description": "Split into pairs and race — no navigation apps — to the highest spot you can reach in your area before the sun comes up. Meet at the top and watch it break together. First pair up gets to pick the route home.",
+          "category": "Outdoor",
+          "spice": 2
+        },
+        {
+          "title": "Polaroid Adjective Hunt",
+          "description": "Each person draws a random word — eeriest, coziest, most forgotten — and gets 20 minutes to walk the block and shoot three photos that absolutely nail it. Reconvene, pass phones around, and crown the single best shot per word.",
+          "category": "Creative",
+          "spice": 3
+        },
+        {
+          "title": "1AM Diner Mystery Menu",
+          "description": "Hit a 24-hour diner at 1am and everyone orders the one thing on the menu they can't pronounce. Rate each plate out of 10 as it lands. Nobody leaves until a stranger orders breakfast.",
+          "category": "Food",
+          "spice": 2
+        }
+      ]
+    },
+    {
+      "tier": 2,
+      "spiceRange": [4, 6],
+      "examples": [
+        {
+          "title": "Passenger-Seat DJ Roulette",
+          "description": "Loop the neighborhood and pass one phone clockwise; whoever holds it queues a song the owner has never heard. Owner has to react on camera, no skipping. Worst reaction of the night picks the next quest.",
+          "category": "Creative",
+          "spice": 5
+        },
+        {
+          "title": "First-Apartment Couples",
+          "description": "Pair off at a big furniture store and pretend you're moving in together. Ask three different employees which couch says 'we just signed a lease.' Stay fully in character until you reach the checkout.",
+          "category": "Social",
+          "spice": 5
+        },
+        {
+          "title": "Lowest Bowler Picks The Quest",
+          "description": "One game, no handicaps, no mercy. Whoever bowls lowest has to choose the group's next side quest completely blind and commit to it on the spot.",
+          "category": "Challenge",
+          "spice": 5
+        }
+      ]
+    },
+    {
+      "tier": 3,
+      "spiceRange": [7, 8],
+      "examples": [
+        {
+          "title": "Three Pickles And Baby Oil",
+          "description": "The whole crew walks into a big-box store and buys exactly three pickles and one bottle of baby oil — nothing else. Everyone has to be at the register together. First person to crack a smile loses.",
+          "category": "Social",
+          "spice": 8
+        },
+        {
+          "title": "AI Disaster Repair Desk",
+          "description": "Each person generates one photorealistic fake home disaster (a car through the kitchen, a raccoon running the dishwasher) and shows it to a hardware-store employee, asking for dead-serious repair advice. You cannot break character. The rest film from a distance.",
+          "category": "Challenge",
+          "spice": 8
+        },
+        {
+          "title": "Beginner Night, Full Send",
+          "description": "Find a public pickup game — a basketball court, a ping-pong table, a park volleyball net — and just join it for real, all-out effort, zero skill. No code words, no rule tweaks. Play badly, lose loudly, shake hands after.",
+          "category": "Outdoor",
+          "spice": 7
+        }
+      ]
+    },
+    {
+      "tier": 4,
+      "spiceRange": [9, 10],
+      "examples": [
+        {
+          "title": "Display-Section Dinner Party",
+          "description": "Pile into a big store's display section — the couches, the patio sets, the model kitchen — and fully move in. Claim seats, host a fake dinner party at the display table, pour invisible wine, until staff comes to move you along.",
+          "category": "Challenge",
+          "spice": 9
+        },
+        {
+          "title": "Dollar To Whatever You Can",
+          "description": "Start with one $1 item and barter your way up around the neighborhood, bigger-or-better style, trading with shopkeepers and people who say yes. One hour on the clock. See how absurd the final object gets before time runs out.",
+          "category": "Social",
+          "spice": 9
+        },
+        {
+          "title": "Fitting-Room Runway",
+          "description": "Everyone grabs the most unhinged full outfit they can assemble off the racks and does a genuine runway walk out of the fitting rooms for the group and whoever's nearby. The strut continues until an employee asks you to wrap it up.",
+          "category": "Creative",
+          "spice": 9
+        }
+      ]
+    }
+  ],
+  "negativeExamples": [
+    {
+      "failureMode": "synchronized-performance trap (Tier-4 weird/boring)",
+      "bad": "Form a conga line through the mall and see how many strangers join in.",
+      "why": "Performance hoping passersby notice/join — no compelled audience, no real kick-out risk. Collapses into performance art, not group chaos.",
+      "fix": "Do real physical chaos where staff are a compelled audience and there's genuine kick-out risk (take over a display section, stage a fitting-room runway)."
+    },
+    {
+      "failureMode": "food-in-body stakes",
+      "bad": "Race go-karts; whoever loses buys everyone coffee afterward.",
+      "why": "Embeds buying food/drink as the penalty. Banned even in non-Food quests.",
+      "fix": "Use a non-food stake: loser picks the next quest, winner chooses the route home, group photo as proof."
+    },
+    {
+      "failureMode": "code-name / rule-overlay sports",
+      "bad": "Play basketball but every basket needs a secret code word and a custom handshake first.",
+      "why": "A rule overlay bolted onto a sport. The sport is already the fun; the overlay just adds friction.",
+      "fix": "Join a real public pickup game and play full-effort at the wrong skill level — no code names, no overlays."
+    },
+    {
+      "failureMode": "venue-name / proper-noun leak",
+      "bad": "Meet at Maple Street Park and race to the Riverside Cafe before it closes.",
+      "why": "Names specific venues that could come straight from the nearby list. The nearby list is geographic context only.",
+      "fix": "Use generic anchors: 'a nearby park', 'a local cafe', 'a community space'."
+    },
+    {
+      "failureMode": "verbal rule / writing-reflection",
+      "bad": "Spend the whole night only speaking in movie quotes, then write down your favorite memory.",
+      "why": "Verbal-rule overlay plus a journaling/reflection component — both auto-reject.",
+      "fix": "Give the group a concrete physical action with a clear end condition instead."
+    },
+    {
+      "failureMode": "generic / tourist / food-bias filler",
+      "bad": "Go to a coffee shop and try a drink you've never had, then visit a museum and pick a favorite exhibit.",
+      "why": "Food bias plus generic tourist activity — solitary, no stakes, no story to tell later.",
+      "fix": "Pick one concrete group action with a real constraint and a clear win/end condition."
+    }
+  ]
+}
