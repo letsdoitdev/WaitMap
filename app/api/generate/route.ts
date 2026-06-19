@@ -15,6 +15,10 @@ type GroupSizeBand = "solo" | "2" | "group";
 
 type GenerateBody = {
   location?: string;
+  /** Coarse resolved region descriptor (e.g. "Ashburn, Virginia, USA") used
+   * ONLY for geographic plausibility — never to name venues. Falls back to
+   * `location` when absent. */
+  region?: string;
   /** Full place objects (still needed for the venue-leak detector and the
    * scrub-time category placeholder). Histogram is built from typeCounts,
    * not from this list. */
@@ -34,16 +38,20 @@ type GenerateBody = {
   lowCostOnly?: boolean;
 };
 
-// v4 schema as returned by the model
+// Slim schema as returned by the model. To keep output tokens (the dominant
+// latency term for a single Haiku call) minimal, the model now returns only
+// title/description/category — duration, groupSize and spiceLevel are filled
+// server-side from the user's own inputs. The extra fields stay optional so a
+// model that still emits them is parsed without error.
 type ClaudeQuest = {
   id?: string;
   title: string;
   description: string;
   category: string;
-  duration: string; // "1-2 hours", "30 minutes"
-  groupSize: string; // "2-4 people", "solo"
-  spiceLevel: number;
-  rating: null;
+  duration?: string; // optional; "1-2 hours", "30 minutes"
+  groupSize?: string; // optional; "2-4 people", "solo"
+  spiceLevel?: number; // optional
+  rating?: null;
 };
 
 const V4_CATEGORIES = [
@@ -115,89 +123,48 @@ function loadSkillBody(): string {
 
 const SKILL_BODY = loadSkillBody();
 
+// Kept deliberately compact: this is the cached prefix, so a smaller prompt
+// makes even a cache MISS cheap to process. All HARD behavioral + safety rules
+// are preserved; only redundant prose, repeated self-checks, and now-obsolete
+// output-field rules (group/time ranges are filled server-side) were cut.
 const WEBSITE_OVERRIDES = `
 
 ---
 
-# WEBSITE-SPECIFIC OVERRIDES (apply on top of the skill above)
+# WEBSITE OVERRIDES (HARD — take precedence over the skill's output format and any conflicting guidance)
 
-The skill above is the canonical source of truth for philosophy, rubric, anti-rubric, tiers, and safety. The rules below are website-specific constraints and HARD overrides that take precedence over the skill's prose output format and any conflicting guidance.
+## FOOD BIAS (HARD)
+The nearby venue hint is food-dominated; resist it. Max 1 food/eating/drinking quest per batch of 3 — the other 2 must be clearly non-food. Even in non-food quests, never use food/eating/drinking/buying-food as a mechanic, reward, or penalty (no "loser buys coffee"); use "loser picks the next quest", "winner picks the route home", or "group photo as proof" instead.
 
-## ⚠️ FOOD BIAS WARNING — READ BEFORE GENERATING ANYTHING
+## NO NAMED VENUES (HARD)
+Never put a specific venue, business, restaurant, cafe, bar, street, park, playground, landmark, neighborhood, or institution name in a title or description. Use generic descriptors: "a nearby park", "a local cafe", "a community space". Location is for geographic plausibility only.
 
-The nearby venue list (when provided) is almost always dominated by restaurants, cafes, and food venues. You must actively resist this pull.
+## SPICE CEILING (HARD)
+Every quest must sit AT OR BELOW the requested spice level. It is a ceiling, not a target.
 
-HARD RULE: In every batch of 3 quests, AT MOST 1 can involve a food venue or eating activity. The other 2 must be from completely different categories.
+## PRONOUNS
+Match group size: solo → "you"; 2+ → "your crew" / "everyone" / "the group".
 
-Before finalizing your 3 quests, count how many involve food/restaurants/cafes/eating. If the count is 2 or 3, discard the extras and replace them with non-food quests. This check is mandatory.
+## CATEGORY RULES
+- Outdoor/Nature: the activity happens outside (parks, trails, streets, fields, water), never inside a business or at a named venue.
+- Social/Food: the right home for business/venue-based activities.
+- Indoor: done at home/inside, no travel (rearrange furniture and eat there, cook from pantry only, pass-the-controller-on-death).
 
-## ⚠️ VENUE NAMING BAN
+## SAFETY — HARD BANS (self-check before output)
+Default vibe is mild chaos ("could get asked to leave the store" is fine). Ban ONLY these real-harm cases:
+1. No library disruption (tag, racing, shouting, "whisper tournaments", scavenger sprints, "stay till staff notices"). Quiet reading/browsing/finding a book is fine.
+2. No cart racing with a rider, or cart racing in a crowded area. An empty cart in an empty lot/aisle is fine.
+3. Filming/recording strangers: only with their explicit consent, and say so in the quest when strangers are involved. Filming yourselves or consenting strangers is fine.
+4. No risky-environment exploration (caves without gear, spelunking, free/mountain/cliff climbing, unmarked trails at night). Normal outdoor activity is fine.
+That's the whole ban list. Restaurant-ordering bits, aisle sprints, cashier bits, drive-thru games, parking-lot bits, before-dark navigation — all allowed. The bar is real long-term damage, not "an employee might be annoyed".
 
-The nearby places list is for geographic context ONLY. You are BANNED from naming any specific venue, restaurant, cafe, bar, park, playground, street, institution, or landmark from that list inside any quest title or description. No playground names, no street names, no institution names from the list.
+## VARIETY (HARD)
+Within the batch of 3: at most 1 quest per setting (supermarket/library/restaurant/park/street/etc.), at most 1 per "trick" (sprint/identical-order/backwards-walking/etc.), each a different verb and ideally a different group dynamic (competitive/cooperative/secret/public). The venue-type hint is a SOFT nudge — do not put all 3 at the dominant type.
 
-Instead, use generic descriptors: "a nearby park", "a local playground", "a community space", "a public square".
-
-HARD RULE: If your quest description contains any proper noun that appears verbatim in the nearbyPlaces list, rewrite it to remove the proper noun.
-
-FOOD-IN-BODY BAN: Even when a quest is NOT categorized as Food, you must not embed food/eating/drinking/purchasing food as a mechanic, outcome, reward, or penalty within the quest description. No "loser buys coffee", no "grab a snack", no "buy a round." If you need a stakes mechanic, use non-food options: "loser picks the next quest," "winner chooses the route home," "take a group photo as proof."
-
-SELF-CHECK BEFORE OUTPUTTING: Before writing each quest's title and description, ask yourself: "Does this contain any proper noun, street name, park name, building name, neighborhood name, or institution name from the nearbyPlaces list?" If yes, rewrite it. Also ask: "Does this contain any food/eating/drinking/purchasing as a penalty, reward, or mechanic?" If yes, rewrite it.
-
-## SPICE CEILING — HARD RULE
-
-Every quest you generate must have a spice score AT OR BELOW the user's requested spice level. If user sets spice 2, no quest may exceed 2/10. If user sets spice 5, no quest may exceed 5/10. This is a ceiling, not a target.
-
-## GROUP SIZE HANDLING — HARD RULE
-
-Match pronouns to the actual group size. groupSize 1 → "you", not "your group". groupSize 2+ → "your crew", "everyone", "the group" are fine.
-
-Always output a real group RANGE in the JSON. Never minGroup === maxGroup. For groupSize=1 use min:1,max:3. For groupSize=2 use min:2,max:4. For groupSize=group use min:3,max:6 or wider.
-
-## TIME RANGE — HARD RULE
-
-Always output minTime < maxTime with at least a 15-minute spread. Never the same value for both. Example: 45-min quest → minTime:30, maxTime:60.
-
-## CATEGORY-SPECIFIC RULES
-
-- Nature quests: Must take place outdoors in open/natural spaces — parks, trails, streets, yards, fields, bodies of water. Do NOT route Nature quests to businesses, stores, or named venues.
-- Outdoor quests: Can involve driving/transit to reach a destination, but the activity itself should happen outside, not inside a business.
-- Social/Food quests: These are the appropriate categories for business/venue-based activities.
-- Indoor quests: Done at home or inside, no travel required. Examples: rearrange furniture and eat dinner there, cook something none of you have cooked using only pantry items, video game where the controller passes every death.
-
-## OUTPUT FORMAT (overrides the skill's prose format — return JSON)
-
-Return a JSON array of exactly 3 quest objects. No markdown. No extra text. Each object:
-
-\`\`\`
-{
-  "title": "5-8 word punchy title",
-  "description": "2-3 sentences, concrete and specific, Gen Z tone, action-forward. NO 'don't do X' language. NO academic/writing tasks.",
-  "category": one of ["Outdoor", "Food", "Social", "Challenge", "Culture", "Nightlife", "Creative", "Indoor"],
-  "duration": "e.g. 1-2 hours",
-  "groupSize": "e.g. 2-4 people",
-  "spiceLevel": number 1-10,
-  "rating": null
-}
-\`\`\`
-
-## ⚠️ HARD BANS — safety (READ AND SELF-CHECK BEFORE OUTPUTTING)
-
-The app's default vibe is mild chaos. "Could get mildly side-eyed" or "could get asked to leave the store" is fine — that's the product. The bans below are the small set of things with real long-term-damage risk. Anything outside this list is allowed, even if it's a little chaotic. Do not over-sanitize.
-
-1. **No library disruption quests.** No tag, racing, "whisper tournaments," shouting, scavenger sprints, or "stay until staff notices" inside libraries. Libraries stay quiet — real risk of cops being called. Library quests that involve quiet reading, browsing, or finding a book are fine.
-2. **No cart racing with a rider, or in a crowded area.** Shopping-cart speed runs with a person inside the cart are out, and cart racing in a crowded store is out. An empty cart pushed around an empty parking lot at 1am or an empty aisle is fine — the line is "rider present" or "crowded area," not "cart-shaped object exists."
-3. **Recording strangers without consent — INSTRUCTION, not a blanket ban.** If a quest involves filming or recording another person, the quest description must explicitly tell users to ask first and only film with consent. Filming yourselves and filming strangers who've agreed are always fine. Don't avoid cameras in quests — just include the consent instruction when strangers are involved.
-4. **No risky-environment exploration.** No caves without gear, no spelunking, no mountain or free climbing, no cliff scrambling, no deep forest solo trips, no unmarked trails at night. Normal outdoor activity is fully fine — jogging an unfamiliar neighborhood, driving to a hill, walking through community parks, navigating in normal terrain before dark, any of that is allowed.
-
-That's the whole list. Restaurant ordering shenanigans (fake names, identical orders, mystery orders), solo aisle sprints in a normal store, cashier-rotation payment bits, drive-thru games, parking-lot social bits, before-dark community navigation — all allowed. The threshold for a ban is significant long-term damage, not "an employee might be mildly annoyed."
-
-## ⚠️ VARIETY GUARDRAILS (HARD)
-
-The categories collapse to a single setting (supermarket / library / restaurant) when the histogram pulls you. The histogram is a SOFT HINT; do not make all 3 quests at the dominant venue type. Within any batch of 3:
-
-- At most 1 quest per setting type (supermarket, restaurant, library, park, street, residential, transit, etc.). If two quests share a setting, replace one.
-- At most 1 quest per "trick" (sprint, identical-order, backwards-walking, scavenger hunt, whisper game, etc.).
-- Each quest commits to a different VERB (the activity action), and ideally a different group-dynamic (competitive / cooperative / secret / public).
+## OUTPUT FORMAT (overrides the skill's prose format)
+Return ONLY a minified JSON array of exactly 3 objects — no whitespace, no markdown, no commentary. Each object has EXACTLY these 3 keys and nothing else:
+{"title":"5-8 word punchy title","description":"1-2 short sentences, 16 words MAX, concrete + Gen Z + action-forward, no 'don't do X', no writing tasks","category":"Outdoor|Food|Social|Challenge|Culture|Nightlife|Creative|Indoor"}
+Brevity is mandatory. Do NOT emit duration, groupSize, spiceLevel, rating, or any other key — those are set server-side. Keep output as small as possible.
 `;
 
 const SYSTEM_PROMPT = `You are running as the backend for the Unemployment app's side quest generator. The canonical skill is loaded below from .claude/skills/side-quest-generator/SKILL.md. Follow it, then apply the website-specific overrides at the bottom.
@@ -263,6 +230,11 @@ function normalize(
   q: ClaudeQuest,
   excludeIds: Set<string>,
   categoryOverride: QuestCategory | null,
+  defaults: {
+    spice: number;
+    time: { min: number; max: number };
+    group: { min: number; max: number };
+  },
 ): GeneratedQuest | null {
   if (!q || typeof q.title !== "string" || typeof q.description !== "string") {
     return null;
@@ -272,9 +244,15 @@ function normalize(
     ? V4_TO_QUEST_CATEGORY[v4Cat]
     : "Social";
   const category: QuestCategory = categoryOverride ?? inferredCategory;
-  const spice = clamp(Math.round(Number(q.spiceLevel) || 5), 1, 10);
-  const time = parseDuration(q.duration);
-  const group = parseGroupSizeString(q.groupSize);
+  // Spice/time/group come from the user's request (the spice value is also the
+  // ceiling). Fall back to the model's fields only if it still emits them.
+  const spice = clamp(
+    Math.round(Number(q.spiceLevel) || defaults.spice),
+    1,
+    defaults.spice,
+  );
+  const time = q.duration ? parseDuration(q.duration) : defaults.time;
+  const group = q.groupSize ? parseGroupSizeString(q.groupSize) : defaults.group;
   const minTime = time.min;
   const maxTime =
     time.min === time.max ? Math.min(360, time.min + 30) : time.max;
@@ -579,13 +557,13 @@ const FEW_SHOT_GOLD: { tier: 1 | 2 | 3; examples: FewShotExample[] }[] = [
       {
         title: "Highest Point Before Sunrise",
         description:
-          "Split into pairs, race without navigation to find the highest elevation spot in your area before sunrise. Meet at the top and watch it together.",
+          "Race in pairs, no GPS, to the highest nearby spot before sunrise. Watch it together.",
         spice: 2,
       },
       {
         title: "24-Hour Diner at 1am",
         description:
-          "Drive to the nearest 24-hour diner at 1am. Order nothing except coffee and something you've never tried on the menu. Stay until someone orders breakfast.",
+          "Hit a 24-hour diner at 1am. Order only coffee and something new. Stay till breakfast.",
         spice: 2,
       },
     ],
@@ -596,13 +574,13 @@ const FEW_SHOT_GOLD: { tier: 1 | 2 | 3; examples: FewShotExample[] }[] = [
       {
         title: "Bowling Loser Cooks",
         description:
-          "One game, one rule: lowest score has to cook a full breakfast for the group the next morning. No handicaps, no mercy.",
+          "One game, one rule: lowest score cooks the whole crew breakfast tomorrow. No handicaps.",
         spice: 5,
       },
       {
         title: "IKEA Fake Couples",
         description:
-          "Pair off and pretend to be couples looking for furniture for your first home. Ask 3 different employees which sectional says 'we're young and in love.' Stay in character.",
+          "Pair off as couples furnishing your first home. Ask three employees which sectional says 'young love.'",
         spice: 5,
       },
     ],
@@ -613,13 +591,13 @@ const FEW_SHOT_GOLD: { tier: 1 | 2 | 3; examples: FewShotExample[] }[] = [
       {
         title: "Walmart Pickle Oil",
         description:
-          "The whole group walks into Walmart. Buy exactly 3 pickles and one bottle of baby oil — nothing else. Everyone present at the register.",
+          "Whole crew enters Walmart, buys exactly three pickles and one baby oil — nothing else. All at the register.",
         spice: 8,
       },
       {
         title: "Home Depot Fake Emergency",
         description:
-          "Each person uses an AI image generator to create a photorealistic fake home emergency (car crashed into kitchen, raccoon in dishwasher, ball pit filling basement). Walk into Home Depot, show the image to an employee, ask for serious repair advice. Cannot break character. Others watch from a distance.",
+          "Generate an absurd fake home-emergency photo, show an employee, ask serious repair advice. Don't break character.",
         spice: 8,
       },
     ],
@@ -1029,6 +1007,11 @@ export async function POST(req: NextRequest) {
   }
 
   const location = (body.location ?? "").trim() || "your area";
+  // Region is a coarse locale descriptor for geographic plausibility only.
+  // Prefer the geocoded region; fall back to the raw location string so the
+  // model always has *some* locale signal (the raw city is enough to avoid
+  // "surf in landlocked Arizona" style misfires).
+  const region = (body.region ?? "").trim() || location;
   const places = Array.isArray(body.nearbyPlaces)
     ? body.nearbyPlaces
         .filter((p) => p && typeof p.name === "string" && typeof p.type === "string")
@@ -1086,7 +1069,9 @@ export async function POST(req: NextRequest) {
   const diversitySeed = pickDiversitySeed(previousTitles);
   const diversityStr = renderDiversitySeed(diversitySeed);
 
-  const baseUserMessage = `${categoryPrefix}Generate exactly 3 side quests. Light context: the user is in ${location} (atmosphere only — NOT a venue list to draw from).${fewShotStr}${NEGATIVE_EXAMPLES}
+  const baseUserMessage = `${categoryPrefix}Generate exactly 3 side quests. Light context: the user is in ${region} (atmosphere only — NOT a venue list to draw from).
+
+GEOGRAPHIC PLAUSIBILITY: Use "${region}" only to keep quests physically possible for the area's climate, terrain, and density — e.g. no surfing/tide-pools in a landlocked region, no "hit 30 bars in an hour" in a rural town, no ski quests in a desert. Do NOT name any specific venue, street, or landmark; this is a sanity check on quest TYPE, not a place to drop proper nouns.${fewShotStr}${NEGATIVE_EXAMPLES}
 
 Venue TYPES available nearby (soft hint only — do NOT make all 3 quests at the dominant type): ${histogram}
 
@@ -1096,10 +1081,17 @@ Inputs: spice level ${spiceLevel}/10, group size ${groupSizeHint}, time availabl
 
 HARD CONSTRAINT: Generate at most 1 food-related quest (category Food, or activities centered on eating/drinking at a venue). If nearby venues are food-heavy, still find non-food angles.
 
-Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defined in the system prompt. No markdown, no explanation, just the raw JSON array. If you produce more than 3, only the first 3 will be used.`;
+Return ONLY a minified JSON array of EXACTLY 3 objects in the slim OUTPUT FORMAT from the system prompt — keys title/description/category only, each description 16 words MAX. No markdown, no whitespace, no commentary.`;
 
   const rawNames = places.map((p) => p.name);
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  const client = new Anthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY,
+    // The extended (1h) prompt-cache TTL is only honored when this beta header
+    // is on the ACTUAL HTTP request. Setting it as a client default guarantees
+    // it ships on every call — a per-request header is easy to get silently
+    // wrong, and without it the API falls back to the default 5m TTL.
+    defaultHeaders: { "anthropic-beta": "extended-cache-ttl-2025-04-11" },
+  });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 25_000);
 
@@ -1112,9 +1104,48 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
   const MAX_RETRIES = 2;
 
   // Per-stage timing — mirrors the [nearby-places] breakdown so before/after
-  // p95 work can be measured rather than guessed.
+  // p95 work can be measured rather than guessed. `llmUsage` captures the
+  // per-call token accounting (incl. cache_read vs cache_creation) so we can
+  // confirm prompt caching is actually being HIT.
   const llmStageMs: number[] = [];
-  let topupMs = 0;
+  const llmUsage: Array<Record<string, number | undefined>> = [];
+  // Retained in the timing log for continuity; the food top-up call was
+  // removed (it doubled p95), so this stays 0.
+  const topupMs = 0;
+
+  function recordUsage(u: Anthropic.Messages.Usage | undefined): void {
+    if (!u) return;
+    const read = u.cache_read_input_tokens ?? 0;
+    const create = u.cache_creation_input_tokens ?? 0;
+    const create1h = u.cache_creation?.ephemeral_1h_input_tokens ?? 0;
+    const create5m = u.cache_creation?.ephemeral_5m_input_tokens ?? 0;
+    // HIT = the cached prefix was read; MISS = we re-paid to (re)create it.
+    const cacheHit = read > 0 && create === 0;
+    llmUsage.push({
+      input: u.input_tokens,
+      output: u.output_tokens,
+      cacheRead: read,
+      cacheCreate: create,
+      create1h,
+      create5m,
+      cacheHit: cacheHit ? 1 : 0,
+    });
+    // One-glance regime read in the Vercel function logs: scan a handful of
+    // these and the hit fraction is immediately obvious. create1h > 0 on a
+    // miss confirms the 1h extended TTL is actually being applied.
+    console.log("[generate] cache", {
+      hit: cacheHit,
+      read,
+      create,
+      create1h,
+      create5m,
+      // Raw breakdown straight from the API — if a MISS shows create1h>0 the
+      // extended TTL is on the wire; if it only ever shows 5m, the beta header
+      // isn't being applied.
+      raw: u.cache_creation,
+      output: u.output_tokens,
+    });
+  }
 
   try {
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -1129,13 +1160,21 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
       const response = await client.messages.create(
         {
           model: "claude-haiku-4-5",
-          max_tokens: 900,
+          // Output generation is the single biggest latency term for the one
+          // call we make. With the slim 3-key schema + 16-word descriptions,
+          // 3 quests fit in ~180-220 tokens; 384 is a hard backstop that
+          // bounds the tail without truncating valid minified JSON.
+          max_tokens: 384,
           temperature,
           system: [
             {
               type: "text",
               text: SYSTEM_PROMPT,
-              cache_control: { type: "ephemeral" },
+              // 1h extended TTL (vs the default 5m) so the cached system
+              // prompt survives between spaced-out rerolls and across lambda
+              // instances — the 5m default kept expiring, which is what made
+              // latency bimodal (every few calls re-paid cache_creation).
+              cache_control: { type: "ephemeral", ttl: "1h" },
             },
           ],
           messages,
@@ -1143,6 +1182,7 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
         { signal: controller.signal },
       );
       llmStageMs.push(Date.now() - llmStart);
+      recordUsage(response.usage);
 
       const textBlock = response.content.find((b) => b.type === "text");
       const text =
@@ -1179,16 +1219,22 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
         leaked: report.leakedNames,
       });
 
-      if (report.violations.length === 0 || attempt === MAX_RETRIES) break;
+      // p95 budget: a full corrective round-trip costs ~2-3s, so we only spend
+      // one on violations that post-processing CANNOT repair — i.e. safety
+      // bans. Venue leaks are fixed by scrub() below, food-density by the
+      // top-up pass, and spice/dupe/similarity are cosmetic; retrying for
+      // those was the main driver of the 6.8-10.8s tail. Accept the first
+      // draft for everything except a hard safety hit.
+      const blocking = report.violations.filter((v) =>
+        v.startsWith("VIOLATION_SAFETY"),
+      );
+      if (blocking.length === 0 || attempt === MAX_RETRIES) break;
 
-      // Append assistant + corrective user, then loop.
+      // Append assistant + corrective user, then loop (safety-only).
       messages.push({ role: "assistant", content: text });
-      const leakList = report.leakedNames.length
-        ? ` Specifically avoid these venue names that leaked: ${report.leakedNames.join(", ")}.`
-        : "";
       messages.push({
         role: "user",
-        content: `Previous attempt violated rules: ${report.violations.join("; ")}. Generate 3 NEW quests fixing these issues.${leakList} Use generic placeholders like "a nearby park", "a local cafe", "a community space".`,
+        content: `Previous attempt violated a hard safety rule: ${blocking.join("; ")}. Generate 3 NEW quests that fix this. Keep everything else (no named venues, max 1 food quest, spice ceiling).`,
       });
     }
 
@@ -1212,97 +1258,19 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
     const foodCheckUserRequested =
       requestedCategory && requestedCategory.toLowerCase() === "food";
     if (!foodCheckUserRequested) {
+      // p95: a food-heavy batch no longer triggers a second LLM round-trip.
+      // The old top-up fired a full extra Haiku call whenever >=2 quests
+      // looked food-related — and isFoodQuest is broad (bar/drink/cook/menu/
+      // meal...), so on a restaurant-dense city it false-positived and
+      // roughly DOUBLED latency on nearly every reroll. The single-call
+      // prompt already pushes hard for "max 1 food per batch"; we just log
+      // slips and ship the 3 quests we have instead of paying ~2-3s to
+      // regenerate.
       const foodCount = lastParsed.filter(isFoodQuest).length;
       if (foodCount >= 2) {
-        const nonFood: ClaudeQuest[] = [];
-        let keptFood = 0;
-        for (const q of lastParsed) {
-          if (isFoodQuest(q)) {
-            if (keptFood === 0) {
-              nonFood.push(q);
-              keptFood = 1;
-            }
-            // else: drop the excess food quest
-          } else {
-            nonFood.push(q);
-          }
-        }
-        const needed = 3 - nonFood.length;
-        console.log("[generate] food-bias post-check failed", {
+        console.log("[generate] food-bias slip (accepted, no top-up)", {
           foodCount,
-          dropped: needed,
-          kept: nonFood.length,
         });
-
-        if (needed > 0) {
-          // Top-up call: short prompt, tight max_tokens, no AbortController
-          // ceiling so a slow link doesn't bounce a healthy completion.
-          try {
-            const topupStart = Date.now();
-            const topupResponse = await client.messages.create({
-              model: "claude-haiku-4-5",
-              max_tokens: 400,
-              temperature: 0.75,
-              system: [
-                {
-                  type: "text",
-                  text: SYSTEM_PROMPT,
-                  cache_control: { type: "ephemeral" },
-                },
-              ],
-              messages: [
-                {
-                  role: "user",
-                  content: `Generate exactly ${needed} non-food side quest${needed === 1 ? "" : "s"}. Same location (${location}) and spice level (${spiceLevel}/10). JSON array only.`,
-                },
-              ],
-            });
-            topupMs = Date.now() - topupStart;
-            const topupTextBlock = topupResponse.content.find(
-              (b) => b.type === "text",
-            );
-            const topupText =
-              topupTextBlock && topupTextBlock.type === "text"
-                ? topupTextBlock.text
-                : "";
-            let topupParsed: unknown = null;
-            try {
-              topupParsed = extractJsonArray(topupText);
-            } catch {
-              topupParsed = null;
-            }
-            if (Array.isArray(topupParsed)) {
-              const topupArr = (topupParsed as ClaudeQuest[])
-                .filter((q) => q && typeof q.title === "string")
-                .filter((q) => !isFoodQuest(q))
-                .slice(0, needed);
-              lastParsed = [...nonFood, ...topupArr].slice(0, 3);
-              console.log("[generate] food-bias topup", {
-                requested: needed,
-                received: topupArr.length,
-                finalFood: lastParsed.filter(isFoodQuest).length,
-              });
-              // Re-run violation detection on the merged batch so the scrub
-              // below sees an accurate picture.
-              const mergedReport = detectViolations(
-                lastParsed,
-                rawNames,
-                spiceLevel,
-                requestedCategory,
-                previousTitles,
-              );
-              lastViolations = mergedReport.violations;
-            } else {
-              // Couldn't parse the top-up — fall back to the trimmed batch
-              // (≤2 quests) rather than the original food-heavy one.
-              lastParsed = nonFood;
-            }
-          } catch (err) {
-            console.log("[generate] food-bias topup failed", err);
-            // Keep the trimmed batch — at minimum we removed the duplicates.
-            lastParsed = nonFood;
-          }
-        }
       }
     }
 
@@ -1316,9 +1284,24 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
       requestedCategory && isUiCategory(requestedCategory)
         ? requestedCategory
         : null;
+    // Defaults derived from the user's own request — used to fill the fields
+    // we no longer ask the model to emit (keeps output tokens minimal).
+    const groupRange =
+      groupSize === "solo"
+        ? { min: 1, max: 3 }
+        : groupSize === "2"
+          ? { min: 2, max: 4 }
+          : { min: 3, max: 6 };
+    const tMin = clamp(Math.round(timeAvailable * 0.6), 5, 345);
+    const tMax = clamp(Math.max(timeAvailable, tMin + 15), 5, 360);
+    const normalizeDefaults = {
+      spice: spiceLevel,
+      time: { min: tMin, max: tMax },
+      group: groupRange,
+    };
     const quests: GeneratedQuest[] = [];
     for (const item of lastParsed) {
-      const normalized = normalize(item, seen, categoryOverride);
+      const normalized = normalize(item, seen, categoryOverride, normalizeDefaults);
       if (normalized) quests.push(normalized);
     }
 
@@ -1351,6 +1334,27 @@ Return a JSON array of EXACTLY 3 quest objects following the OUTPUT FORMAT defin
       llmTotalMs: llmStageMs.reduce((a, b) => a + b, 0),
       topupMs,
       attempts: llmStageMs.length,
+      // cacheRead > 0 on calls after the first confirms the system prompt is
+      // being served from cache rather than re-billed as cache_creation.
+      usage: llmUsage,
+    });
+
+    // Lightweight quality-review log: the inputs that shaped this batch and the
+    // 3 quests we shipped, so the owner can later mine patterns and feed
+    // improvements back into the skill. Titles + descriptions only — no PII.
+    console.log("[generate] result", {
+      location,
+      region,
+      histogram,
+      spiceLevel,
+      groupSize,
+      category: requestedCategory,
+      quests: quests.map((q) => ({
+        title: q.title,
+        description: q.description,
+        category: q.category,
+        spice: q.spice,
+      })),
     });
 
     return NextResponse.json({

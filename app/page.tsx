@@ -288,6 +288,21 @@ export default function Home() {
   const [nearbyStatus, setNearbyStatus] = useState<
     "idle" | "loading" | "ok" | "fallback"
   >("idle");
+  // Per-city memoized nearby result. The nearby fetch (geocode + Overpass) is
+  // the slow, repeat-identical leg; caching it here means rerolls of the same
+  // city skip that network round-trip entirely and only pay the LLM call —
+  // this is what keeps reroll p95 well under budget. Keyed by normalized city;
+  // survives across generate() calls but resets on reload (intentional).
+  const nearbyCacheRef = useRef<
+    Record<
+      string,
+      {
+        region: string | null;
+        places: NearbyPlace[];
+        typeCounts: Record<string, number>;
+      }
+    >
+  >({});
   const [ratingsHistory, setRatingsHistory] = useState<RatingRecord[]>([]);
   const [bookmarks, setBookmarks] = useState<GeneratedQuest[]>([]);
   const [view, setView] = useState<View>("results");
@@ -597,25 +612,36 @@ export default function Home() {
 
   const canGenerate = city.trim().length > 0;
 
-  async function fetchNearby(
-    loc: string,
-  ): Promise<{ places: NearbyPlace[]; typeCounts: Record<string, number> }> {
+  // `region` is the geocoded locale descriptor (e.g. "Ashburn, Virginia, USA"),
+  // null when the city couldn't be geocoded at all. Used for geographic
+  // plausibility in the prompt — never to name venues.
+  async function fetchNearby(loc: string): Promise<{
+    region: string | null;
+    places: NearbyPlace[];
+    typeCounts: Record<string, number>;
+  }> {
     try {
       const r = await fetch(
         `/api/nearby-places?location=${encodeURIComponent(loc)}`,
       );
-      if (!r.ok) return { places: [], typeCounts: {} };
+      if (!r.ok) return { region: null, places: [], typeCounts: {} };
       const data = (await r.json()) as NearbyResponse;
-      if (!data.ok) return { places: [], typeCounts: {} };
-      return { places: data.places, typeCounts: data.typeCounts ?? {} };
+      // ok:false means geocode failed → no region. ok:true (even with zero
+      // places, e.g. Overpass empty) still carries the resolved region.
+      return {
+        region: data.location?.display ?? null,
+        places: data.ok ? data.places : [],
+        typeCounts: data.ok ? data.typeCounts ?? {} : {},
+      };
     } catch {
-      return { places: [], typeCounts: {} };
+      return { region: null, places: [], typeCounts: {} };
     }
   }
 
   // Returns the generated quests, `null` to signal the local fallback should
   // run, or "reroll_limit" when the server enforced the free-tier cap (402).
   async function fetchAiQuests(
+    region: string | null,
     places: NearbyPlace[],
     typeCounts: Record<string, number>,
     excludeIds: string[],
@@ -630,6 +656,7 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           location: city,
+          region: region ?? city,
           nearbyPlaces: places
             .map((p) => ({ name: p.name, type: p.type, bucket: p.bucket }))
             .slice(0, 20),
@@ -677,14 +704,37 @@ export default function Home() {
     setPrefsOpen(false);
     setQuests(null);
     setRolling(true);
-    setNearbyStatus("loading");
     setView("results");
 
-    // Fire the nearby-places fetch immediately and let the synchronous
-    // localStorage setup below overlap the network wait instead of stacking
-    // strictly after it. We await the promise just before the generate call,
-    // which is the only consumer of `places`/`typeCounts`.
-    const nearbyPromise = fetchNearby(city);
+    // Locale signal for THIS generation. We always have at least the raw city
+    // (enough for geographic plausibility), so the LLM call never has to wait
+    // on the nearby fetch — that's what unstacks the two network legs.
+    const cityKey = city.trim().toLowerCase();
+    const cachedNearby = nearbyCacheRef.current[cityKey];
+    const region: string | null = cachedNearby?.region ?? null;
+    const places: NearbyPlace[] = cachedNearby?.places ?? [];
+    const typeCounts: Record<string, number> = cachedNearby?.typeCounts ?? {};
+
+    // We have a usable locale (raw city at minimum) → no alarming banner.
+    setNearbyStatus("ok");
+
+    if (cachedNearby) {
+      // Warm path: rerolls of the same city reuse the geocode + Overpass
+      // result and only pay the LLM call.
+      setNearbyStatus(cachedNearby.region ? "ok" : "fallback");
+    } else {
+      // Cold path: fetch nearby in the BACKGROUND to warm the cache for the
+      // next reroll, but do NOT block this generation on it. The model still
+      // gets the raw city for plausibility; the richer region + category
+      // histogram land on the next roll.
+      void fetchNearby(city).then((res) => {
+        nearbyCacheRef.current[cityKey] = res;
+        // Only flag a true geocode failure (no region at all). Empty venues on
+        // a city that resolved fine is NOT a fallback — quests stay locale-aware
+        // via the region/raw city.
+        if (!res.region) setNearbyStatus("fallback");
+      });
+    }
 
     let shown = loadShown();
     let shownTitles = loadShownTitles();
@@ -703,12 +753,10 @@ export default function Home() {
     const recent = loadRecentQuestIds();
     const excludeIds = Array.from(new Set([...shown, ...recent]));
 
-    const { places, typeCounts } = await nearbyPromise;
-    setNearbyStatus(places.length > 0 ? "ok" : "fallback");
-
     const cat =
       overrideCategory !== undefined ? overrideCategory : categoryFilter;
     const aiResult = await fetchAiQuests(
+      region,
       places,
       typeCounts,
       excludeIds,
@@ -1097,7 +1145,8 @@ export default function Home() {
             )}
             {nearbyStatus === "fallback" && quests && (
               <p className="ds-hero-helper" style={{ color: "var(--warning)" }}>
-                Couldn&apos;t reach nearby venue data — using generic quests.
+                Couldn&apos;t pin your exact area — quests may be a little less
+                locale-specific.
               </p>
             )}
           </div>
