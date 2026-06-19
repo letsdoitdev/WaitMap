@@ -219,7 +219,18 @@ export async function POST(req: NextRequest) {
       const seen = new Set<string>(excludeIds);
       const emitted: GeneratedQuest[] = [];
       let firstQuestMs = 0;
-      let heldCount = 0; // quests dropped for a hard safety rule
+      let heldCount = 0; // distinct quests dropped for a hard safety rule
+      // Owner-review record of what the per-quest safety filter culled, so
+      // false-positives (over-aggressive rules) can be told apart from real
+      // catches. Deduped by title so a quest re-checked by the reconcile path
+      // is recorded once.
+      const held: Array<{
+        title: string;
+        rule: string;
+        match: string;
+        description: string;
+      }> = [];
+      const heldSeen = new Set<string>();
       const abort = new AbortController();
       const timer = setTimeout(() => abort.abort(), 25_000);
 
@@ -236,9 +247,28 @@ export async function POST(req: NextRequest) {
           return false;
         }
         scrub([q], places); // strip leaked venue names in place (matches JSON path)
-        if (findSafetyViolation(`${q.title} ${q.description}`)) {
-          heldCount++;
-          console.log("[generate/stream] held unsafe quest", { title: q.title });
+        const v = findSafetyViolation(`${q.title} ${q.description}`);
+        if (v) {
+          const key = q.title.trim().toLowerCase();
+          if (!heldSeen.has(key)) {
+            heldSeen.add(key);
+            heldCount++;
+            held.push({
+              title: q.title,
+              rule: v.name,
+              match: v.match,
+              description: q.description,
+            });
+            // Per-quest review line: the rule that fired + the exact substring
+            // that matched + the full quest, so the owner can judge whether the
+            // hold was a false positive. Safety thresholds are left as-is.
+            console.log("[generate/stream] held", {
+              title: q.title,
+              rule: v.name,
+              match: v.match,
+              description: q.description,
+            });
+          }
           return false;
         }
         return true;
@@ -425,6 +455,10 @@ export async function POST(req: NextRequest) {
             category: q.category,
             spice: q.spice,
           })),
+          // Held quests for owner review (rule + matched text + full quest).
+          // A high held rate here flags an over-aggressive rule or a model
+          // genuinely emitting unsafe content — worth periodic review.
+          held,
         });
 
         if (emitted.length === 0) {
