@@ -13,6 +13,7 @@ import {
   findSafetyViolation,
   isUiCategory,
   clamp,
+  extractJsonArray,
   type GenerateBody,
   type ClaudeQuest,
   type GroupSizeBand,
@@ -221,46 +222,61 @@ export async function POST(req: NextRequest) {
       const abort = new AbortController();
       const timer = setTimeout(() => abort.abort(), 25_000);
 
-      // Decide whether a freshly-completed quest may be revealed, then push it.
-      // Per-quest safety runs here: a quest that still trips a hard safety rule
-      // after scrub() is HELD (never emitted) rather than shown and retracted.
-      function consider(raw: string): void {
+      // Tracks emitted quests by title so the end-of-stream backstop never
+      // re-emits one the incremental parser already sent.
+      const emittedKeys = new Set<string>();
+
+      // Decide whether a quest may be revealed, then push it. SAFETY is the
+      // ONLY reason to suppress one — a quest that still trips a hard safety
+      // rule after scrub() is HELD (never shown). We do NOT drop for
+      // food-density or title dupes (the JSON path ships those as-is post #43).
+      // `skipIfSeen` is used only by the backstop to avoid double-emitting.
+      function considerQuest(q: ClaudeQuest, skipIfSeen = false): void {
         if (emitted.length >= 3) return;
+        if (
+          !q ||
+          typeof q.title !== "string" ||
+          typeof q.description !== "string"
+        ) {
+          return;
+        }
+        // Strip any leaked venue names first (matches the JSON path).
+        scrub([q], places);
+        const haystack = `${q.title} ${q.description}`;
+        if (findSafetyViolation(haystack)) {
+          console.log("[generate/stream] held unsafe quest", { title: q.title });
+          return;
+        }
+        const key = q.title.trim().toLowerCase();
+        if (skipIfSeen && emittedKeys.has(key)) return;
+        const normalized = normalize(q, seen, categoryOverride, normalizeDefaults);
+        if (!normalized) return;
+        emittedKeys.add(key);
+        emitted.push(normalized);
+        if (!firstQuestMs) firstQuestMs = Date.now() - t0;
+        ctrl.enqueue(sse({ type: "quest", quest: normalized }));
+      }
+
+      // Parse one streamed object string and route it through considerQuest.
+      function consider(raw: string): void {
         let q: ClaudeQuest;
         try {
           q = JSON.parse(raw) as ClaudeQuest;
         } catch {
           return;
         }
-        if (!q || typeof q.title !== "string" || typeof q.description !== "string") {
-          return;
-        }
-        // Strip any leaked venue names first (matches the JSON path).
-        scrub([q], places);
-        const haystack = `${q.title} ${q.description}`;
-        // SAFETY is the ONLY reason to suppress a streamed quest — a quest that
-        // still trips a hard safety rule after scrub() is held (never shown).
-        // We deliberately do NOT drop for food-density or title dupes here: the
-        // JSON path ships those as-is (post #43), and dropping them mid-stream
-        // with no top-up was silently yielding 2 quests instead of 3 in
-        // food-dense areas. Keeping parity guarantees 3 unless a rare genuine
-        // safety hold applies.
-        if (findSafetyViolation(haystack)) {
-          console.log("[generate/stream] held unsafe quest", { title: q.title });
-          return;
-        }
-        const normalized = normalize(q, seen, categoryOverride, normalizeDefaults);
-        if (!normalized) return;
-        emitted.push(normalized);
-        if (!firstQuestMs) firstQuestMs = Date.now() - t0;
-        ctrl.enqueue(sse({ type: "quest", quest: normalized }));
+        considerQuest(q);
       }
 
       try {
         const llm = client.messages.stream(
           {
             model: "claude-haiku-4-5",
-            max_tokens: 384,
+            // Headroom so the 3rd quest object always closes before the model
+            // stops — a tighter 384 ceiling could truncate it mid-stream on a
+            // longer batch, leaving only 2 parseable objects. Typical output is
+            // ~250 tokens, so this does not change normal latency.
+            max_tokens: 600,
             temperature: 0.75,
             system: [
               {
@@ -289,12 +305,36 @@ export async function POST(req: NextRequest) {
             if (emitted.length >= 3) break;
           }
         }
-        // Insurance: flush any complete object still buffered when the stream
-        // ended (e.g. the final quest, closed by `}]` with no trailing comma).
+        // Authoritative backstop: parse the COMPLETE message with the same
+        // extractJsonArray() the (reliable) JSON path uses, and emit any quest
+        // the incremental parser didn't (e.g. a final object whose closing
+        // brace landed in the last stream frame). This guarantees the stream
+        // ships 3 whenever the model produced 3 — the streaming iteration is no
+        // longer trusted to surface the tail. stop_reason is logged so a true
+        // max_tokens truncation (where even this can't recover a 3rd) is
+        // unambiguous in the function logs.
+        let stopReason: string | null = null;
+        let fullText = buf;
+        try {
+          const finalMsg = await llm.finalMessage();
+          stopReason = finalMsg.stop_reason ?? null;
+          const tb = finalMsg.content.find((b) => b.type === "text");
+          if (tb && tb.type === "text") fullText = tb.text;
+        } catch {
+          // keep the accumulated buffer
+        }
         if (emitted.length < 3) {
-          for (const obj of scanObjects(buf, scan)) {
-            consider(obj);
-            if (emitted.length >= 3) break;
+          let parsed: unknown = null;
+          try {
+            parsed = extractJsonArray(fullText);
+          } catch {
+            parsed = null;
+          }
+          if (Array.isArray(parsed)) {
+            for (const item of parsed as ClaudeQuest[]) {
+              if (emitted.length >= 3) break;
+              considerQuest(item, true);
+            }
           }
         }
         clearTimeout(timer);
@@ -316,6 +356,9 @@ export async function POST(req: NextRequest) {
           totalMs: Date.now() - t0,
           firstQuestMs,
           emitted: emitted.length,
+          // stopReason === "max_tokens" + emitted < 3 == genuine truncation.
+          stopReason,
+          textLen: fullText.length,
           region,
           histogram,
         });
