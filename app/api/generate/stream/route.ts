@@ -219,6 +219,7 @@ export async function POST(req: NextRequest) {
       const seen = new Set<string>(excludeIds);
       const emitted: GeneratedQuest[] = [];
       let firstQuestMs = 0;
+      let heldCount = 0; // quests dropped for a hard safety rule
       const abort = new AbortController();
       const timer = setTimeout(() => abort.abort(), 25_000);
 
@@ -236,6 +237,7 @@ export async function POST(req: NextRequest) {
         }
         scrub([q], places); // strip leaked venue names in place (matches JSON path)
         if (findSafetyViolation(`${q.title} ${q.description}`)) {
+          heldCount++;
           console.log("[generate/stream] held unsafe quest", { title: q.title });
           return false;
         }
@@ -332,6 +334,58 @@ export async function POST(req: NextRequest) {
           }
         }
 
+        // Guarantee 3: if we're still short — because the model genuinely
+        // produced fewer (parsedLen < 3) or a quest was safety-held — fill the
+        // gap with one top-up generation, mirroring how the JSON path recovers.
+        // This fires at most once and only when needed; the first quests have
+        // already streamed, so perceived latency is unaffected. The 3rd just
+        // arrives a beat later.
+        let topupMs = 0;
+        if (emitted.length < 3) {
+          const need = 3 - emitted.length;
+          const tStart = Date.now();
+          try {
+            const topup = await client.messages.create(
+              {
+                model: "claude-haiku-4-5",
+                max_tokens: 384,
+                temperature: 0.9,
+                system: [
+                  {
+                    type: "text",
+                    text: SYSTEM_PROMPT,
+                    cache_control: { type: "ephemeral", ttl: "1h" },
+                  },
+                ],
+                messages: [
+                  {
+                    role: "user",
+                    content: `Generate exactly ${need} more side quest${need === 1 ? "" : "s"} for ${region} at spice ${spiceLevel}/10, distinct from anything typical. Return ONLY a minified JSON array of exactly ${need} object(s), keys title/description/category, each description 16 words max. No commentary.`,
+                  },
+                ],
+              },
+              { signal: abort.signal },
+            );
+            topupMs = Date.now() - tStart;
+            const tub = topup.content.find((b) => b.type === "text");
+            const tutext = tub && tub.type === "text" ? tub.text : "";
+            let tup: unknown = null;
+            try {
+              tup = extractJsonArray(tutext);
+            } catch {
+              tup = null;
+            }
+            if (Array.isArray(tup)) {
+              for (const item of tup as ClaudeQuest[]) {
+                if (emitted.length >= 3) break;
+                if (isSafe(item)) emit(item);
+              }
+            }
+          } catch (e) {
+            console.log("[generate/stream] topup failed", e);
+          }
+        }
+
         // Charge the reroll only once at least one quest actually shipped.
         let rerollsRemaining: number | null = null;
         if (meterFreeUser && emitted.length > 0) {
@@ -356,6 +410,8 @@ export async function POST(req: NextRequest) {
           // genuine truncation.
           parsedLen,
           stopReason,
+          heldCount,
+          topupMs,
           textLen: fullText.length,
           region,
           histogram,
@@ -380,6 +436,14 @@ export async function POST(req: NextRequest) {
               tier: responseTier,
               rerollsRemaining,
               count: emitted.length,
+              // Diagnostics surfaced in the stream so they're readable client-
+              // side (server logs aren't): parsedLen = objects in the complete
+              // message; heldCount = quests dropped for safety; stopReason from
+              // the model; topupMs > 0 means the fill-to-3 call fired.
+              parsedLen,
+              heldCount,
+              stopReason,
+              topupMs,
             }),
           );
         }
