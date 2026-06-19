@@ -7,6 +7,7 @@ import { GeneratedQuest } from "@/lib/generate";
 import { NearbyBucket, NearbyPlace } from "@/lib/nearby";
 import { createClient } from "@/lib/supabase/server";
 import { FREE_DAILY_REROLLS, getUtcDateKey } from "@/lib/constants";
+import { renderQualityFeedbackBlock } from "@/lib/quality-feedback";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -167,9 +168,15 @@ Return ONLY a minified JSON array of exactly 3 objects — no whitespace, no mar
 Brevity is mandatory. Do NOT emit duration, groupSize, spiceLevel, rating, or any other key — those are set server-side. Keep output as small as possible.
 `;
 
+// Owner-curated KEEP/KILL exemplars from QUALITY_FEEDBACK.md, parsed once at
+// module load. Empty string when the file is missing/empty → prompt is
+// byte-identical to before. Lives inside the cached system block so it stays on
+// the stable cache prefix (we never put it in the per-request user message).
+const QUALITY_FEEDBACK_BLOCK = renderQualityFeedbackBlock();
+
 export const SYSTEM_PROMPT = `You are running as the backend for the Unemployment app's side quest generator. The canonical skill is loaded below from .claude/skills/side-quest-generator/SKILL.md. Follow it, then apply the website-specific overrides at the bottom.
 
-${SKILL_BODY}${WEBSITE_OVERRIDES}`;
+${SKILL_BODY}${WEBSITE_OVERRIDES}${QUALITY_FEEDBACK_BLOCK}`;
 
 // ---------- Helpers ----------
 
