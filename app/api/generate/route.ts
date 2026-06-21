@@ -7,6 +7,7 @@ import { GeneratedQuest } from "@/lib/generate";
 import { NearbyBucket, NearbyPlace } from "@/lib/nearby";
 import { createClient } from "@/lib/supabase/server";
 import { FREE_DAILY_REROLLS, getUtcDateKey } from "@/lib/constants";
+import { renderQualityFeedbackBlock } from "@/lib/quality-feedback";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -161,15 +162,28 @@ That's the whole ban list. Restaurant-ordering bits, aisle sprints, cashier bits
 ## VARIETY (HARD)
 Within the batch of 3: at most 1 quest per setting (supermarket/library/restaurant/park/street/etc.), at most 1 per "trick" (sprint/identical-order/backwards-walking/etc.), each a different verb and ideally a different group dynamic (competitive/cooperative/secret/public). The venue-type hint is a SOFT nudge — do not put all 3 at the dominant type.
 
+## QUALITY (HARD — owner-set, learned from real reviews)
+1. FEASIBILITY: Every quest must be realistically doable right now with no special equipment, venue access, or expert knowledge. Reject quests that need strangers to perform effortful/odd tasks (solve handed riddles, accept an implausible premise) or that require expertise to judge (a tree's age, a precise "2-mile loop", identifying landmarks). Brief, friendly interactions with willing strangers are fine; tasks needing their sustained cooperation or belief in an absurd premise are NOT.
+2. GROUP COHESION: Prefer quests where the WHOLE group engages together over splitting into solo tasks. When strangers are involved, the crew engages them together — never one person performing while the others just watch.
+3. ANTI-REPETITION / VARIETY: The "blindfold-and-guide", "backwards-navigation", and "guide-someone-through-a-neighborhood" skeleton is badly over-used. Use it at most rarely, and never more than once in a batch or across adjacent generations. Vary the structural skeleton itself, not just the wording.
+4. NO FILLER: No empty hype taglines ("Chaos guaranteed") and no movie-narration phrasing ("the crew narrates…"). Write plain, real-world instructions.
+5. MINIMAL SAFETY TEXT: A single app-wide disclaimer covers safety. Do not pad quests with safety caveats — at most one short note, and only when genuinely needed.
+
 ## OUTPUT FORMAT (overrides the skill's prose format)
 Return ONLY a minified JSON array of exactly 3 objects — no whitespace, no markdown, no commentary. Each object has EXACTLY these 3 keys and nothing else:
 {"title":"5-8 word punchy title","description":"1-2 short sentences, 16 words MAX, concrete + Gen Z + action-forward, no 'don't do X', no writing tasks","category":"Outdoor|Food|Social|Challenge|Culture|Nightlife|Creative|Indoor"}
 Brevity is mandatory. Do NOT emit duration, groupSize, spiceLevel, rating, or any other key — those are set server-side. Keep output as small as possible.
 `;
 
+// Owner-curated KEEP/KILL exemplars from QUALITY_FEEDBACK.md, parsed once at
+// module load. Empty string when the file is missing/empty → prompt is
+// byte-identical to before. Lives inside the cached system block so it stays on
+// the stable cache prefix (we never put it in the per-request user message).
+const QUALITY_FEEDBACK_BLOCK = renderQualityFeedbackBlock();
+
 export const SYSTEM_PROMPT = `You are running as the backend for the Unemployment app's side quest generator. The canonical skill is loaded below from .claude/skills/side-quest-generator/SKILL.md. Follow it, then apply the website-specific overrides at the bottom.
 
-${SKILL_BODY}${WEBSITE_OVERRIDES}`;
+${SKILL_BODY}${WEBSITE_OVERRIDES}${QUALITY_FEEDBACK_BLOCK}`;
 
 // ---------- Helpers ----------
 
@@ -595,9 +609,9 @@ const FEW_SHOT_GOLD: { tier: 1 | 2 | 3; examples: FewShotExample[] }[] = [
         spice: 8,
       },
       {
-        title: "Home Depot Fake Emergency",
+        title: "Hardware Store Absurd Project Pitch",
         description:
-          "Generate an absurd fake home-emergency photo, show an employee, ask serious repair advice. Don't break character.",
+          "Whole crew asks one employee, dead serious, for everything needed to build something gloriously over-the-top — a backyard moat, a snack pulley.",
         spice: 8,
       },
     ],

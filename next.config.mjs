@@ -1,11 +1,19 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Ensure the canonical skill file is bundled into the serverless function
-  // for /api/generate. We read it via fs.readFileSync at module load and need
-  // Next's file tracing to pick it up.
+  // Bundle the files read via fs.readFileSync at module load into the
+  // serverless functions for the generate routes. Both the canonical skill and
+  // the owner quality-feedback doc are needed; the stream route imports the
+  // same module as /api/generate, so it needs them traced too.
   experimental: {
     outputFileTracingIncludes: {
-      "/api/generate": [".claude/skills/side-quest-generator/SKILL.md"],
+      "/api/generate": [
+        ".claude/skills/side-quest-generator/SKILL.md",
+        "QUALITY_FEEDBACK.md",
+      ],
+      "/api/generate/stream": [
+        ".claude/skills/side-quest-generator/SKILL.md",
+        "QUALITY_FEEDBACK.md",
+      ],
     },
   },
 };
