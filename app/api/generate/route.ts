@@ -7,7 +7,6 @@ import { GeneratedQuest } from "@/lib/generate";
 import { NearbyBucket, NearbyPlace } from "@/lib/nearby";
 import { createClient } from "@/lib/supabase/server";
 import { FREE_DAILY_REROLLS, getUtcDateKey } from "@/lib/constants";
-import { renderQualityFeedbackBlock } from "@/lib/quality-feedback";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
