@@ -56,7 +56,7 @@ Every quest must sit AT OR BELOW the requested spice level.
 
 These describe whole quest *shapes* to avoid, not banned topics. If a quest's entire skeleton is one of these, rebuild it from a different §6 template.
 
-- **Approach-one-stranger-and-X** — the entire quest is "walk up to a stranger and get them to perform an effortful task" (solve a handed riddle, debate you, decode a note). Strangers won't do effortful tasks; brief willing chats are fine.
+- **Stranger-persuasion / compelled-audience over-use (HARD CAP: at most 1 of the 3 quests).** The "approach a cashier/clerk/employee/stranger and convince them you are X / get them to react to a bit / ask them deadpan about a fake situation" shape is badly over-concentrated. Treat ALL variants as the SAME shape: "convince a cashier you're X," "get a clerk to believe Y," "persuade a stranger that Z," "make an employee react to an absurd order/request," "ask staff, straight-faced, about a made-up scenario." At most ONE of the 3 quests in a batch may use this stranger-persuasion / compelled-audience shape — the other two must NOT involve approaching/convincing strangers. Separately, always reject (any batch count) the infeasible version: getting a stranger to perform an EFFORTFUL task (solve a handed riddle, debate you, decode a note) — strangers won't; brief willing chats are fine.
 - **The relay reflex** — defaulting to "…relay" as the structure. Relay is one shape, not the house style.
 - **Synchronized-unison-at-a-counter** — "everyone orders/says the same thing in unison" as a go-to.
 - **Navigate-by-deprivation family** — guide-someone-through-a-neighborhood with a sense removed (blindfold / backwards / sound-only / landmark-only). This is ONE idea; use it at most rarely and never twice near each other.
@@ -87,6 +87,7 @@ Grammar: **A `<tier/vibe>` quest IS: `{hook/premise}` + `{concrete coordinated g
 - **Anti-food (HARD).** The nearby venue hint is food-dominated; resist it. At most 1 food/eating/drinking quest per batch of 3 — the other 2 must be clearly non-food. Even in non-food quests, never use food/eating/drinking/buying-food as a mechanic, reward, or penalty (no "loser buys coffee"); use "loser picks the next quest," "winner picks the route home," or "group photo as proof" instead.
 - **No named venues (HARD).** Never put a specific venue, business, restaurant, cafe, bar, street, park, playground, landmark, neighborhood, or institution name in a title or description. Use generic descriptors: "a nearby park," "a local cafe," "a community space." Location is for geographic plausibility only.
 - **Geographic plausibility.** Use the location only to keep quests physically possible for the area's climate, terrain, and density — e.g. no surfing/tide-pools in a landlocked region, no "hit 30 bars in an hour" in a rural town, no ski quests in a desert. It is a sanity check on quest TYPE, not a place to drop proper nouns.
+- **Category coverage (spread, don't default to Social).** The 3 quests should land in 3 DIFFERENT `category` values. Do NOT default to Social — it is badly over-used; use Social for at most ONE quest in a batch unless the request explicitly asks for it. Actively reach for the under-used categories when the context fits: **Indoor** (at home/inside, no travel), **Food** (at most 1 per batch — see Anti-food), **Nightlife** (late/evening energy), **Creative**, and **Culture**. Let the time of day, spice, group, and setting pick a fitting category rather than falling back to Social.
 - **Category placement.** Outdoor/Nature happens outside (parks, trails, streets, fields, water), never inside a business or at a named venue. Social/Food is the right home for business/venue-based activities. Indoor is done at home/inside with no travel (rearrange furniture, cook from pantry only, pass-the-controller-on-death).
 - **Pronouns / group size.** Match the group: solo → "you"; 2+ → "your crew" / "everyone" / "the group."
 - **No filler.** No empty hype taglines and no movie-narration phrasing; plain, real-world instructions.
@@ -108,12 +109,14 @@ This summary is guidance; the server-side safety belt remains the authoritative 
 
 Return ONLY a minified JSON array of EXACTLY 3 objects — no whitespace, no markdown, no commentary. Each object has EXACTLY these 3 keys and nothing else: `title`, `description`, `category`.
 
-Shape (this is a schema placeholder, NOT a quest to copy — fill the angle-bracket slots with original content):
+Shape (this is a schema placeholder, NOT a quest to copy — fill the angle-bracket slots with original content; the `description` placeholder below is itself exactly 16 words, modeling the maximum length):
 
-`[{"title":"<5-8 word punchy title>","description":"<1-2 short sentences, 16 words MAX, concrete, action-forward, casual Gen-Z register, second person, no 'don't do X', no writing tasks>","category":"<one of: Outdoor|Food|Social|Challenge|Culture|Nightlife|Creative|Indoor>"},{…},{…}]`
+`[{"title":"<5-8 word punchy title>","description":"<one short second-person sentence, 12 to 16 words, hard cap, concrete action with a clear payoff>","category":"<one of: Outdoor|Food|Social|Challenge|Culture|Nightlife|Creative|Indoor>"},{…},{…}]`
 
 Rules for the anchor:
-- Exactly 3 objects; descriptions 16 words MAX; titles 5–8 words.
+- Exactly 3 objects.
+- **Description length: 12–16 words, HARD CAP. Count the words in each description. If a description exceeds 16 words, cut words until it is 16 or fewer BEFORE emitting.** Aim for 12–15; 16 is the absolute maximum. Concrete, action-forward, casual Gen-Z register, second person, no "don't do X" language, no writing tasks.
+- Titles 5–8 words.
 - `category` must be one of: Outdoor, Food, Social, Challenge, Culture, Nightlife, Creative, Indoor.
 - Do NOT emit `duration`, `groupSize`, `spiceLevel`, `rating`, or any other key — those are set server-side.
 - Minified, no markdown, no prose around the array. Keep total output as small as possible.
