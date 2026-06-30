@@ -7,7 +7,6 @@ import { GeneratedQuest } from "@/lib/generate";
 import { NearbyBucket, NearbyPlace } from "@/lib/nearby";
 import { createClient } from "@/lib/supabase/server";
 import { FREE_DAILY_REROLLS, getUtcDateKey } from "@/lib/constants";
-import { renderQualityFeedbackBlock } from "@/lib/quality-feedback";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -124,66 +123,12 @@ function loadSkillBody(): string {
 
 const SKILL_BODY = loadSkillBody();
 
-// Kept deliberately compact: this is the cached prefix, so a smaller prompt
-// makes even a cache MISS cheap to process. All HARD behavioral + safety rules
-// are preserved; only redundant prose, repeated self-checks, and now-obsolete
-// output-field rules (group/time ranges are filled server-side) were cut.
-const WEBSITE_OVERRIDES = `
-
----
-
-# WEBSITE OVERRIDES (HARD — take precedence over the skill's output format and any conflicting guidance)
-
-## FOOD BIAS (HARD)
-The nearby venue hint is food-dominated; resist it. Max 1 food/eating/drinking quest per batch of 3 — the other 2 must be clearly non-food. Even in non-food quests, never use food/eating/drinking/buying-food as a mechanic, reward, or penalty (no "loser buys coffee"); use "loser picks the next quest", "winner picks the route home", or "group photo as proof" instead.
-
-## NO NAMED VENUES (HARD)
-Never put a specific venue, business, restaurant, cafe, bar, street, park, playground, landmark, neighborhood, or institution name in a title or description. Use generic descriptors: "a nearby park", "a local cafe", "a community space". Location is for geographic plausibility only.
-
-## SPICE CEILING (HARD)
-Every quest must sit AT OR BELOW the requested spice level. It is a ceiling, not a target.
-
-## PRONOUNS
-Match group size: solo → "you"; 2+ → "your crew" / "everyone" / "the group".
-
-## CATEGORY RULES
-- Outdoor/Nature: the activity happens outside (parks, trails, streets, fields, water), never inside a business or at a named venue.
-- Social/Food: the right home for business/venue-based activities.
-- Indoor: done at home/inside, no travel (rearrange furniture and eat there, cook from pantry only, pass-the-controller-on-death).
-
-## SAFETY — HARD BANS (self-check before output)
-Default vibe is mild chaos ("could get asked to leave the store" is fine). Ban ONLY these real-harm cases:
-1. No library disruption (tag, racing, shouting, "whisper tournaments", scavenger sprints, "stay till staff notices"). Quiet reading/browsing/finding a book is fine.
-2. No cart racing with a rider, or cart racing in a crowded area. An empty cart in an empty lot/aisle is fine.
-3. Filming/recording strangers: only with their explicit consent, and say so in the quest when strangers are involved. Filming yourselves or consenting strangers is fine.
-4. No risky-environment exploration (caves without gear, spelunking, free/mountain/cliff climbing, unmarked trails at night). Normal outdoor activity is fine.
-That's the whole ban list. Restaurant-ordering bits, aisle sprints, cashier bits, drive-thru games, parking-lot bits, before-dark navigation — all allowed. The bar is real long-term damage, not "an employee might be annoyed".
-
-## VARIETY (HARD)
-Within the batch of 3: at most 1 quest per setting (supermarket/library/restaurant/park/street/etc.), at most 1 per "trick" (sprint/identical-order/backwards-walking/etc.), each a different verb and ideally a different group dynamic (competitive/cooperative/secret/public). The venue-type hint is a SOFT nudge — do not put all 3 at the dominant type.
-
-## QUALITY (HARD — owner-set, learned from real reviews)
-1. FEASIBILITY: Every quest must be realistically doable right now with no special equipment, venue access, or expert knowledge. Reject quests that need strangers to perform effortful/odd tasks (solve handed riddles, accept an implausible premise) or that require expertise to judge (a tree's age, a precise "2-mile loop", identifying landmarks). Brief, friendly interactions with willing strangers are fine; tasks needing their sustained cooperation or belief in an absurd premise are NOT.
-2. GROUP COHESION: Prefer quests where the WHOLE group engages together over splitting into solo tasks. When strangers are involved, the crew engages them together — never one person performing while the others just watch.
-3. ANTI-REPETITION / VARIETY: The "blindfold-and-guide", "backwards-navigation", and "guide-someone-through-a-neighborhood" skeleton is badly over-used. Use it at most rarely, and never more than once in a batch or across adjacent generations. Vary the structural skeleton itself, not just the wording.
-4. NO FILLER: No empty hype taglines ("Chaos guaranteed") and no movie-narration phrasing ("the crew narrates…"). Write plain, real-world instructions.
-5. MINIMAL SAFETY TEXT: A single app-wide disclaimer covers safety. Do not pad quests with safety caveats — at most one short note, and only when genuinely needed.
-
-## OUTPUT FORMAT (overrides the skill's prose format)
-Return ONLY a minified JSON array of exactly 3 objects — no whitespace, no markdown, no commentary. Each object has EXACTLY these 3 keys and nothing else:
-{"title":"5-8 word punchy title","description":"1-2 short sentences, 16 words MAX, concrete + Gen Z + action-forward, no 'don't do X', no writing tasks","category":"Outdoor|Food|Social|Challenge|Culture|Nightlife|Creative|Indoor"}
-Brevity is mandatory. Do NOT emit duration, groupSize, spiceLevel, rating, or any other key — those are set server-side. Keep output as small as possible.
-`;
-
-// Owner-curated KEEP/KILL exemplars from QUALITY_FEEDBACK.md, parsed once at
-// module load. Empty string when the file is missing/empty → prompt is
-// byte-identical to before. Lives inside the cached system block so it stays on
-// the stable cache prefix (we never put it in the per-request user message).
-const QUALITY_FEEDBACK_BLOCK = renderQualityFeedbackBlock();
-
-export const SYSTEM_PROMPT = `You are running as the backend for the Unemployment app's side quest generator. The canonical skill is loaded below from .claude/skills/side-quest-generator/SKILL.md. Follow it, then apply the website-specific overrides at the bottom.
-
-${SKILL_BODY}${WEBSITE_OVERRIDES}${QUALITY_FEEDBACK_BLOCK}`;
+// The consolidated constitution (SKILL.md, loaded above) is now the entire
+// system prompt — it absorbed the former WEBSITE_OVERRIDES, the QUALITY (HARD)
+// principles, the structural templates, the anti-structures, and the single
+// format anchor. No website-overrides block and no owner-feedback example
+// injection: all teaching lives in one cached doc.
+export const SYSTEM_PROMPT = `${SKILL_BODY}`;
 
 // ---------- Helpers ----------
 
@@ -551,105 +496,6 @@ function renderDiversitySeed(seed: DiversitySeed): string {
 - group dynamic hint: ${seed.group_dynamic}`;
 }
 
-// ---------- Few-shot gold examples ----------
-//
-// Hand-picked exemplars of the SKILL.md philosophy, two per spiciness tier.
-// We grouped by tiers 1–3 / 4–6 / 7–10 so picker tiers cleanly match the
-// user's spice slider. These are intentionally inline (not pulled from any
-// template library) so the prompt is grounded in known-good shapes.
-
-type FewShotExample = {
-  title: string;
-  description: string;
-  spice: number;
-};
-
-const FEW_SHOT_GOLD: { tier: 1 | 2 | 3; examples: FewShotExample[] }[] = [
-  {
-    tier: 1,
-    examples: [
-      {
-        title: "Highest Point Before Sunrise",
-        description:
-          "Race in pairs, no GPS, to the highest nearby spot before sunrise. Watch it together.",
-        spice: 2,
-      },
-      {
-        title: "24-Hour Diner at 1am",
-        description:
-          "Hit a 24-hour diner at 1am. Order only coffee and something new. Stay till breakfast.",
-        spice: 2,
-      },
-    ],
-  },
-  {
-    tier: 2,
-    examples: [
-      {
-        title: "Bowling Loser Cooks",
-        description:
-          "One game, one rule: lowest score cooks the whole crew breakfast tomorrow. No handicaps.",
-        spice: 5,
-      },
-      {
-        title: "IKEA Fake Couples",
-        description:
-          "Pair off as couples furnishing your first home. Ask three employees which sectional says 'young love.'",
-        spice: 5,
-      },
-    ],
-  },
-  {
-    tier: 3,
-    examples: [
-      {
-        title: "Walmart Pickle Oil",
-        description:
-          "Whole crew enters Walmart, buys exactly three pickles and one baby oil — nothing else. All at the register.",
-        spice: 8,
-      },
-      {
-        title: "Hardware Store Absurd Project Pitch",
-        description:
-          "Whole crew asks one employee, dead serious, for everything needed to build something gloriously over-the-top — a backyard moat, a snack pulley.",
-        spice: 8,
-      },
-    ],
-  },
-];
-
-function fewShotTier(spice: number): 1 | 2 | 3 {
-  if (spice <= 3) return 1;
-  if (spice <= 6) return 2;
-  return 3;
-}
-
-function pickFewShot(userSpice: number): FewShotExample[] {
-  const t = fewShotTier(userSpice);
-  const entry = FEW_SHOT_GOLD.find((g) => g.tier === t);
-  return entry ? entry.examples.slice() : [];
-}
-
-// Negative examples teach the model the shape of generic, off-brand quests
-// it should NOT emit. Injected after the gold few-shot so the model has the
-// good→bad ordering fresh in context.
-const NEGATIVE_EXAMPLES = `
-
-AVOID quests like these — they are generic, boring, or off-brand:
-- "Draw chalk art on the sidewalk" — solitary, no stakes, no group dynamic
-- "Go to a coffee shop and try something new" — food bias, zero adventure
-- "Walk in the park and count birds" — no social element, no story
-- "Visit a museum and pick a favorite exhibit" — tourist activity, not a side quest
-- "Try a new restaurant downtown" — food again, no creativity required`;
-
-function renderFewShot(examples: FewShotExample[]): string {
-  if (examples.length === 0) return "";
-  const lines = examples
-    .map((q, i) => `${i + 1}. ${q.title} — ${q.description}`)
-    .join("\n");
-  return `\n\nExamples of the quality and STYLE we want (do NOT copy verbatim, match the shape and energy):\n${lines}\n\nNotice these examples are intrinsically fun without naming specific real venues. They use generic anchors like "a 24-hour diner" not "Joe's Diner." Match this style.`;
-}
-
 // ---------- Food-bias post-check ----------
 //
 // Stricter keyword-based food detector that runs as a final pass after the
@@ -994,12 +840,14 @@ export function buildUserMessage(p: {
     ? " Constraint: free or very low cost only — each quest must cost under $5 per person, ideally $0. No paid venues, ticketed events, or quests that require any meaningful purchase."
     : "";
   const histogram = buildHistogram(p.typeCounts);
-  const fewShotStr = renderFewShot(pickFewShot(p.spiceLevel));
   const diversityStr = renderDiversitySeed(pickDiversitySeed(p.previousTitles));
 
-  const userMessage = `${categoryPrefix}Generate exactly 3 side quests. Light context: the user is in ${p.region} (atmosphere only — NOT a venue list to draw from).
+  // Request-context only — all teaching (principles, tiers, templates,
+  // anti-structures, format anchor) now lives in the cached constitution
+  // (SYSTEM_PROMPT). No few-shot/negative examples here.
+  const userMessage = `${categoryPrefix}Construct exactly 3 side quests per the constitution in the system prompt. Light context: the user is in ${p.region} (atmosphere only — NOT a venue list to draw from).
 
-GEOGRAPHIC PLAUSIBILITY: Use "${p.region}" only to keep quests physically possible for the area's climate, terrain, and density — e.g. no surfing/tide-pools in a landlocked region, no "hit 30 bars in an hour" in a rural town, no ski quests in a desert. Do NOT name any specific venue, street, or landmark; this is a sanity check on quest TYPE, not a place to drop proper nouns.${fewShotStr}${NEGATIVE_EXAMPLES}
+GEOGRAPHIC PLAUSIBILITY: Use "${p.region}" only to keep quests physically possible for the area's climate, terrain, and density — e.g. no surfing/tide-pools in a landlocked region, no "hit 30 bars in an hour" in a rural town, no ski quests in a desert. Do NOT name any specific venue, street, or landmark; this is a sanity check on quest TYPE, not a place to drop proper nouns.
 
 Venue TYPES available nearby (soft hint only — do NOT make all 3 quests at the dominant type): ${histogram}
 
@@ -1007,9 +855,7 @@ For example, if they have parks, your quest can say "a nearby park" — do NOT n
 
 Inputs: spice level ${p.spiceLevel}/10, group size ${groupSizeHint}, time available ${p.timeAvailable} minutes.${driveStr}${costStr}${previousStr}
 
-HARD CONSTRAINT: Generate at most 1 food-related quest (category Food, or activities centered on eating/drinking at a venue). If nearby venues are food-heavy, still find non-food angles.
-
-Return ONLY a minified JSON array of EXACTLY 3 objects in the slim OUTPUT FORMAT from the system prompt — keys title/description/category only, each description 16 words MAX. No markdown, no whitespace, no commentary.`;
+Build each quest from a DIFFERENT §6 structural template (different setting and verb), score against the §4 rubric, and reject any §5 anti-structure. Output EXACTLY per the §9 FORMAT ANCHOR: a minified JSON array of 3 objects, keys title/description/category only, each description 16 words MAX. No markdown, no commentary.`;
 
   return { userMessage, histogram };
 }

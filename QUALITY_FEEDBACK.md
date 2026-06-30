@@ -1,14 +1,17 @@
 <!--
-QUALITY_FEEDBACK.md — owner-curated side-quest quality feedback.
+QUALITY_FEEDBACK.md — MANUAL SCRATCHPAD. NOT loaded at runtime.
 
-WHAT THIS DOES
-The /api/generate (and /api/generate/stream) prompt reads this file once at
-server start and folds it into the CACHED system prompt:
-  • KEEP entries  -> GOOD few-shot exemplars the model should imitate.
-  • KILL entries  -> tagged NEGATIVE examples the model must avoid.
-Edit this file, redeploy (or restart the dev server), done. It does not change
-the model, the safety pipeline, or the API contracts — it is additive prompt
-content only. An EMPTY file = today's behavior (no change).
+As of the constitution consolidation (v5), this file is NO LONGER read by the
+generator — the auto-injection was retired to kill copy-bias. It now serves as
+a human scratchpad: collect KEEP/KILL observations here, then periodically
+HAND-DISTILL them into the constitution at
+.claude/skills/side-quest-generator/SKILL.md — good shapes into §6 (structural
+templates), bad shapes into §5 (abstract anti-structures). Do NOT paste
+copyable example quests into SKILL.md; express them as abstract structure.
+
+(Historical note: this file used to be parsed by lib/quality-feedback.ts and
+folded into the cached system prompt as GOOD/BAD examples. That path was
+removed; the entries below are reference material only.)
 
 FORMAT
 Two sections, "## KEEP" and "## KILL". Each entry is a "- Title:" block with
