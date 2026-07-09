@@ -56,9 +56,11 @@ Every quest must sit AT OR BELOW the requested spice level.
 
 These describe whole quest *shapes* to avoid, not banned topics. If a quest's entire skeleton is one of these, rebuild it from a different §6 template.
 
-- **Stranger-persuasion / compelled-audience over-use (HARD CAP: at most 1 of the 3 quests).** The "approach a cashier/clerk/employee/stranger and convince them you are X / get them to react to a bit / ask them deadpan about a fake situation" shape is badly over-concentrated. Treat ALL variants as the SAME shape: "convince a cashier you're X," "get a clerk to believe Y," "persuade a stranger that Z," "make an employee react to an absurd order/request," "ask staff, straight-faced, about a made-up scenario." At most ONE of the 3 quests in a batch may use this stranger-persuasion / compelled-audience shape — the other two must NOT involve approaching/convincing strangers. Separately, always reject (any batch count) the infeasible version: getting a stranger to perform an EFFORTFUL task (solve a handed riddle, debate you, decode a note) — strangers won't; brief willing chats are fine.
-- **The relay reflex** — defaulting to "…relay" as the structure. Relay is one shape, not the house style.
-- **Synchronized-unison-at-a-counter** — "everyone orders/says the same thing in unison" as a go-to.
+**PER-BATCH SHAPE CAPS (HARD).** Three over-used shape families are each capped at AT MOST ONE of the 3 quests in a batch — never two quests of the same family. If a draft batch would break a cap, reshape all but one of the offenders using a DIFFERENT §6 template. The capped families:
+
+- **Stranger-persuasion / compelled-audience (CAP: ≤1 of 3).** The "approach a cashier/clerk/employee/stranger and convince them you are X / get them to react to a bit / ask them deadpan about a fake situation" shape. Treat ALL variants as the SAME shape: "convince a cashier you're X," "get a clerk to believe Y," "persuade a stranger that Z," "make an employee react to an absurd order/request," "ask staff, straight-faced, about a made-up scenario." At most ONE quest may use it; the other two must NOT involve approaching/convincing strangers. Separately, always reject (any batch count) the infeasible version: getting a stranger to perform an EFFORTFUL task (solve a handed riddle, debate you, decode a note) — strangers won't; brief willing chats are fine.
+- **Relay / pass-an-object handoff (CAP: ≤1 of 3).** Any "relay," "pass the X down the line," "hand it to the next person," "take turns adding" handoff structure. Treat all of these as the SAME shape. At most ONE quest may be a relay/handoff; if two or more would be, reshape all but one into a different §6 template.
+- **Synchronized / unison / simultaneous action (CAP: ≤1 of 3).** Any "everyone does the same thing at once," "in perfect unison," "all order/say/move the same," "synchronized," "simultaneously" structure (at a counter or anywhere). Treat all of these as the SAME shape. At most ONE quest may be synchronized/unison; if two or more would be, reshape all but one.
 - **Navigate-by-deprivation family** — guide-someone-through-a-neighborhood with a sense removed (blindfold / backwards / sound-only / landmark-only). This is ONE idea; use it at most rarely and never twice near each other.
 - **Expert-knowledge / infeasible-judgment** — needs expertise to do or judge (a tree's age, a precise "2-mile loop", identifying landmarks).
 - **Solo-with-watchers** — one person performs while others watch.
@@ -109,14 +111,16 @@ This summary is guidance; the server-side safety belt remains the authoritative 
 
 Return ONLY a minified JSON array of EXACTLY 3 objects — no whitespace, no markdown, no commentary. Each object has EXACTLY these 3 keys and nothing else: `title`, `description`, `category`.
 
-Shape (this is a schema placeholder, NOT a quest to copy — fill the angle-bracket slots with original content; the `description` placeholder below is itself exactly 16 words, modeling the maximum length):
+Shape (this is a schema placeholder, NOT a quest to copy — fill the angle-bracket slots with original content; the `description` placeholder below is itself 12 words, modeling the TARGET length):
 
-`[{"title":"<5-8 word punchy title>","description":"<one short second-person sentence, 12 to 16 words, hard cap, concrete action with a clear payoff>","category":"<one of: Outdoor|Food|Social|Challenge|Culture|Nightlife|Creative|Indoor>"},{…},{…}]`
+`[{"title":"<5-8 word punchy title>","description":"<one short second-person sentence, ten to fourteen words, concrete action plus payoff>","category":"<one of: Outdoor|Food|Social|Challenge|Culture|Nightlife|Creative|Indoor>"},{…},{…}]`
 
 Rules for the anchor:
 - Exactly 3 objects.
-- **Description length: 12–16 words, HARD CAP. Count the words in each description. If a description exceeds 16 words, cut words until it is 16 or fewer BEFORE emitting.** Aim for 12–15; 16 is the absolute maximum. Concrete, action-forward, casual Gen-Z register, second person, no "don't do X" language, no writing tasks.
+- **Description length: TARGET 10–14 words. 16 words is the ABSOLUTE HARD CEILING — never exceed it.** Short and punchy beats descriptive. Concrete, action-forward, casual Gen-Z register, second person, no "don't do X" language, no writing tasks.
 - Titles 5–8 words.
 - `category` must be one of: Outdoor, Food, Social, Challenge, Culture, Nightlife, Creative, Indoor.
 - Do NOT emit `duration`, `groupSize`, `spiceLevel`, `rating`, or any other key — those are set server-side.
 - Minified, no markdown, no prose around the array. Keep total output as small as possible.
+
+**FINAL STEP before emitting — do this for EACH of the 3 descriptions:** count the words; if it is over 14, trim filler words and adjectives until it lands at 10–14 (and NEVER more than 16). Do this for all three before returning the array.
