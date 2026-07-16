@@ -14,6 +14,9 @@ import {
   isUiCategory,
   clamp,
   extractJsonArray,
+  sanitizeCostPref,
+  sanitizeVibes,
+  sanitizeLocalTime,
   type GenerateBody,
   type ClaudeQuest,
   type GroupSizeBand,
@@ -175,7 +178,9 @@ export async function POST(req: NextRequest) {
   const requestedCategory =
     categoryRaw && categoryRaw.toLowerCase() !== "all" ? categoryRaw : null;
   const canDrive = body.canDrive !== false;
-  const lowCostOnly = body.lowCostOnly === true;
+  const costPref = sanitizeCostPref(body.costPref, body.lowCostOnly === true);
+  const vibes = sanitizeVibes(body.vibeCategories);
+  const localTime = sanitizeLocalTime(body.localHour, body.localWeekday);
 
   const { userMessage, histogram } = buildUserMessage({
     region,
@@ -184,7 +189,9 @@ export async function POST(req: NextRequest) {
     timeAvailable,
     requestedCategory,
     canDrive,
-    lowCostOnly,
+    costPref,
+    vibes,
+    localTime,
     typeCounts,
     previousTitles,
   });

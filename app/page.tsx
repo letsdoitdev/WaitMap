@@ -638,8 +638,65 @@ export default function Home() {
     }
   }
 
-  // Returns the generated quests, `null` to signal the local fallback should
-  // run, or "reroll_limit" when the server enforced the free-tier cap (402).
+  // One request body for both the streaming and JSON endpoints so the two
+  // calls can never drift. Threads through the personal signals the server
+  // renders since M13: onboarding vibes, the 3-value cost preference, and
+  // the user's local time (for temporal plausibility).
+  const WEEKDAY_NAMES = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
+  function buildGenerateBody(
+    region: string | null,
+    places: NearbyPlace[],
+    typeCounts: Record<string, number>,
+    excludeIds: string[],
+    previousTitles: string[],
+    category: QuestCategory | null,
+  ) {
+    const groupBand: "solo" | "2" | "group" =
+      groupSize === 1 ? "solo" : groupSize === 2 ? "2" : "group";
+    // Effective cost preference: the home toggle is the live override — ON
+    // always means free-only. When OFF, fall back to the onboarding answer,
+    // except an onboarding "free" with the toggle OFF means the user
+    // deliberately relaxed it, so send "any".
+    const costPref = lowCostOnly
+      ? "free"
+      : onboardingAnswers.costPref === "free"
+        ? "any"
+        : onboardingAnswers.costPref;
+    const now = new Date();
+    return {
+      location: city,
+      region: region ?? city,
+      nearbyPlaces: places
+        .map((p) => ({ name: p.name, type: p.type, bucket: p.bucket }))
+        .slice(0, 20),
+      typeCounts,
+      spiceLevel: spice,
+      groupSize: groupBand,
+      timeAvailable: timeMinutes,
+      excludeIds,
+      previousTitles,
+      category,
+      canDrive,
+      // Kept alongside costPref so a not-yet-redeployed server still gets
+      // the boolean it understands.
+      lowCostOnly,
+      vibeCategories: onboardingAnswers.vibeCategories,
+      costPref,
+      localHour: now.getHours(),
+      localWeekday: WEEKDAY_NAMES[now.getDay()],
+    };
+  }
+
+  // Returns the generated quests, `null` to signal the caller should surface
+  // an error state, or "reroll_limit" when the server enforced the cap (402).
   async function fetchAiQuests(
     region: string | null,
     places: NearbyPlace[],
@@ -648,28 +705,20 @@ export default function Home() {
     previousTitles: string[],
     category: QuestCategory | null,
   ): Promise<GeneratedQuest[] | null | "reroll_limit"> {
-    const groupBand: "solo" | "2" | "group" =
-      groupSize === 1 ? "solo" : groupSize === 2 ? "2" : "group";
     try {
       const r = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          location: city,
-          region: region ?? city,
-          nearbyPlaces: places
-            .map((p) => ({ name: p.name, type: p.type, bucket: p.bucket }))
-            .slice(0, 20),
-          typeCounts,
-          spiceLevel: spice,
-          groupSize: groupBand,
-          timeAvailable: timeMinutes,
-          excludeIds,
-          previousTitles,
-          category,
-          canDrive,
-          lowCostOnly,
-        }),
+        body: JSON.stringify(
+          buildGenerateBody(
+            region,
+            places,
+            typeCounts,
+            excludeIds,
+            previousTitles,
+            category,
+          ),
+        ),
       });
       // 402 = reroll cap hit (blocking). Distinct from 5xx/network below: the
       // cap must NOT fall through to the local generator — that would leak
@@ -712,28 +761,20 @@ export default function Home() {
     category: QuestCategory | null,
     onQuest: (q: GeneratedQuest) => void,
   ): Promise<GeneratedQuest[] | null | "reroll_limit"> {
-    const groupBand: "solo" | "2" | "group" =
-      groupSize === 1 ? "solo" : groupSize === 2 ? "2" : "group";
     try {
       const r = await fetch("/api/generate/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          location: city,
-          region: region ?? city,
-          nearbyPlaces: places
-            .map((p) => ({ name: p.name, type: p.type, bucket: p.bucket }))
-            .slice(0, 20),
-          typeCounts,
-          spiceLevel: spice,
-          groupSize: groupBand,
-          timeAvailable: timeMinutes,
-          excludeIds,
-          previousTitles,
-          category,
-          canDrive,
-          lowCostOnly,
-        }),
+        body: JSON.stringify(
+          buildGenerateBody(
+            region,
+            places,
+            typeCounts,
+            excludeIds,
+            previousTitles,
+            category,
+          ),
+        ),
       });
       if (r.status === 402) {
         const data = (await r.json().catch(() => null)) as {

@@ -36,7 +36,16 @@ export type GenerateBody = {
   category?: string | null;
   canDrive?: boolean;
   lowCostOnly?: boolean;
+  /** Onboarding vibe answer (UI category names). Soft taste bias only. */
+  vibeCategories?: string[];
+  /** 3-value cost preference. Supersedes lowCostOnly when present. */
+  costPref?: CostPref;
+  /** User's local hour (0-23) + weekday, for temporal plausibility. */
+  localHour?: number;
+  localWeekday?: string;
 };
+
+export type CostPref = "free" | "cheap" | "any";
 
 // Slim schema as returned by the model. To keep output tokens (the dominant
 // latency term for a single Haiku call) minimal, the model now returns only
@@ -95,6 +104,78 @@ export function isUiCategory(s: string): s is QuestCategory {
 }
 function isV4Category(s: string): boolean {
   return (V4_CATEGORIES as readonly string[]).includes(s);
+}
+
+// ---------- Personal-signal sanitizers (M13 quest quality) ----------
+//
+// Onboarding collects vibes / cost pref / local time but the prompt never saw
+// them. All three are client-controlled, so each is validated against a
+// whitelist (vibes, weekday) or a closed enum/range (costPref, hour) before it
+// can reach the prompt — nothing here interpolates free-form client text.
+
+// The 7 vibe options StepVibe offers, mapped to phrasing in the model's own
+// §9 category vocabulary (Chaos→Challenge, Late Night→Nightlife; Chill has no
+// V4 category so it's described as the tier-1/2 calm end of the spectrum).
+const VIBE_MODEL_HINT: Record<string, string> = {
+  Chaos: "high-energy group chaos (Challenge)",
+  Outdoor: "outdoor adventures (Outdoor)",
+  Social: "social bits involving strangers (Social)",
+  Creative: "making things together (Creative)",
+  Food: "food-centered outings (Food)",
+  "Late Night": "late-night energy (Nightlife)",
+  Chill: "calm, wholesome hangs (the chill tier-1 end)",
+};
+
+export function sanitizeVibes(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  for (const item of v) {
+    if (typeof item === "string" && item in VIBE_MODEL_HINT && !out.includes(item)) {
+      out.push(item);
+    }
+  }
+  return out;
+}
+
+export function sanitizeCostPref(
+  costPref: unknown,
+  lowCostOnly: boolean,
+): CostPref | null {
+  if (costPref === "free" || costPref === "cheap" || costPref === "any") {
+    return costPref;
+  }
+  // Back-compat: older clients only send the boolean.
+  return lowCostOnly ? "free" : null;
+}
+
+const WEEKDAYS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+] as const;
+
+export type LocalTime = { hour: number; weekday: string };
+
+export function sanitizeLocalTime(
+  hour: unknown,
+  weekday: unknown,
+): LocalTime | null {
+  const h = Number(hour);
+  if (!Number.isInteger(h) || h < 0 || h > 23) return null;
+  const wd = (WEEKDAYS as readonly string[]).includes(weekday as string)
+    ? (weekday as string)
+    : null;
+  if (!wd) return null;
+  return { hour: h, weekday: wd };
+}
+
+function formatHour12(hour: number): string {
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h12}${hour < 12 ? "am" : "pm"}`;
 }
 
 // ---------- Load skill body at module load ----------
@@ -819,7 +900,9 @@ export function buildUserMessage(p: {
   timeAvailable: number;
   requestedCategory: string | null;
   canDrive: boolean;
-  lowCostOnly: boolean;
+  costPref: CostPref | null;
+  vibes: string[];
+  localTime: LocalTime | null;
   typeCounts: Record<string, number>;
   previousTitles: string[];
 }): { userMessage: string; histogram: string } {
@@ -836,8 +919,28 @@ export function buildUserMessage(p: {
     ? `Generate quests in the ${p.requestedCategory} category. `
     : "";
   const driveStr = p.canDrive ? "" : " Constraint: walking distance only, no car.";
-  const costStr = p.lowCostOnly
-    ? " Constraint: free or very low cost only — each quest must cost under $5 per person, ideally $0. No paid venues, ticketed events, or quests that require any meaningful purchase."
+  const costStr =
+    p.costPref === "free"
+      ? " Constraint: free or very low cost only — each quest must cost under $5 per person, ideally $0. No paid venues, ticketed events, or quests that require any meaningful purchase."
+      : p.costPref === "cheap"
+        ? " Cost preference: keep it cheap — free or low-cost quests preferred, nothing over ~$15 per person."
+        : p.costPref === "any"
+          ? " Cost preference: cost is not a constraint; free and paid activities are both fine when they fit."
+          : "";
+  // Soft taste bias from onboarding. Explicitly a LEAN, not a constraint —
+  // hard-requiring vibes would collapse the batch's category spread. Skipped
+  // entirely when the user picked an explicit category filter (that's a
+  // stronger, deliberate signal that overrides ambient taste).
+  const vibeStr =
+    !p.requestedCategory && p.vibes.length > 0
+      ? `\n\nUser vibe lean (SOFT): they gravitate toward ${p.vibes
+          .map((v) => VIBE_MODEL_HINT[v])
+          .join(", ")}. Favor these in roughly 2 of 3 quests, but do NOT exclude other categories — the batch must still span 3 different categories.`
+      : "";
+  // Temporal plausibility — SKILL.md §7 already tells the model to let the
+  // time of day pick a fitting category; this line is the signal it keys off.
+  const timeStr = p.localTime
+    ? `\n\nLocal context: ${p.localTime.weekday}, ~${formatHour12(p.localTime.hour)}. Keep every quest temporally plausible for that hour (no sunrise quests at night; Nightlife fits evenings).`
     : "";
   const histogram = buildHistogram(p.typeCounts);
   const diversityStr = renderDiversitySeed(pickDiversitySeed(p.previousTitles));
@@ -851,11 +954,17 @@ GEOGRAPHIC PLAUSIBILITY: Use "${p.region}" only to keep quests physically possib
 
 Venue TYPES available nearby (soft hint only — do NOT make all 3 quests at the dominant type): ${histogram}
 
-For example, if they have parks, your quest can say "a nearby park" — do NOT name the park.${diversityStr}
+For example, if they have parks, your quest can say "a nearby park" — do NOT name the park.${diversityStr}${vibeStr}${timeStr}
 
 Inputs: spice level ${p.spiceLevel}/10, group size ${groupSizeHint}, time available ${p.timeAvailable} minutes.${driveStr}${costStr}${previousStr}
 
 Build each quest from a DIFFERENT §6 structural template (different setting and verb), score against the §4 rubric, and reject any §5 anti-structure. Output EXACTLY per the §9 FORMAT ANCHOR: a minified JSON array of 3 objects, keys title/description/category only, each description 16 words MAX. No markdown, no commentary.`;
+
+  // Dev-mode visibility into exactly what the model sees — the assembled
+  // message is otherwise reconstructable only from scattered log fields.
+  if (process.env.NODE_ENV === "development" || process.env.GENERATE_DEBUG === "1") {
+    console.log("[generate] userMessage ↓\n" + userMessage);
+  }
 
   return { userMessage, histogram };
 }
@@ -957,7 +1066,9 @@ export async function POST(req: NextRequest) {
   const requestedCategory =
     categoryRaw && categoryRaw.toLowerCase() !== "all" ? categoryRaw : null;
   const canDrive = body.canDrive !== false;
-  const lowCostOnly = body.lowCostOnly === true;
+  const costPref = sanitizeCostPref(body.costPref, body.lowCostOnly === true);
+  const vibes = sanitizeVibes(body.vibeCategories);
+  const localTime = sanitizeLocalTime(body.localHour, body.localWeekday);
 
   const { userMessage: baseUserMessage, histogram } = buildUserMessage({
     region,
@@ -966,7 +1077,9 @@ export async function POST(req: NextRequest) {
     timeAvailable,
     requestedCategory,
     canDrive,
-    lowCostOnly,
+    costPref,
+    vibes,
+    localTime,
     typeCounts,
     previousTitles,
   });
