@@ -18,6 +18,8 @@ import {
   sanitizeVibes,
   sanitizeLocalTime,
   sanitizePreviousTitles,
+  sanitizeRegion,
+  sanitizeTypeCounts,
   isNearDuplicate,
   type GenerateBody,
   type ClaudeQuest,
@@ -138,8 +140,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "bad json" }, { status: 400 });
   }
 
-  const location = (body.location ?? "").trim() || "your area";
-  const region = (body.region ?? "").trim() || location;
+  const location = sanitizeRegion(body.location) || "your area";
+  const region = sanitizeRegion(body.region) || location;
   const places: Array<Pick<NearbyPlace, "name" | "type">> = Array.isArray(
     body.nearbyPlaces,
   )
@@ -149,14 +151,15 @@ export async function POST(req: NextRequest) {
         )
         .slice(0, 20)
     : [];
-  const typeCounts: Record<string, number> =
+  const typeCounts: Record<string, number> = sanitizeTypeCounts(
     body.typeCounts && typeof body.typeCounts === "object"
       ? body.typeCounts
       : (() => {
           const tc: Record<string, number> = {};
           for (const p of places) tc[p.type] = (tc[p.type] ?? 0) + 1;
           return tc;
-        })();
+        })(),
+  );
   const spiceLevel = clamp(Math.round(Number(body.spiceLevel) || 5), 1, 10);
   const groupSize: GroupSizeBand =
     body.groupSize === "solo" ||

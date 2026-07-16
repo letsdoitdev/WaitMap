@@ -178,6 +178,50 @@ function formatHour12(hour: number): string {
   return `${h12}${hour < 12 ? "am" : "pm"}`;
 }
 
+/**
+ * Region/location strings are client-controlled text interpolated into the
+ * prompt (and logged). Nominatim display_names are verbose and can be
+ * house-number precise when the user typed a street address. Collapse
+ * whitespace, keep at most 3 comma segments — for longer names, the first
+ * plus the last two ("Ashburn, Loudoun County, Virginia, United States" →
+ * "Ashburn, Virginia, United States"), which drops street-level detail —
+ * and cap the length.
+ */
+export function sanitizeRegion(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  const cleaned = raw.replace(/\s+/g, " ").trim();
+  if (!cleaned) return "";
+  const segs = cleaned
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const kept =
+    segs.length <= 3 ? segs : [segs[0], ...segs.slice(-2)];
+  return kept.join(", ").slice(0, 80);
+}
+
+/**
+ * typeCounts keys become histogram labels in the prompt. Whitelist the key
+ * shape (word characters only — no free-form client text), clamp values,
+ * and cap the entry count, keeping known venue types first so an abusive
+ * payload can't crowd them out.
+ */
+export function sanitizeTypeCounts(v: unknown): Record<string, number> {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+  const entries = Object.entries(v as Record<string, unknown>).sort(
+    ([a], [b]) => Number(b in TYPE_LABELS) - Number(a in TYPE_LABELS),
+  );
+  const out: Record<string, number> = {};
+  for (const [key, val] of entries) {
+    if (Object.keys(out).length >= 18) break;
+    if (key.length > 30 || !/^[a-z0-9_]+$/i.test(key)) continue;
+    const n = Math.floor(Number(val));
+    if (!Number.isFinite(n) || n <= 0) continue;
+    out[key] = Math.min(n, 500);
+  }
+  return out;
+}
+
 // ---------- Load skill body at module load ----------
 
 function loadSkillBody(): string {
@@ -204,12 +248,57 @@ function loadSkillBody(): string {
 
 const SKILL_BODY = loadSkillBody();
 
-// The consolidated constitution (SKILL.md, loaded above) is now the entire
-// system prompt — it absorbed the former WEBSITE_OVERRIDES, the QUALITY (HARD)
-// principles, the structural templates, the anti-structures, and the single
-// format anchor. No website-overrides block and no owner-feedback example
-// injection: all teaching lives in one cached doc.
-export const SYSTEM_PROMPT = `${SKILL_BODY}`;
+// Static request protocol, appended to the constitution. Two jobs:
+//
+// 1. It holds every instruction that used to be repeated verbatim in each
+//    user message (geographic-plausibility rules, venue-hint semantics,
+//    diversity-seed usage, the closing build/score/output paragraph), so the
+//    per-request message is only the volatile lines — smaller requests, and
+//    identical instructions can never drift between the two endpoints.
+// 2. It pushes the cached system prefix past claude-haiku-4-5's 4096-token
+//    minimum cacheable prompt length. The constitution alone is ~3.6K
+//    tokens, UNDER the minimum — cache_control silently no-oped, every call
+//    re-paid full input processing, and the 1h-TTL beta header did nothing.
+//    Verify post-deploy via the [generate] cache log: the second request
+//    within the TTL must show cacheRead > 0. If it's still 0, this block
+//    needs to grow.
+const REQUEST_PROTOCOL = `
+---
+
+# WEBSITE REQUEST PROTOCOL (server context lines)
+
+You are generating for the WaitMap web/mobile app. Each request supplies compact context lines. Interpret each line exactly as specified below, then construct the batch per the constitution above. Everything in this section restates or applies the constitution — nothing here relaxes a hard rule from §5, §7, or §8.
+
+**Task.** Construct exactly 3 side quests per request — unless the request explicitly asks for a different count, in which case produce exactly that many. Build each quest from a DIFFERENT §6 structural template (different setting and different verb), score each against the §4 rubric, and reject any §5 anti-structure before emitting. Output EXACTLY per the §9 FORMAT ANCHOR: a minified JSON array with one object per quest, keys title/description/category only, each description 10-14 words (16 ABSOLUTE MAX). No markdown fences, no commentary, no whitespace padding.
+
+**"Generate quests in the X category."** (optional first line) — a deliberate user filter. Every quest in the batch should land in or near that category; the 3-different-categories spread rule is suspended for that request. The spice ceiling, anti-food rule, and all safety bans still apply.
+
+**"Region:"** — geographic plausibility ONLY. Use it to keep quests physically possible for the area's climate, terrain, and density: no surfing or tide-pools in a landlocked region, no "hit 30 bars in an hour" in a rural town, no ski quests in a desert, no subway quests where there is no subway. It is atmosphere, NOT a venue list — never name a specific venue, street, park, landmark, or neighborhood from it or from your own knowledge of the area.
+
+**"Venue types nearby:"** — a soft, generic hint about what kinds of places exist near the user (drawn from: restaurants, fast food spots, cafes, bars, cinemas, theatres, libraries, gyms, parks, playgrounds, sports centres, stadiums, museums, attractions, viewpoints, supermarkets, malls, hardware stores). Do NOT set every quest at the dominant type, and remember the anti-food rule: the hint list skews food-heavy; resist it. If parks are listed, a quest may say "a nearby park" — never a park's name. "(no nearby info)" means no venue data — lean on settings that exist everywhere (streets, homes, open spaces).
+
+**"DIVERSITY SEED:"** — four axis hints (verb / setting / prop or constraint / group dynamic). Use at least one tag per quest, and make the batch collectively touch at least 3 of the 4 axes. The seed exists to pull batches out of repetitive attractors; treat it as creative fuel, not a checklist to name-drop.
+
+**"Vibe lean:"** (optional) — the user's standing taste from onboarding. Favor these vibes in roughly two-thirds of the batch, but do NOT exclude other categories — the batch must still span at least 3 different categories. A vibe lean is a lean; variety within it is still the point.
+
+**"Local context:"** (optional) — the user's current weekday and approximate local hour. Keep every quest temporally plausible for that hour: no sunrise missions at 11pm, no "watch the sunset" at noon, Nightlife energy belongs to evenings and late nights, quiet tier-1 rituals fit early mornings and weekday nights. Let the hour and weekday steer category choice per §7.
+
+**"Inputs:"** — the request parameters, all binding:
+- "spice level N/10" — a CEILING, not a target (§3). Every quest must sit at or below it.
+- "group size" — match pronouns and roles per §7; every member needs an active role.
+- "time available M minutes" — every quest must fit the window, including getting there.
+- "Constraint: walking distance only, no car." — no quest may require driving; keep everything reachable on foot.
+- "Cost: free." — each quest must cost under $5 per person, ideally $0. No paid venues, no ticketed events, no quest that requires a meaningful purchase.
+- "Cost: cheap." — free or low-cost preferred; nothing over ~$15 per person.
+- "Cost: any." — cost is not a constraint; free and paid activities are both fine when they fit.
+
+**"BANNED TITLES:"** (optional) — a blocklist of the user's recently seen quest titles, oldest first. Do NOT generate any quest whose title or core mechanic closely matches one (exact or near-paraphrase). Generating a banned quest is a failure — treat the list as a hard blocklist, not inspiration.
+
+**Server post-processing (why sloppiness is wasted).** The server independently drops quests that trip a §8 safety ban or near-duplicate a banned title, scrubs any leaked venue names, and discards malformed JSON. A dropped quest costs the user a visible slot — construct clean, rule-following quests the first time.
+
+**Batch self-check before emitting.** Run down this list for the finished batch: (1) every description is 10-14 words, never over 16 — count them; (2) every title is 5-8 words; (3) no title matches or paraphrases a banned title; (4) at most 1 food-flavored quest, and no food used as a mechanic, reward, or penalty anywhere; (5) the batch spans at least 3 different categories unless a single category was requested; (6) every quest sits at or below the spice ceiling; (7) every quest fits the time window, the group size, and any walking/cost constraints; (8) no proper-noun venues, streets, or landmarks anywhere; (9) valid minified JSON, correct key set, nothing else in the output. Fix any failure BEFORE emitting — the array you return is final.`;
+
+export const SYSTEM_PROMPT = `${SKILL_BODY}${REQUEST_PROTOCOL}`;
 
 // ---------- Helpers ----------
 
@@ -569,12 +658,14 @@ function pickDiversitySeed(previousTitles: string[]): DiversitySeed {
   };
 }
 
+// Compact per-request rendering — usage semantics live in the cached
+// REQUEST_PROTOCOL ("use at least one tag per quest, touch 3+ axes").
 function renderDiversitySeed(seed: DiversitySeed): string {
-  return `\n\nDIVERSITY SEED (use at least one tag per quest; the batch should collectively touch 3+ of these 4 axes):
-- verb hint: ${seed.verb}
-- setting hint: ${seed.setting}
-- prop / constraint hint: ${seed.prop}
-- group dynamic hint: ${seed.group_dynamic}`;
+  return `DIVERSITY SEED:
+- verb: ${seed.verb}
+- setting: ${seed.setting}
+- prop/constraint: ${seed.prop}
+- group dynamic: ${seed.group_dynamic}`;
 }
 
 // ---------- Food-bias post-check ----------
@@ -966,52 +1057,37 @@ export function buildUserMessage(p: {
         ? "2 people"
         : "3+ people";
   const previousStr = p.previousTitles.length
-    ? `\n\nBANNED TITLES — do NOT generate any quest with a title that closely matches these (exact or near-paraphrase):\n${p.previousTitles.join("\n")}\n\nGenerating a banned title is a failure. Treat this list as a blocklist, not a suggestion.`
+    ? `\n\nBANNED TITLES:\n${p.previousTitles.join("\n")}`
     : "";
   const categoryPrefix = p.requestedCategory
-    ? `Generate quests in the ${p.requestedCategory} category. `
+    ? `Generate quests in the ${p.requestedCategory} category.\n`
     : "";
   const driveStr = p.canDrive ? "" : " Constraint: walking distance only, no car.";
-  const costStr =
-    p.costPref === "free"
-      ? " Constraint: free or very low cost only — each quest must cost under $5 per person, ideally $0. No paid venues, ticketed events, or quests that require any meaningful purchase."
-      : p.costPref === "cheap"
-        ? " Cost preference: keep it cheap — free or low-cost quests preferred, nothing over ~$15 per person."
-        : p.costPref === "any"
-          ? " Cost preference: cost is not a constraint; free and paid activities are both fine when they fit."
-          : "";
-  // Soft taste bias from onboarding. Explicitly a LEAN, not a constraint —
-  // hard-requiring vibes would collapse the batch's category spread. Skipped
-  // entirely when the user picked an explicit category filter (that's a
-  // stronger, deliberate signal that overrides ambient taste).
+  const costStr = p.costPref ? ` Cost: ${p.costPref}.` : "";
+  // Soft taste bias from onboarding — semantics ("roughly two-thirds, do not
+  // exclude other categories") live in the cached protocol. Skipped when the
+  // user picked an explicit category filter (a stronger, deliberate signal
+  // that overrides ambient taste).
   const vibeStr =
     !p.requestedCategory && p.vibes.length > 0
-      ? `\n\nUser vibe lean (SOFT): they gravitate toward ${p.vibes
-          .map((v) => VIBE_MODEL_HINT[v])
-          .join(", ")}. Favor these in roughly 2 of 3 quests, but do NOT exclude other categories — the batch must still span 3 different categories.`
+      ? `\nVibe lean: ${p.vibes.map((v) => VIBE_MODEL_HINT[v]).join(", ")}`
       : "";
-  // Temporal plausibility — SKILL.md §7 already tells the model to let the
-  // time of day pick a fitting category; this line is the signal it keys off.
   const timeStr = p.localTime
-    ? `\n\nLocal context: ${p.localTime.weekday}, ~${formatHour12(p.localTime.hour)}. Keep every quest temporally plausible for that hour (no sunrise quests at night; Nightlife fits evenings).`
+    ? `\nLocal context: ${p.localTime.weekday}, ~${formatHour12(p.localTime.hour)}`
     : "";
   const histogram = buildHistogram(p.typeCounts);
   const diversityStr = renderDiversitySeed(pickDiversitySeed(p.previousTitles));
 
-  // Request-context only — all teaching (principles, tiers, templates,
-  // anti-structures, format anchor) now lives in the cached constitution
-  // (SYSTEM_PROMPT). No few-shot/negative examples here.
-  const userMessage = `${categoryPrefix}Construct exactly 3 side quests per the constitution in the system prompt. Light context: the user is in ${p.region} (atmosphere only — NOT a venue list to draw from).
+  // Volatile request lines ONLY. All instruction text — what each line means
+  // and how to build/score/format the batch — lives in the cached
+  // REQUEST_PROTOCOL section of the system prompt, so per-request tokens
+  // stay minimal and the cached prefix stays byte-identical across calls.
+  const userMessage = `${categoryPrefix}Region: ${p.region}
+Venue types nearby: ${histogram}
 
-GEOGRAPHIC PLAUSIBILITY: Use "${p.region}" only to keep quests physically possible for the area's climate, terrain, and density — e.g. no surfing/tide-pools in a landlocked region, no "hit 30 bars in an hour" in a rural town, no ski quests in a desert. Do NOT name any specific venue, street, or landmark; this is a sanity check on quest TYPE, not a place to drop proper nouns.
-
-Venue TYPES available nearby (soft hint only — do NOT make all 3 quests at the dominant type): ${histogram}
-
-For example, if they have parks, your quest can say "a nearby park" — do NOT name the park.${diversityStr}${vibeStr}${timeStr}
-
-Inputs: spice level ${p.spiceLevel}/10, group size ${groupSizeHint}, time available ${p.timeAvailable} minutes.${driveStr}${costStr}${previousStr}
-
-Build each quest from a DIFFERENT §6 structural template (different setting and verb), score against the §4 rubric, and reject any §5 anti-structure. Output EXACTLY per the §9 FORMAT ANCHOR: a minified JSON array of 3 objects, keys title/description/category only, each description 16 words MAX. No markdown, no commentary.`;
+${diversityStr}
+${vibeStr}${timeStr}
+Inputs: spice level ${p.spiceLevel}/10, group size ${groupSizeHint}, time available ${p.timeAvailable} minutes.${driveStr}${costStr}${previousStr}`;
 
   // Dev-mode visibility into exactly what the model sees — the assembled
   // message is otherwise reconstructable only from scattered log fields.
@@ -1080,12 +1156,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "bad json" }, { status: 400 });
   }
 
-  const location = (body.location ?? "").trim() || "your area";
+  const location = sanitizeRegion(body.location) || "your area";
   // Region is a coarse locale descriptor for geographic plausibility only.
   // Prefer the geocoded region; fall back to the raw location string so the
   // model always has *some* locale signal (the raw city is enough to avoid
   // "surf in landlocked Arizona" style misfires).
-  const region = (body.region ?? "").trim() || location;
+  const region = sanitizeRegion(body.region) || location;
   const places = Array.isArray(body.nearbyPlaces)
     ? body.nearbyPlaces
         .filter((p) => p && typeof p.name === "string" && typeof p.type === "string")
@@ -1093,15 +1169,17 @@ export async function POST(req: NextRequest) {
     : [];
   // Histogram is built from the pre-capped typeCounts the place-fetch route
   // computed. If the client didn't send it, derive a fallback from places
-  // (which are already capped by /api/nearby-places).
-  const typeCounts: Record<string, number> =
+  // (which are already capped by /api/nearby-places). Either way the keys
+  // and values are sanitized before they can become prompt text.
+  const typeCounts: Record<string, number> = sanitizeTypeCounts(
     body.typeCounts && typeof body.typeCounts === "object"
       ? body.typeCounts
       : (() => {
           const tc: Record<string, number> = {};
           for (const p of places) tc[p.type] = (tc[p.type] ?? 0) + 1;
           return tc;
-        })();
+        })(),
+  );
   const spiceLevel = clamp(Math.round(Number(body.spiceLevel) || 5), 1, 10);
   const groupSize: GroupSizeBand =
     body.groupSize === "solo" || body.groupSize === "2" || body.groupSize === "group"
