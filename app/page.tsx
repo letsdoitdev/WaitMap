@@ -23,8 +23,9 @@ import { useActiveQuest } from "@/lib/active-quest-context";
 import { useStats } from "@/lib/stats-context";
 import { GROUP_MODE_SIZE, useOnboarding } from "@/lib/onboarding-context";
 import {
-  appendRecentQuestIds,
-  loadRecentQuestIds,
+  appendRecentQuests,
+  hasAnyRecentQuests,
+  loadRecentQuests,
 } from "@/lib/recent-quests";
 import { createClient } from "@/lib/supabase/client";
 import { FREE_DAILY_REROLLS } from "@/lib/constants";
@@ -164,6 +165,22 @@ function saveShownTitles(titles: string[]) {
   writeTtl(SHOWN_TITLES_KEY, titles.slice(-30));
 }
 
+// Append titles, deduping case-insensitively while preserving order (oldest
+// first, newest last). Fixes the old double-append: the on-screen batch was
+// pushed into a window that already contained it, so the 9-slot title memory
+// effectively held only ~2 batches.
+function mergeTitles(existing: string[], incoming: string[]): string[] {
+  const seen = new Set(existing.map((t) => t.trim().toLowerCase()));
+  const out = [...existing];
+  for (const t of incoming) {
+    const key = t.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+  }
+  return out;
+}
+
 function loadBookmarks(): GeneratedQuest[] {
   if (typeof window === "undefined") return [];
   try {
@@ -253,7 +270,7 @@ export default function Home() {
       onboardingAnswers.vibeCategories.length > 0 ||
       onboardingAnswers.canDrive !== null ||
       onboardingAnswers.costPref !== null;
-    const hasRecent = loadRecentQuestIds().length > 0;
+    const hasRecent = hasAnyRecentQuests();
     if (hasAnswers && hasRecent) {
       markOnboardingCompleted();
       return;
@@ -862,22 +879,35 @@ export default function Home() {
       });
     }
 
+    // Session memory. The on-screen batch is merged in (deduped — it may
+    // already be here from the post-success append) to cover batches that
+    // rendered but never persisted, e.g. streamed cards from a stream that
+    // later errored before generate() saved them.
     let shown = loadShown();
     let shownTitles = loadShownTitles();
     if (quests) {
       const currentIds = quests.map((q) => q.id);
       const currentTitles = quests.map((q) => q.title);
       shown = Array.from(new Set([...shown, ...currentIds]));
-      shownTitles = [...shownTitles, ...currentTitles].slice(-9);
+      shownTitles = mergeTitles(shownTitles, currentTitles);
       saveShown(shown);
       saveShownTitles(shownTitles);
     }
 
-    // Persistent ring buffer (last 30, localStorage) — survives reload and
-    // tab close so rerolls don't keep surfacing the same set when the user
-    // returns later. Merged with the existing per-session `shown` list.
-    const recent = loadRecentQuestIds();
-    const excludeIds = Array.from(new Set([...shown, ...recent]));
+    // Persistent ring buffer (last 30 {id, title}, localStorage) — survives
+    // reload and tab close so rerolls don't keep surfacing the same set when
+    // the user returns later. Titles feed the server's BANNED TITLES
+    // blocklist (its similarity checks work on titles); ids keep feeding
+    // excludeIds. Oldest first so the server's oldest-first truncation drops
+    // the stalest memory.
+    const recent = loadRecentQuests();
+    const excludeIds = Array.from(
+      new Set([...shown, ...recent.map((r) => r.id)]),
+    );
+    const bannedTitles = mergeTitles(
+      recent.map((r) => r.title),
+      shownTitles,
+    );
 
     const cat =
       overrideCategory !== undefined ? overrideCategory : categoryFilter;
@@ -893,7 +923,7 @@ export default function Home() {
       places,
       typeCounts,
       excludeIds,
-      shownTitles,
+      bannedTitles,
       cat,
       (q) => {
         streamed.push(q);
@@ -908,7 +938,7 @@ export default function Home() {
         places,
         typeCounts,
         excludeIds,
-        shownTitles,
+        bannedTitles,
         cat,
       );
     }
@@ -930,28 +960,19 @@ export default function Home() {
       return;
     }
     const picked = aiResult;
-    const resetShown = false;
 
-    const nextShown = resetShown
-      ? picked.map((q) => q.id)
-      : Array.from(new Set([...shown, ...picked.map((q) => q.id)]));
-    const nextShownTitles = resetShown
-      ? picked.map((q) => q.title)
-      : [...shownTitles, ...picked.map((q) => q.title)].slice(-9);
+    const nextShown = Array.from(
+      new Set([...shown, ...picked.map((q) => q.id)]),
+    );
+    const nextShownTitles = mergeTitles(
+      shownTitles,
+      picked.map((q) => q.title),
+    );
     saveShown(nextShown);
     saveShownTitles(nextShownTitles);
-    // Append every picked id into the persistent ring buffer. If generate.ts
-    // signaled a reset, we drop everything except this batch so the buffer
-    // stays in sync with what the user just saw.
-    if (resetShown) {
-      // ring buffer reset path — wipe, then seed with this batch.
-      try {
-        window.localStorage.removeItem("sqRecentQuestsV1");
-      } catch {
-        // ignore
-      }
-    }
-    appendRecentQuestIds(picked.map((q) => q.id));
+    // Append the batch into the persistent {id, title} ring buffer so the
+    // titles land in the next request's blocklist.
+    appendRecentQuests(picked.map((q) => ({ id: q.id, title: q.title })));
 
     setQuests(picked);
     setRolling(false);

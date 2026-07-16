@@ -17,6 +17,8 @@ import {
   sanitizeCostPref,
   sanitizeVibes,
   sanitizeLocalTime,
+  sanitizePreviousTitles,
+  isNearDuplicate,
   type GenerateBody,
   type ClaudeQuest,
   type GroupSizeBand,
@@ -170,9 +172,7 @@ export async function POST(req: NextRequest) {
   const excludeIds = Array.isArray(body.excludeIds)
     ? body.excludeIds.slice(0, 200)
     : [];
-  const previousTitles = Array.isArray(body.previousTitles)
-    ? body.previousTitles.filter((t) => typeof t === "string").slice(-9)
-    : [];
+  const previousTitles = sanitizePreviousTitles(body.previousTitles);
   const categoryRaw =
     typeof body.category === "string" ? body.category.trim() : "";
   const requestedCategory =
@@ -290,7 +290,31 @@ export async function POST(req: NextRequest) {
         ctrl.enqueue(sse({ type: "quest", quest: normalized }));
       }
 
-      // Progressive path: a freshly-completed streamed object → emit if safe.
+      // Near-duplicate drop — mirror of the JSON path's filter, checked
+      // against the banned previous titles plus the given sibling set. The
+      // diagnostic counter is deduped by title because the reconcile pass
+      // re-simulates acceptance over quests the progressive pass already saw.
+      const dupSeen = new Set<string>();
+      function isDupAgainst(q: ClaudeQuest, siblingTitles: string[]): boolean {
+        const title = typeof q.title === "string" ? q.title : "";
+        if (!isNearDuplicate(title, previousTitles, siblingTitles)) {
+          return false;
+        }
+        const key = title.trim().toLowerCase();
+        if (!dupSeen.has(key)) {
+          dupSeen.add(key);
+          console.log("[generate/stream] near-dupe dropped", { title });
+        }
+        return true;
+      }
+      const isDup = (q: ClaudeQuest) =>
+        isDupAgainst(
+          q,
+          emitted.map((e) => e.title),
+        );
+
+      // Progressive path: a freshly-completed streamed object → emit if safe
+      // and not a near-duplicate of a banned title or an emitted sibling.
       function consider(raw: string): void {
         if (emitted.length >= 3) return;
         let q: ClaudeQuest;
@@ -299,7 +323,7 @@ export async function POST(req: NextRequest) {
         } catch {
           return;
         }
-        if (isSafe(q)) emit(q);
+        if (isSafe(q) && !isDup(q)) emit(q);
       }
 
       try {
@@ -362,11 +386,24 @@ export async function POST(req: NextRequest) {
           }
           if (Array.isArray(parsed)) {
             parsedLen = parsed.length;
-            // Safe set in model order; the progressive pass already emitted a
-            // prefix of exactly this list, so emit from emitted.length onward.
-            const safe = (parsed as ClaudeQuest[]).filter((q) => isSafe(q));
-            for (let i = emitted.length; i < safe.length && emitted.length < 3; i++) {
-              emit(safe[i]);
+            // Accepted set in model order, re-simulated from scratch with the
+            // SAME safe + near-dup checks the progressive pass ran (sibling
+            // comparisons see the same growing prefix). The progressive pass
+            // emitted exactly a prefix of this list, so emit the suffix from
+            // emitted.length onward.
+            const accepted: ClaudeQuest[] = [];
+            for (const q of parsed as ClaudeQuest[]) {
+              if (accepted.length >= 3) break;
+              if (!isSafe(q)) continue;
+              if (isDupAgainst(q, accepted.map((a) => a.title ?? ""))) continue;
+              accepted.push(q);
+            }
+            for (
+              let i = emitted.length;
+              i < accepted.length && emitted.length < 3;
+              i++
+            ) {
+              emit(accepted[i]);
             }
           }
         }
@@ -415,7 +452,7 @@ export async function POST(req: NextRequest) {
             if (Array.isArray(tup)) {
               for (const item of tup as ClaudeQuest[]) {
                 if (emitted.length >= 3) break;
-                if (isSafe(item)) emit(item);
+                if (isSafe(item) && !isDup(item)) emit(item);
               }
             }
           } catch (e) {
@@ -448,6 +485,7 @@ export async function POST(req: NextRequest) {
           parsedLen,
           stopReason,
           heldCount,
+          dupDropped: dupSeen.size,
           topupMs,
           textLen: fullText.length,
           region,
@@ -483,6 +521,7 @@ export async function POST(req: NextRequest) {
               // the model; topupMs > 0 means the fill-to-3 call fired.
               parsedLen,
               heldCount,
+              dupDropped: dupSeen.size,
               stopReason,
               topupMs,
             }),

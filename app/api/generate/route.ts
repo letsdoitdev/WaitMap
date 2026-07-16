@@ -709,7 +709,7 @@ const TITLE_STOPWORDS = new Set([
   "by",
 ]);
 
-function titleBigrams(title: string): Set<string> {
+export function titleBigrams(title: string): Set<string> {
   const tokens = title
     .toLowerCase()
     .replace(/[^a-z0-9 ]/g, " ")
@@ -722,7 +722,7 @@ function titleBigrams(title: string): Set<string> {
   return out;
 }
 
-function bigramJaccard(a: string, b: string): number {
+export function bigramJaccard(a: string, b: string): number {
   const sa = titleBigrams(a);
   const sb = titleBigrams(b);
   if (sa.size === 0 && sb.size === 0) return 0;
@@ -734,14 +734,14 @@ function bigramJaccard(a: string, b: string): number {
   return union === 0 ? 0 : inter / union;
 }
 
-const SIMILARITY_THRESHOLD = 0.45;
+export const SIMILARITY_THRESHOLD = 0.45;
 const SAFETY_LOG = process.env.GENERATE_DEBUG === "1";
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function shareThreeConsecutive(a: string, b: string): boolean {
+export function shareThreeConsecutive(a: string, b: string): boolean {
   const ta = a.toLowerCase().split(/\s+/).filter(Boolean);
   const tb = b.toLowerCase().split(/\s+/).filter(Boolean);
   if (ta.length < 3 || tb.length < 3) return false;
@@ -753,6 +753,59 @@ function shareThreeConsecutive(a: string, b: string): boolean {
     if (trigramsB.has(`${ta[i]} ${ta[i + 1]} ${ta[i + 2]}`)) return true;
   }
   return false;
+}
+
+/**
+ * previousTitles is client-controlled text interpolated into the prompt —
+ * cap the count (the ring buffer holds 30) and each title's length, and
+ * strip newlines/control characters so a hostile client can't smuggle
+ * multi-line instructions or megabyte strings into the message.
+ */
+export function sanitizePreviousTitles(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .filter((t): t is string => typeof t === "string")
+    .map((t) => t.replace(/\s+/g, " ").trim().slice(0, 80))
+    .filter(Boolean)
+    .slice(-30);
+}
+
+/**
+ * Sequential near-duplicate filter. A quest is dropped when its title sits
+ * at or over the bigram-Jaccard threshold (or shares 3 consecutive words)
+ * with any banned previous title OR any quest already kept from this batch.
+ * Order-preserving, so the stream path's progressive emission and its
+ * authoritative reconcile pass accept the exact same prefix.
+ */
+export function filterNearDuplicates(
+  quests: ClaudeQuest[],
+  previousTitles: string[],
+  alreadyKeptTitles: string[] = [],
+): { kept: ClaudeQuest[]; dropped: string[] } {
+  const kept: ClaudeQuest[] = [];
+  const dropped: string[] = [];
+  const keptTitles = [...alreadyKeptTitles];
+  for (const q of quests) {
+    const title = typeof q?.title === "string" ? q.title : "";
+    if (isNearDuplicate(title, previousTitles, keptTitles)) {
+      dropped.push(title);
+    } else {
+      kept.push(q);
+      keptTitles.push(title);
+    }
+  }
+  return { kept, dropped };
+}
+
+export function isNearDuplicate(
+  title: string,
+  previousTitles: string[],
+  siblingTitles: string[],
+): boolean {
+  const overlaps = (other: string) =>
+    bigramJaccard(title, other) >= SIMILARITY_THRESHOLD ||
+    shareThreeConsecutive(title, other);
+  return previousTitles.some(overlaps) || siblingTitles.some(overlaps);
 }
 
 type ViolationReport = {
@@ -1058,9 +1111,7 @@ export async function POST(req: NextRequest) {
   const excludeIds = Array.isArray(body.excludeIds)
     ? body.excludeIds.slice(0, 200)
     : [];
-  const previousTitles = Array.isArray(body.previousTitles)
-    ? body.previousTitles.filter((t) => typeof t === "string").slice(-9)
-    : [];
+  const previousTitles = sanitizePreviousTitles(body.previousTitles);
   const categoryRaw =
     typeof body.category === "string" ? body.category.trim() : "";
   const requestedCategory =
@@ -1101,6 +1152,7 @@ export async function POST(req: NextRequest) {
   const messages: Msg[] = [{ role: "user", content: baseUserMessage }];
 
   let lastParsed: ClaudeQuest[] | null = null;
+  let lastText = "";
   let lastViolations: string[] = [];
   const MAX_RETRIES = 2;
 
@@ -1211,6 +1263,7 @@ export async function POST(req: NextRequest) {
         previousTitles,
       );
       lastParsed = arr;
+      lastText = text;
       lastViolations = report.violations;
       console.log("[generate] attempt", attempt + 1, {
         questCount: arr.length,
@@ -1247,6 +1300,77 @@ export async function POST(req: NextRequest) {
         { status: 503 },
       );
     }
+
+    // ---------- Near-duplicate drop (+ one corrective re-ask) ----------
+    //
+    // VIOLATION_SIMILAR* used to be recorded and shipped anyway. Now any
+    // quest at/over the bigram-Jaccard threshold (or sharing 3 consecutive
+    // title words) with a banned previous title OR a sibling kept from this
+    // batch is DROPPED. If dropping leaves fewer than 3, spend ONE small
+    // extra call on the shortfall — a budget separate from the safety-retry
+    // loop, with its own timeout since the main 25s window is already spent.
+    const dedup = filterNearDuplicates(lastParsed, previousTitles);
+    let keptQuests = dedup.kept;
+    if (dedup.dropped.length > 0) {
+      console.log("[generate] near-dupes dropped", {
+        dropped: dedup.dropped,
+        kept: keptQuests.length,
+      });
+      if (keptQuests.length < 3) {
+        const need = 3 - keptQuests.length;
+        const reaskAbort = new AbortController();
+        const reaskTimer = setTimeout(() => reaskAbort.abort(), 8_000);
+        try {
+          const reaskStart = Date.now();
+          const reask = await client.messages.create(
+            {
+              model: "claude-haiku-4-5",
+              max_tokens: 384,
+              temperature: 0.75,
+              system: [
+                {
+                  type: "text",
+                  text: SYSTEM_PROMPT,
+                  cache_control: { type: "ephemeral", ttl: "1h" },
+                },
+              ],
+              messages: [
+                ...messages,
+                { role: "assistant", content: lastText },
+                {
+                  role: "user",
+                  content: `These titles were rejected as near-duplicates of the banned list: ${dedup.dropped.join("; ")}. Generate exactly ${need} NEW quest${need === 1 ? "" : "s"}, clearly distinct from every banned title${keptQuests.length ? ` and from: ${keptQuests.map((q) => q.title).join("; ")}` : ""}. Same rules and constraints as before. Output ONLY a minified JSON array of exactly ${need} object(s), keys title/description/category.`,
+                },
+              ],
+            },
+            { signal: reaskAbort.signal },
+          );
+          llmStageMs.push(Date.now() - reaskStart);
+          recordUsage(reask.usage);
+          const rb = reask.content.find((b) => b.type === "text");
+          const rtext = rb && rb.type === "text" ? rb.text : "";
+          let rparsed: unknown = null;
+          try {
+            rparsed = extractJsonArray(rtext);
+          } catch {
+            rparsed = null;
+          }
+          if (Array.isArray(rparsed)) {
+            const refill = filterNearDuplicates(
+              (rparsed as ClaudeQuest[]).slice(0, need),
+              previousTitles,
+              keptQuests.map((q) => q.title ?? ""),
+            );
+            keptQuests = [...keptQuests, ...refill.kept].slice(0, 3);
+          }
+        } catch (e) {
+          console.log("[generate] dedup re-ask failed", e);
+        } finally {
+          clearTimeout(reaskTimer);
+        }
+      }
+    }
+    lastParsed = keptQuests;
 
     // ---------- Food-bias post-check + smart top-up ----------
     //
