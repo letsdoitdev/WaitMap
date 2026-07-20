@@ -16,6 +16,13 @@ on:
         description: City to generate for
         required: false
         default: Ashburn Virginia
+  # Push trigger scoped to the verifier's own files: updating the test (or
+  # touching this workflow) re-runs it against production. This also lets
+  # environments whose tokens can't call the dispatch API still run it.
+  push:
+    paths:
+      - .github/workflows/live-verify.yml
+      - scripts/live-verify.mjs
 
 jobs:
   verify:
@@ -28,6 +35,8 @@ jobs:
           node-version: 22
       - name: Run live verification
         env:
+          # inputs are empty on push triggers; the script falls back to the
+          # production URL + default city.
           LIVE_BASE_URL: ${{ inputs.base_url }}
           LIVE_CITY: ${{ inputs.city }}
         run: node scripts/live-verify.mjs

@@ -27,7 +27,8 @@
 // by design (runnable with zero build steps); if you edit them there, edit
 // them here.
 
-const BASE = (process.env.LIVE_BASE_URL ?? "https://side-quest-generator-snowy.vercel.app").replace(/\/$/, "");
+// `||` not `??`: on workflow push-triggers the env vars exist but are empty.
+const BASE = (process.env.LIVE_BASE_URL || "https://side-quest-generator-snowy.vercel.app").replace(/\/$/, "");
 const STREAM_FIRST_CARD_MS = Number(process.env.STREAM_FIRST_CARD_MS) || 6000;
 
 // ---------- duplicated helpers (see _verify.mjs) ----------
@@ -92,7 +93,7 @@ function softCheck(name, cond, detail) {
 }
 const pct = (arr, p) => arr.slice().sort((a, b) => a - b)[Math.min(arr.length - 1, Math.floor((p / 100) * arr.length))];
 
-const CITY = process.env.LIVE_CITY ?? "Ashburn Virginia";
+const CITY = process.env.LIVE_CITY || "Ashburn Virginia";
 const WEEKDAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const now = new Date();
 
