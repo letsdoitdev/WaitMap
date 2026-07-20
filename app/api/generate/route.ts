@@ -8,6 +8,7 @@ import { NearbyBucket, NearbyPlace } from "@/lib/nearby";
 import { createClient } from "@/lib/supabase/server";
 import { FREE_DAILY_REROLLS, getUtcDateKey } from "@/lib/constants";
 import { hardFilterQuests, selectTopQuests } from "@/lib/quest-ranker";
+import { pickModel } from "@/lib/model-routing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -1148,6 +1149,9 @@ export async function POST(req: NextRequest) {
     data: { user: gateUser },
   } = await supabase.auth.getUser();
   let meterFreeUser = false;
+  // Server-verified Pro flag — feeds model routing below. Never trust a
+  // client-supplied tier for this.
+  let isProUser = false;
   // Surfaced in the success response (M12.3) so the mobile UI can render the
   // tier chip + reroll count without a second round-trip.
   let responseTier: "free" | "pro" = "free";
@@ -1162,6 +1166,7 @@ export async function POST(req: NextRequest) {
       profile?.tier === "pro" &&
       (!profile.tier_expires_at ||
         new Date(profile.tier_expires_at).getTime() > Date.now());
+    isProUser = isPro;
     if (!isPro) {
       meterFreeUser = true;
       const used = profile?.daily_rerolls?.[dateKey] ?? 0;
@@ -1230,10 +1235,20 @@ export async function POST(req: NextRequest) {
   const localTime = sanitizeLocalTime(body.localHour, body.localWeekday);
 
   // Overgenerate-and-rank: ask for 6 candidates, hard-filter, ship the best
-  // 3. One Haiku call either way; ~2x output tokens buys a ranked selection
+  // 3. One model call either way; ~2x output tokens buys a ranked selection
   // plus headroom so safety/dup/constraint drops rarely leave a short batch.
   const BATCH_COUNT = 6;
   const TARGET_COUNT = 3;
+
+  // Model routing: first roll of a session (empty blocklist) and Pro users
+  // get the stronger model; rerolls stay on the fast one. Every call in
+  // this request (main + any re-ask) uses the same routed model so the
+  // per-model prompt cache stays warm within the request.
+  const modelRoute = pickModel({
+    isFirstRoll: previousTitles.length === 0,
+    isPro: isProUser,
+  });
+  console.log("[generate] model", modelRoute);
 
   const { userMessage: baseUserMessage, histogram } = buildUserMessage({
     region,
@@ -1275,7 +1290,7 @@ export async function POST(req: NextRequest) {
   // per-call token accounting (incl. cache_read vs cache_creation) so we can
   // confirm prompt caching is actually being HIT.
   const llmStageMs: number[] = [];
-  const llmUsage: Array<Record<string, number | undefined>> = [];
+  const llmUsage: Array<Record<string, number | string | undefined>> = [];
 
   function recordUsage(u: Anthropic.Messages.Usage | undefined): void {
     if (!u) return;
@@ -1286,6 +1301,7 @@ export async function POST(req: NextRequest) {
     // HIT = the cached prefix was read; MISS = we re-paid to (re)create it.
     const cacheHit = read > 0 && create === 0;
     llmUsage.push({
+      model: modelRoute.model,
       input: u.input_tokens,
       output: u.output_tokens,
       cacheRead: read,
@@ -1296,8 +1312,12 @@ export async function POST(req: NextRequest) {
     });
     // One-glance regime read in the Vercel function logs: scan a handful of
     // these and the hit fraction is immediately obvious. create1h > 0 on a
-    // miss confirms the 1h extended TTL is actually being applied.
+    // miss confirms the 1h extended TTL is actually being applied. The model
+    // is included so per-model daily token/cost totals (and per-model cache
+    // health — the cache is PER-MODEL) can be aggregated from logs.
     console.log("[generate] cache", {
+      model: modelRoute.model,
+      routeReason: modelRoute.reason,
       hit: cacheHit,
       read,
       create,
@@ -1321,7 +1341,7 @@ export async function POST(req: NextRequest) {
       const llmStart = Date.now();
       const response = await client.messages.create(
         {
-          model: "claude-haiku-4-5",
+          model: modelRoute.model,
           // 6 candidates fit in ~450-550 output tokens with the slim 3-key
           // schema; 1000 bounds the tail without truncating valid minified
           // JSON (the old 384 ceiling could cut the array mid-object, which
@@ -1447,7 +1467,7 @@ export async function POST(req: NextRequest) {
         const reaskStart = Date.now();
         const reask = await client.messages.create(
           {
-            model: "claude-haiku-4-5",
+            model: modelRoute.model,
             max_tokens: 384,
             temperature: 0.75,
             system: [

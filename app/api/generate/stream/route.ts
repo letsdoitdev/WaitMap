@@ -33,6 +33,7 @@ import {
   requiresSpend,
   selectTopQuests,
 } from "@/lib/quest-ranker";
+import { pickModel } from "@/lib/model-routing";
 
 // Additive streaming sibling of /api/generate. The JSON endpoint is unchanged
 // and remains the contract the mobile app (M12.3) depends on. This route emits
@@ -111,6 +112,8 @@ export async function POST(req: NextRequest) {
     data: { user: gateUser },
   } = await supabase.auth.getUser();
   let meterFreeUser = false;
+  // Server-verified Pro flag — feeds model routing. Never a client flag.
+  let isProUser = false;
   let responseTier: "free" | "pro" = "free";
   if (gateUser) {
     const { data: profile } = await supabase
@@ -123,6 +126,7 @@ export async function POST(req: NextRequest) {
       profile?.tier === "pro" &&
       (!profile.tier_expires_at ||
         new Date(profile.tier_expires_at).getTime() > Date.now());
+    isProUser = isPro;
     if (!isPro) {
       meterFreeUser = true;
       const used = profile?.daily_rerolls?.[dateKey] ?? 0;
@@ -202,6 +206,15 @@ export async function POST(req: NextRequest) {
   const BATCH_COUNT = 6;
   const TARGET_COUNT = 3;
 
+  // Model routing (mirrors the JSON path): first roll + Pro → the stronger
+  // model, rerolls → the fast one. Same routed model for every call in this
+  // request so the per-model prompt cache stays warm.
+  const modelRoute = pickModel({
+    isFirstRoll: previousTitles.length === 0,
+    isPro: isProUser,
+  });
+  console.log("[generate/stream] model", modelRoute);
+
   const { userMessage, histogram } = buildUserMessage({
     region,
     spiceLevel,
@@ -261,6 +274,26 @@ export async function POST(req: NextRequest) {
       const heldSeen = new Set<string>();
       const abort = new AbortController();
       const timer = setTimeout(() => abort.abort(), 25_000);
+
+      // Per-call token accounting, tagged with the routed model so per-model
+      // daily totals and per-model cache health (the cache is PER-MODEL) can
+      // be aggregated from logs — mirrors the JSON path's [generate] cache.
+      function logUsage(u: Anthropic.Messages.Usage | undefined): void {
+        if (!u) return;
+        const read = u.cache_read_input_tokens ?? 0;
+        const create = u.cache_creation_input_tokens ?? 0;
+        console.log("[generate/stream] cache", {
+          model: modelRoute.model,
+          routeReason: modelRoute.reason,
+          hit: read > 0 && create === 0,
+          read,
+          create,
+          create1h: u.cache_creation?.ephemeral_1h_input_tokens ?? 0,
+          create5m: u.cache_creation?.ephemeral_5m_input_tokens ?? 0,
+          input: u.input_tokens,
+          output: u.output_tokens,
+        });
+      }
 
       // True iff the quest survives the per-quest safety gate: valid shape,
       // and after scrub() it does not trip a hard safety rule. Near-dup and
@@ -363,7 +396,7 @@ export async function POST(req: NextRequest) {
       try {
         const llm = client.messages.stream(
           {
-            model: "claude-haiku-4-5",
+            model: modelRoute.model,
             // 6 candidates fit in ~450-550 output tokens with the slim 3-key
             // schema; 1000 gives headroom so the final object always closes
             // before the model stops (a tight ceiling truncates mid-object,
@@ -407,6 +440,7 @@ export async function POST(req: NextRequest) {
         const finalMsg = await llm.finalMessage();
         clearTimeout(timer);
         const stopReason = finalMsg.stop_reason ?? null;
+        logUsage(finalMsg.usage);
         const tb = finalMsg.content.find((b) => b.type === "text");
         const fullText = tb && tb.type === "text" ? tb.text : buf;
 
@@ -510,7 +544,7 @@ export async function POST(req: NextRequest) {
             });
             const topup = await client.messages.create(
               {
-                model: "claude-haiku-4-5",
+                model: modelRoute.model,
                 max_tokens: 120 + 200 * need,
                 temperature: 0.75,
                 system: [
@@ -525,6 +559,7 @@ export async function POST(req: NextRequest) {
               { signal: topupAbort.signal },
             );
             topupMs = Date.now() - tStart;
+            logUsage(topup.usage);
             const tub = topup.content.find((b) => b.type === "text");
             const tutext = tub && tub.type === "text" ? tub.text : "";
             let tup: unknown = null;

@@ -221,6 +221,32 @@ function saveRatings(records: RatingRecord[]) {
 
 type View = "results" | "saved";
 
+// `region` is the geocoded locale descriptor (e.g. "Ashburn, Virginia, USA"),
+// null when the city couldn't be geocoded at all. Used for geographic
+// plausibility in the prompt — never to name venues.
+async function fetchNearby(loc: string): Promise<{
+  region: string | null;
+  places: NearbyPlace[];
+  typeCounts: Record<string, number>;
+}> {
+  try {
+    const r = await fetch(
+      `/api/nearby-places?location=${encodeURIComponent(loc)}`,
+    );
+    if (!r.ok) return { region: null, places: [], typeCounts: {} };
+    const data = (await r.json()) as NearbyResponse;
+    // ok:false means geocode failed → no region. ok:true (even with zero
+    // places, e.g. Overpass empty) still carries the resolved region.
+    return {
+      region: data.location?.display ?? null,
+      places: data.ok ? data.places : [],
+      typeCounts: data.ok ? data.typeCounts ?? {} : {},
+    };
+  } catch {
+    return { region: null, places: [], typeCounts: {} };
+  }
+}
+
 function formatTimeSince(iso: string): string {
   const elapsed = Date.now() - new Date(iso).getTime();
   if (elapsed < 60 * 60 * 1000) return "just now";
@@ -629,31 +655,20 @@ export default function Home() {
 
   const canGenerate = city.trim().length > 0;
 
-  // `region` is the geocoded locale descriptor (e.g. "Ashburn, Virginia, USA"),
-  // null when the city couldn't be geocoded at all. Used for geographic
-  // plausibility in the prompt — never to name venues.
-  async function fetchNearby(loc: string): Promise<{
-    region: string | null;
-    places: NearbyPlace[];
-    typeCounts: Record<string, number>;
-  }> {
-    try {
-      const r = await fetch(
-        `/api/nearby-places?location=${encodeURIComponent(loc)}`,
-      );
-      if (!r.ok) return { region: null, places: [], typeCounts: {} };
-      const data = (await r.json()) as NearbyResponse;
-      // ok:false means geocode failed → no region. ok:true (even with zero
-      // places, e.g. Overpass empty) still carries the resolved region.
-      return {
-        region: data.location?.display ?? null,
-        places: data.ok ? data.places : [],
-        typeCounts: data.ok ? data.typeCounts ?? {} : {},
-      };
-    } catch {
-      return { region: null, places: [], typeCounts: {} };
-    }
-  }
+  // Prefetch the nearby context as soon as a city is known (prefilled on
+  // mount or typed), debounced so keystrokes don't spam the geocoder. This
+  // makes the FIRST roll location-aware: previously the cold path fired the
+  // fetch in the background and only roll #2 saw venue data.
+  useEffect(() => {
+    const key = city.trim().toLowerCase();
+    if (!key || nearbyCacheRef.current[key]) return;
+    const t = window.setTimeout(() => {
+      void fetchNearby(city).then((res) => {
+        nearbyCacheRef.current[key] = res;
+      });
+    }, 600);
+    return () => window.clearTimeout(t);
+  }, [city]);
 
   // One request body for both the streaming and JSON endpoints so the two
   // calls can never drift. Threads through the personal signals the server
@@ -850,33 +865,49 @@ export default function Home() {
     setView("results");
 
     // Locale signal for THIS generation. We always have at least the raw city
-    // (enough for geographic plausibility), so the LLM call never has to wait
-    // on the nearby fetch — that's what unstacks the two network legs.
+    // (enough for geographic plausibility), so rerolls never wait on the
+    // nearby fetch. The FIRST roll of a session is the exception below.
     const cityKey = city.trim().toLowerCase();
     const cachedNearby = nearbyCacheRef.current[cityKey];
-    const region: string | null = cachedNearby?.region ?? null;
-    const places: NearbyPlace[] = cachedNearby?.places ?? [];
-    const typeCounts: Record<string, number> = cachedNearby?.typeCounts ?? {};
+    let region: string | null = cachedNearby?.region ?? null;
+    let places: NearbyPlace[] = cachedNearby?.places ?? [];
+    let typeCounts: Record<string, number> = cachedNearby?.typeCounts ?? {};
 
     // We have a usable locale (raw city at minimum) → no alarming banner.
     setNearbyStatus("ok");
 
     if (cachedNearby) {
-      // Warm path: rerolls of the same city reuse the geocode + Overpass
-      // result and only pay the LLM call.
+      // Warm path (the common case now that the city-change effect
+      // prefetches): reuse the geocode + Overpass result, only pay the LLM.
       setNearbyStatus(cachedNearby.region ? "ok" : "fallback");
     } else {
-      // Cold path: fetch nearby in the BACKGROUND to warm the cache for the
-      // next reroll, but do NOT block this generation on it. The model still
-      // gets the raw city for plausibility; the richer region + category
-      // histogram land on the next roll.
-      void fetchNearby(city).then((res) => {
+      const nearbyPromise = fetchNearby(city).then((res) => {
         nearbyCacheRef.current[cityKey] = res;
         // Only flag a true geocode failure (no region at all). Empty venues on
         // a city that resolved fine is NOT a fallback — quests stay locale-aware
         // via the region/raw city.
         if (!res.region) setNearbyStatus("fallback");
+        return res;
       });
+      // First roll of a session (empty title memory): the impression-forming
+      // roll, and the one the server routes to the stronger model — give the
+      // nearby fetch up to ~2s so it isn't venue-blind, then proceed without
+      // it. Rerolls keep the old behavior: background warm, never block.
+      const isFirstRoll =
+        loadShownTitles().length === 0 && loadRecentQuests().length === 0;
+      if (isFirstRoll) {
+        const res = await Promise.race([
+          nearbyPromise,
+          new Promise<null>((resolve) =>
+            window.setTimeout(() => resolve(null), 2_000),
+          ),
+        ]);
+        if (res) {
+          region = res.region;
+          places = res.places;
+          typeCounts = res.typeCounts;
+        }
+      }
     }
 
     // Session memory. The on-screen batch is merged in (deduped — it may
