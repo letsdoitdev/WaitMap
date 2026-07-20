@@ -783,9 +783,8 @@ export default function Home() {
           ),
         ),
       });
-      // 402 = reroll cap hit (blocking). Distinct from 5xx/network below: the
-      // cap must NOT fall through to the local generator — that would leak
-      // free quests past the limit. Surface it so the caller opens the upsell.
+      // 402 = reroll cap hit (blocking). Distinct from 5xx/network below —
+      // surface it so the caller opens the upsell instead of the error toast.
       if (r.status === 402) {
         const data = (await r.json().catch(() => null)) as {
           error?: string;
@@ -793,7 +792,7 @@ export default function Home() {
         if (data?.error === "reroll_limit") return "reroll_limit";
         return null;
       }
-      // Any other non-OK status (5xx, etc.) → null → local fallback runs.
+      // Any other non-OK status (5xx, etc.) → null → error state upstream.
       if (!r.ok) return null;
       const data = (await r.json()) as {
         ok: boolean;
@@ -804,7 +803,7 @@ export default function Home() {
       }
       return data.quests;
     } catch {
-      // Network throw → null → local fallback runs.
+      // Network throw → null → error state upstream.
       return null;
     }
   }
@@ -1004,8 +1003,8 @@ export default function Home() {
         cat,
       );
     }
-    // Free-tier cap hit — block here. No local fallback (would leak quests past
-    // the limit), no results rendered; just surface the upsell modal.
+    // Free-tier cap hit — block here. No results rendered; just surface the
+    // upsell modal.
     if (aiResult === "reroll_limit") {
       setRolling(false);
       setOutOfRerollsOpen(true);

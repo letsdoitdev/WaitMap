@@ -139,9 +139,11 @@ async function geocode(location: string): Promise<StageResult<Geo | null>> {
  * neighborhood, which is the exact bias BUCKET_CAPS and the skill's
  * anti-food rule then had to fight. `out center` returns tags plus a
  * center point for ways/relations (we only read tags), keeping the payload
- * as compact as `out body` was. Exported for the offline verifier.
+ * as compact as `out body` was. (Not exported — Next.js route files reject
+ * non-handler exports at build time; the generate route escapes that check
+ * only because its exports are consumed by the stream route's import.)
  */
-export function buildOverpassQuery(lat: number, lon: number): string {
+function buildOverpassQuery(lat: number, lon: number): string {
   const r = OVERPASS_RADIUS_M;
   return `[out:json][timeout:10];
 (
