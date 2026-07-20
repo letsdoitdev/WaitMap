@@ -1,0 +1,33 @@
+name: live-verify
+# Manually-triggered smoke test of the M13 quest-quality pipeline against a
+# DEPLOYED instance (defaults to production). Hits /api/generate,
+# /api/generate/stream, and /api/nearby-places anonymously (~20 model calls
+# total) and asserts the quality/timing acceptance criteria — see
+# scripts/live-verify.mjs for the full checklist.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Deployment to verify
+        required: false
+        default: https://side-quest-generator-snowy.vercel.app
+      city:
+        description: City to generate for
+        required: false
+        default: Ashburn Virginia
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run live verification
+        env:
+          LIVE_BASE_URL: ${{ inputs.base_url }}
+          LIVE_CITY: ${{ inputs.city }}
+        run: node scripts/live-verify.mjs
