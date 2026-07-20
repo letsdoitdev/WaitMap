@@ -131,6 +131,28 @@ async function geocode(location: string): Promise<StageResult<Geo | null>> {
   }
 }
 
+/**
+ * nwr (nodes + ways + relations), not nodes-only. Restaurants/cafes/bars
+ * are almost always mapped as OSM nodes, but parks, malls, stadiums, and
+ * sports centres are predominantly ways/relations — the old node-only pull
+ * made the candidate pool structurally food-heavy regardless of the actual
+ * neighborhood, which is the exact bias BUCKET_CAPS and the skill's
+ * anti-food rule then had to fight. `out center` returns tags plus a
+ * center point for ways/relations (we only read tags), keeping the payload
+ * as compact as `out body` was. Exported for the offline verifier.
+ */
+export function buildOverpassQuery(lat: number, lon: number): string {
+  const r = OVERPASS_RADIUS_M;
+  return `[out:json][timeout:10];
+(
+  nwr["amenity"~"fast_food|restaurant|cafe|bar|cinema|gym|library|theatre"](around:${r},${lat},${lon});
+  nwr["shop"~"hardware|supermarket|mall"](around:${r},${lat},${lon});
+  nwr["leisure"~"park|playground|sports_centre|stadium"](around:${r},${lat},${lon});
+  nwr["tourism"~"attraction|museum|viewpoint"](around:${r},${lat},${lon});
+);
+out center 80;`;
+}
+
 async function overpass(
   lat: number,
   lon: number,
@@ -139,17 +161,7 @@ async function overpass(
   const cached = cacheGet(overpassCache, key);
   if (cached) return { value: cached, cached: true, timedOut: false };
 
-  // Broader pull (out body 80) so we have enough candidates per bucket
-  // to satisfy the caps after partitioning.
-  const r = OVERPASS_RADIUS_M;
-  const query = `[out:json][timeout:10];
-(
-  node["amenity"~"fast_food|restaurant|cafe|bar|cinema|gym|library|theatre"](around:${r},${lat},${lon});
-  node["shop"~"hardware|supermarket|mall"](around:${r},${lat},${lon});
-  node["leisure"~"park|playground|sports_centre|stadium"](around:${r},${lat},${lon});
-  node["tourism"~"attraction|museum|viewpoint"](around:${r},${lat},${lon});
-);
-out body 80;`;
+  const query = buildOverpassQuery(lat, lon);
 
   try {
     const res = await fetchWithTimeout(
@@ -269,14 +281,31 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(body, { status: 400 });
   }
 
+  // Optional precise center (M13 phase 6): the client passes the browser
+  // geolocation coords it already holds, in-flight only — nothing new is
+  // stored server-side, and the Overpass cache key rounds to ~1km.
+  // Centering the venue search on the USER instead of the geocoded city
+  // centroid makes the histogram describe their neighborhood, not downtown.
+  const latRaw = req.nextUrl.searchParams.get("lat");
+  const lonRaw = req.nextUrl.searchParams.get("lon");
+  const preciseLat = latRaw !== null ? Number(latRaw) : NaN;
+  const preciseLon = lonRaw !== null ? Number(lonRaw) : NaN;
+  const hasPrecise =
+    Number.isFinite(preciseLat) &&
+    Number.isFinite(preciseLon) &&
+    Math.abs(preciseLat) <= 90 &&
+    Math.abs(preciseLon) <= 180;
+
   const t0 = Date.now();
   try {
+    // Nominatim still supplies the display string (region context for the
+    // prompt); precise coords only replace the SEARCH CENTER.
     const geoRes = await geocode(location);
     const tGeo = Date.now();
     const geo = geoRes.value;
-    if (!geo) {
-      // No usable geocode (miss or timeout) → graceful no-places path so the
-      // downstream generator can still run without venue context.
+    if (!geo && !hasPrecise) {
+      // No usable center at all (geocode miss/timeout, no coords) →
+      // graceful no-places path so the generator can still run.
       console.log("[nearby-places] timing", {
         geocodeMs: tGeo - t0,
         overpassMs: 0,
@@ -292,7 +321,10 @@ export async function GET(req: NextRequest) {
       };
       return NextResponse.json(body);
     }
-    const overRes = await overpass(geo.lat, geo.lon);
+    const center = hasPrecise
+      ? { lat: preciseLat, lon: preciseLon }
+      : { lat: geo!.lat, lon: geo!.lon };
+    const overRes = await overpass(center.lat, center.lon);
     const tOver = Date.now();
     const { places, categoryCounts, typeCounts } = rebalance(overRes.value);
     console.log("[nearby-places] timing", {
@@ -302,6 +334,7 @@ export async function GET(req: NextRequest) {
       geocodeCached: geoRes.cached,
       overpassCached: overRes.cached,
       overpassTimedOut: overRes.timedOut,
+      centerSource: hasPrecise ? "precise" : "centroid",
       placeCount: places.length,
       outcome: overRes.timedOut ? "overpass_timeout" : "ok",
     });
@@ -310,7 +343,13 @@ export async function GET(req: NextRequest) {
     // rather than erroring — a slow Overpass can never block a result.
     const body: NearbyResponse = {
       ok: true,
-      location: { display: geo.display, lat: geo.lat, lon: geo.lon },
+      location: {
+        // Raw typed location as the display fallback when geocode failed
+        // but precise coords carried the request.
+        display: geo?.display ?? location,
+        lat: center.lat,
+        lon: center.lon,
+      },
       places,
       categoryCounts,
       typeCounts,

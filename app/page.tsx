@@ -229,9 +229,40 @@ async function fetchNearby(loc: string): Promise<{
   places: NearbyPlace[];
   typeCounts: Record<string, number>;
 }> {
+  // Attach the precise browser coords the client already holds when they
+  // belong to THIS location — the crosshair flow stores the geolocated
+  // label alongside the coords, so a label match means "the typed city IS
+  // where the user was located". In-flight only; the server centers the
+  // venue search on the user's neighborhood instead of the city centroid.
+  // Typing a different city skips the coords (they'd point at the wrong
+  // place) and falls back to the centroid path.
+  let coordQs = "";
+  try {
+    const raw = localStorage.getItem("lastKnownGeo");
+    if (raw) {
+      const last = JSON.parse(raw) as {
+        lat?: number;
+        lng?: number;
+        label?: string;
+        timestamp?: number;
+      };
+      if (
+        typeof last?.lat === "number" &&
+        typeof last?.lng === "number" &&
+        typeof last?.label === "string" &&
+        last.label.trim().toLowerCase() === loc.trim().toLowerCase() &&
+        typeof last?.timestamp === "number" &&
+        Date.now() - last.timestamp < 24 * 60 * 60 * 1000
+      ) {
+        coordQs = `&lat=${encodeURIComponent(String(last.lat))}&lon=${encodeURIComponent(String(last.lng))}`;
+      }
+    }
+  } catch {
+    // ignore — centroid fallback
+  }
   try {
     const r = await fetch(
-      `/api/nearby-places?location=${encodeURIComponent(loc)}`,
+      `/api/nearby-places?location=${encodeURIComponent(loc)}${coordQs}`,
     );
     if (!r.ok) return { region: null, places: [], typeCounts: {} };
     const data = (await r.json()) as NearbyResponse;
