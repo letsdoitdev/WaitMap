@@ -19,7 +19,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useOnboarding } from "@/lib/onboarding-context";
 import { track } from "@/lib/analytics";
 import { type GeneratedQuest } from "@/lib/generate";
-import { appendRecentQuestIds } from "@/lib/recent-quests";
+import { appendRecentQuests } from "@/lib/recent-quests";
 import SignInModal from "@/components/SignInModal";
 import type { QuestCategory } from "@/lib/quests";
 
@@ -111,7 +111,7 @@ export default function TeaserPage() {
     });
     // Seed the recent buffer so the same teaser isn't first-up on the home
     // reroll the user is about to land on.
-    appendRecentQuestIds([teaser.id]);
+    appendRecentQuests([{ id: teaser.id, title: teaser.title }]);
   }, [teaser]);
 
   const onShowRest = () => {

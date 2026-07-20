@@ -7,6 +7,8 @@ import { GeneratedQuest } from "@/lib/generate";
 import { NearbyBucket, NearbyPlace } from "@/lib/nearby";
 import { createClient } from "@/lib/supabase/server";
 import { FREE_DAILY_REROLLS, getUtcDateKey } from "@/lib/constants";
+import { hardFilterQuests, selectTopQuests } from "@/lib/quest-ranker";
+import { pickModel } from "@/lib/model-routing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,7 +38,16 @@ export type GenerateBody = {
   category?: string | null;
   canDrive?: boolean;
   lowCostOnly?: boolean;
+  /** Onboarding vibe answer (UI category names). Soft taste bias only. */
+  vibeCategories?: string[];
+  /** 3-value cost preference. Supersedes lowCostOnly when present. */
+  costPref?: CostPref;
+  /** User's local hour (0-23) + weekday, for temporal plausibility. */
+  localHour?: number;
+  localWeekday?: string;
 };
+
+export type CostPref = "free" | "cheap" | "any";
 
 // Slim schema as returned by the model. To keep output tokens (the dominant
 // latency term for a single Haiku call) minimal, the model now returns only
@@ -97,6 +108,144 @@ function isV4Category(s: string): boolean {
   return (V4_CATEGORIES as readonly string[]).includes(s);
 }
 
+// ---------- Personal-signal sanitizers (M13 quest quality) ----------
+//
+// Onboarding collects vibes / cost pref / local time but the prompt never saw
+// them. All three are client-controlled, so each is validated against a
+// whitelist (vibes, weekday) or a closed enum/range (costPref, hour) before it
+// can reach the prompt — nothing here interpolates free-form client text.
+
+// The 7 vibe options StepVibe offers, mapped to phrasing in the model's own
+// §9 category vocabulary (Chaos→Challenge, Late Night→Nightlife; Chill has no
+// V4 category so it's described as the tier-1/2 calm end of the spectrum).
+const VIBE_MODEL_HINT: Record<string, string> = {
+  Chaos: "high-energy group chaos (Challenge)",
+  Outdoor: "outdoor adventures (Outdoor)",
+  Social: "social bits involving strangers (Social)",
+  Creative: "making things together (Creative)",
+  Food: "food-centered outings (Food)",
+  "Late Night": "late-night energy (Nightlife)",
+  Chill: "calm, wholesome hangs (the chill tier-1 end)",
+};
+
+// UI vibe names → the model's §9 category vocabulary, for the ranker's
+// vibe-match bonus and exploration slot. Chill maps to no category — it
+// describes the calm tier, not a category.
+const VIBE_TO_V4: Record<string, string | null> = {
+  Chaos: "Challenge",
+  Outdoor: "Outdoor",
+  Social: "Social",
+  Creative: "Creative",
+  Food: "Food",
+  "Late Night": "Nightlife",
+  Chill: null,
+};
+
+export function preferredV4Categories(vibes: string[]): Set<string> {
+  const out = new Set<string>();
+  for (const v of vibes) {
+    const c = VIBE_TO_V4[v];
+    if (c) out.add(c);
+  }
+  return out;
+}
+
+export function sanitizeVibes(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  for (const item of v) {
+    if (typeof item === "string" && item in VIBE_MODEL_HINT && !out.includes(item)) {
+      out.push(item);
+    }
+  }
+  return out;
+}
+
+export function sanitizeCostPref(
+  costPref: unknown,
+  lowCostOnly: boolean,
+): CostPref | null {
+  if (costPref === "free" || costPref === "cheap" || costPref === "any") {
+    return costPref;
+  }
+  // Back-compat: older clients only send the boolean.
+  return lowCostOnly ? "free" : null;
+}
+
+const WEEKDAYS = [
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+] as const;
+
+export type LocalTime = { hour: number; weekday: string };
+
+export function sanitizeLocalTime(
+  hour: unknown,
+  weekday: unknown,
+): LocalTime | null {
+  const h = Number(hour);
+  if (!Number.isInteger(h) || h < 0 || h > 23) return null;
+  const wd = (WEEKDAYS as readonly string[]).includes(weekday as string)
+    ? (weekday as string)
+    : null;
+  if (!wd) return null;
+  return { hour: h, weekday: wd };
+}
+
+function formatHour12(hour: number): string {
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h12}${hour < 12 ? "am" : "pm"}`;
+}
+
+/**
+ * Region/location strings are client-controlled text interpolated into the
+ * prompt (and logged). Nominatim display_names are verbose and can be
+ * house-number precise when the user typed a street address. Collapse
+ * whitespace, keep at most 3 comma segments — for longer names, the first
+ * plus the last two ("Ashburn, Loudoun County, Virginia, United States" →
+ * "Ashburn, Virginia, United States"), which drops street-level detail —
+ * and cap the length.
+ */
+export function sanitizeRegion(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  const cleaned = raw.replace(/\s+/g, " ").trim();
+  if (!cleaned) return "";
+  const segs = cleaned
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const kept =
+    segs.length <= 3 ? segs : [segs[0], ...segs.slice(-2)];
+  return kept.join(", ").slice(0, 80);
+}
+
+/**
+ * typeCounts keys become histogram labels in the prompt. Whitelist the key
+ * shape (word characters only — no free-form client text), clamp values,
+ * and cap the entry count, keeping known venue types first so an abusive
+ * payload can't crowd them out.
+ */
+export function sanitizeTypeCounts(v: unknown): Record<string, number> {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return {};
+  const entries = Object.entries(v as Record<string, unknown>).sort(
+    ([a], [b]) => Number(b in TYPE_LABELS) - Number(a in TYPE_LABELS),
+  );
+  const out: Record<string, number> = {};
+  for (const [key, val] of entries) {
+    if (Object.keys(out).length >= 18) break;
+    if (key.length > 30 || !/^[a-z0-9_]+$/i.test(key)) continue;
+    const n = Math.floor(Number(val));
+    if (!Number.isFinite(n) || n <= 0) continue;
+    out[key] = Math.min(n, 500);
+  }
+  return out;
+}
+
 // ---------- Load skill body at module load ----------
 
 function loadSkillBody(): string {
@@ -123,12 +272,59 @@ function loadSkillBody(): string {
 
 const SKILL_BODY = loadSkillBody();
 
-// The consolidated constitution (SKILL.md, loaded above) is now the entire
-// system prompt — it absorbed the former WEBSITE_OVERRIDES, the QUALITY (HARD)
-// principles, the structural templates, the anti-structures, and the single
-// format anchor. No website-overrides block and no owner-feedback example
-// injection: all teaching lives in one cached doc.
-export const SYSTEM_PROMPT = `${SKILL_BODY}`;
+// Static request protocol, appended to the constitution. Two jobs:
+//
+// 1. It holds every instruction that used to be repeated verbatim in each
+//    user message (geographic-plausibility rules, venue-hint semantics,
+//    diversity-seed usage, the closing build/score/output paragraph), so the
+//    per-request message is only the volatile lines — smaller requests, and
+//    identical instructions can never drift between the two endpoints.
+// 2. It pushes the cached system prefix past claude-haiku-4-5's 4096-token
+//    minimum cacheable prompt length. The constitution alone is ~3.6K
+//    tokens, UNDER the minimum — cache_control silently no-oped, every call
+//    re-paid full input processing, and the 1h-TTL beta header did nothing.
+//    Verify post-deploy via the [generate] cache log: the second request
+//    within the TTL must show cacheRead > 0. If it's still 0, this block
+//    needs to grow.
+const REQUEST_PROTOCOL = `
+---
+
+# WEBSITE REQUEST PROTOCOL (server context lines)
+
+You are generating for the WaitMap web/mobile app. Each request supplies compact context lines. Interpret each line exactly as specified below, then construct the batch per the constitution above. Everything in this section restates or applies the constitution — nothing here relaxes a hard rule from §5, §7, or §8.
+
+**Task.** Construct exactly 3 side quests per request — unless the request explicitly asks for a different count, in which case produce exactly that many. Build each quest from a DIFFERENT §6 structural template (different setting and different verb), score each against the §4 rubric, and reject any §5 anti-structure before emitting. Output EXACTLY per the §9 FORMAT ANCHOR: a minified JSON array with one object per quest, keys title/description/category only, each description 10-14 words (16 ABSOLUTE MAX). No markdown fences, no commentary, no whitespace padding.
+
+**"Construct N quests."** (optional first line) — produce exactly N objects in the array instead of 3. All other rules hold at batch scale: still at most 1 food-flavored quest in the whole batch, never repeat a §6 template within the batch, and when N is 6 spread the batch across at least 4 different categories (unless a single category was requested). The server ranks and ships the best 3, so N distinct, rule-clean candidates beat N variations of one idea.
+
+**"Generate quests in the X category."** (optional first line) — a deliberate user filter. Every quest in the batch should land in or near that category; the 3-different-categories spread rule is suspended for that request. The spice ceiling, anti-food rule, and all safety bans still apply.
+
+**"Region:"** — geographic plausibility ONLY. Use it to keep quests physically possible for the area's climate, terrain, and density: no surfing or tide-pools in a landlocked region, no "hit 30 bars in an hour" in a rural town, no ski quests in a desert, no subway quests where there is no subway. It is atmosphere, NOT a venue list — never name a specific venue, street, park, landmark, or neighborhood from it or from your own knowledge of the area.
+
+**"Venue types nearby:"** — a soft, generic hint about what kinds of places exist near the user (drawn from: restaurants, fast food spots, cafes, bars, cinemas, theatres, libraries, gyms, parks, playgrounds, sports centres, stadiums, museums, attractions, viewpoints, supermarkets, malls, hardware stores). Do NOT set every quest at the dominant type, and remember the anti-food rule: the hint list skews food-heavy; resist it. If parks are listed, a quest may say "a nearby park" — never a park's name. "(no nearby info)" means no venue data — lean on settings that exist everywhere (streets, homes, open spaces).
+
+**"DIVERSITY SEED:"** — four axis hints (verb / setting / prop or constraint / group dynamic). Use at least one tag per quest, and make the batch collectively touch at least 3 of the 4 axes. The seed exists to pull batches out of repetitive attractors; treat it as creative fuel, not a checklist to name-drop.
+
+**"Vibe lean:"** (optional) — the user's standing taste from onboarding. Favor these vibes in roughly two-thirds of the batch, but do NOT exclude other categories — the batch must still span at least 3 different categories. A vibe lean is a lean; variety within it is still the point.
+
+**"Local context:"** (optional) — the user's current weekday and approximate local hour. Keep every quest temporally plausible for that hour: no sunrise missions at 11pm, no "watch the sunset" at noon, Nightlife energy belongs to evenings and late nights, quiet tier-1 rituals fit early mornings and weekday nights. Let the hour and weekday steer category choice per §7.
+
+**"Inputs:"** — the request parameters, all binding:
+- "spice level N/10" — a CEILING, not a target (§3). Every quest must sit at or below it.
+- "group size" — match pronouns and roles per §7; every member needs an active role.
+- "time available M minutes" — every quest must fit the window, including getting there.
+- "Constraint: walking distance only, no car." — no quest may require driving; keep everything reachable on foot.
+- "Cost: free." — each quest must cost under $5 per person, ideally $0. No paid venues, no ticketed events, no quest that requires a meaningful purchase.
+- "Cost: cheap." — free or low-cost preferred; nothing over ~$15 per person.
+- "Cost: any." — cost is not a constraint; free and paid activities are both fine when they fit.
+
+**"BANNED TITLES:"** (optional) — a blocklist of the user's recently seen quest titles, oldest first. Do NOT generate any quest whose title or core mechanic closely matches one (exact or near-paraphrase). Generating a banned quest is a failure — treat the list as a hard blocklist, not inspiration.
+
+**Server post-processing (why sloppiness is wasted).** The server independently drops quests that trip a §8 safety ban or near-duplicate a banned title, scrubs any leaked venue names, and discards malformed JSON. A dropped quest costs the user a visible slot — construct clean, rule-following quests the first time.
+
+**Batch self-check before emitting.** Run down this list for the finished batch: (1) every description is 10-14 words, never over 16 — count them; (2) every title is 5-8 words; (3) no title matches or paraphrases a banned title; (4) at most 1 food-flavored quest, and no food used as a mechanic, reward, or penalty anywhere; (5) the batch spans at least 3 different categories unless a single category was requested; (6) every quest sits at or below the spice ceiling; (7) every quest fits the time window, the group size, and any walking/cost constraints; (8) no proper-noun venues, streets, or landmarks anywhere; (9) valid minified JSON, correct key set, nothing else in the output. Fix any failure BEFORE emitting — the array you return is final.`;
+
+export const SYSTEM_PROMPT = `${SKILL_BODY}${REQUEST_PROTOCOL}`;
 
 // ---------- Helpers ----------
 
@@ -488,12 +684,14 @@ function pickDiversitySeed(previousTitles: string[]): DiversitySeed {
   };
 }
 
+// Compact per-request rendering — usage semantics live in the cached
+// REQUEST_PROTOCOL ("use at least one tag per quest, touch 3+ axes").
 function renderDiversitySeed(seed: DiversitySeed): string {
-  return `\n\nDIVERSITY SEED (use at least one tag per quest; the batch should collectively touch 3+ of these 4 axes):
-- verb hint: ${seed.verb}
-- setting hint: ${seed.setting}
-- prop / constraint hint: ${seed.prop}
-- group dynamic hint: ${seed.group_dynamic}`;
+  return `DIVERSITY SEED:
+- verb: ${seed.verb}
+- setting: ${seed.setting}
+- prop/constraint: ${seed.prop}
+- group dynamic: ${seed.group_dynamic}`;
 }
 
 // ---------- Food-bias post-check ----------
@@ -628,7 +826,7 @@ const TITLE_STOPWORDS = new Set([
   "by",
 ]);
 
-function titleBigrams(title: string): Set<string> {
+export function titleBigrams(title: string): Set<string> {
   const tokens = title
     .toLowerCase()
     .replace(/[^a-z0-9 ]/g, " ")
@@ -641,7 +839,7 @@ function titleBigrams(title: string): Set<string> {
   return out;
 }
 
-function bigramJaccard(a: string, b: string): number {
+export function bigramJaccard(a: string, b: string): number {
   const sa = titleBigrams(a);
   const sb = titleBigrams(b);
   if (sa.size === 0 && sb.size === 0) return 0;
@@ -653,14 +851,14 @@ function bigramJaccard(a: string, b: string): number {
   return union === 0 ? 0 : inter / union;
 }
 
-const SIMILARITY_THRESHOLD = 0.45;
+export const SIMILARITY_THRESHOLD = 0.45;
 const SAFETY_LOG = process.env.GENERATE_DEBUG === "1";
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function shareThreeConsecutive(a: string, b: string): boolean {
+export function shareThreeConsecutive(a: string, b: string): boolean {
   const ta = a.toLowerCase().split(/\s+/).filter(Boolean);
   const tb = b.toLowerCase().split(/\s+/).filter(Boolean);
   if (ta.length < 3 || tb.length < 3) return false;
@@ -672,6 +870,59 @@ function shareThreeConsecutive(a: string, b: string): boolean {
     if (trigramsB.has(`${ta[i]} ${ta[i + 1]} ${ta[i + 2]}`)) return true;
   }
   return false;
+}
+
+/**
+ * previousTitles is client-controlled text interpolated into the prompt —
+ * cap the count (the ring buffer holds 30) and each title's length, and
+ * strip newlines/control characters so a hostile client can't smuggle
+ * multi-line instructions or megabyte strings into the message.
+ */
+export function sanitizePreviousTitles(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .filter((t): t is string => typeof t === "string")
+    .map((t) => t.replace(/\s+/g, " ").trim().slice(0, 80))
+    .filter(Boolean)
+    .slice(-30);
+}
+
+/**
+ * Sequential near-duplicate filter. A quest is dropped when its title sits
+ * at or over the bigram-Jaccard threshold (or shares 3 consecutive words)
+ * with any banned previous title OR any quest already kept from this batch.
+ * Order-preserving, so the stream path's progressive emission and its
+ * authoritative reconcile pass accept the exact same prefix.
+ */
+export function filterNearDuplicates(
+  quests: ClaudeQuest[],
+  previousTitles: string[],
+  alreadyKeptTitles: string[] = [],
+): { kept: ClaudeQuest[]; dropped: string[] } {
+  const kept: ClaudeQuest[] = [];
+  const dropped: string[] = [];
+  const keptTitles = [...alreadyKeptTitles];
+  for (const q of quests) {
+    const title = typeof q?.title === "string" ? q.title : "";
+    if (isNearDuplicate(title, previousTitles, keptTitles)) {
+      dropped.push(title);
+    } else {
+      kept.push(q);
+      keptTitles.push(title);
+    }
+  }
+  return { kept, dropped };
+}
+
+export function isNearDuplicate(
+  title: string,
+  previousTitles: string[],
+  siblingTitles: string[],
+): boolean {
+  const overlaps = (other: string) =>
+    bigramJaccard(title, other) >= SIMILARITY_THRESHOLD ||
+    shareThreeConsecutive(title, other);
+  return previousTitles.some(overlaps) || siblingTitles.some(overlaps);
 }
 
 type ViolationReport = {
@@ -819,10 +1070,17 @@ export function buildUserMessage(p: {
   timeAvailable: number;
   requestedCategory: string | null;
   canDrive: boolean;
-  lowCostOnly: boolean;
+  costPref: CostPref | null;
+  vibes: string[];
+  localTime: LocalTime | null;
   typeCounts: Record<string, number>;
   previousTitles: string[];
+  /** Candidate count to request (default 3). The protocol's "Construct N
+   * quests." line is emitted when this differs from 3. */
+  count?: number;
 }): { userMessage: string; histogram: string } {
+  const count = p.count ?? 3;
+  const countPrefix = count !== 3 ? `Construct ${count} quests.\n` : "";
   const groupSizeHint =
     p.groupSize === "solo"
       ? "1 person"
@@ -830,32 +1088,43 @@ export function buildUserMessage(p: {
         ? "2 people"
         : "3+ people";
   const previousStr = p.previousTitles.length
-    ? `\n\nBANNED TITLES — do NOT generate any quest with a title that closely matches these (exact or near-paraphrase):\n${p.previousTitles.join("\n")}\n\nGenerating a banned title is a failure. Treat this list as a blocklist, not a suggestion.`
+    ? `\n\nBANNED TITLES:\n${p.previousTitles.join("\n")}`
     : "";
   const categoryPrefix = p.requestedCategory
-    ? `Generate quests in the ${p.requestedCategory} category. `
+    ? `Generate quests in the ${p.requestedCategory} category.\n`
     : "";
   const driveStr = p.canDrive ? "" : " Constraint: walking distance only, no car.";
-  const costStr = p.lowCostOnly
-    ? " Constraint: free or very low cost only — each quest must cost under $5 per person, ideally $0. No paid venues, ticketed events, or quests that require any meaningful purchase."
+  const costStr = p.costPref ? ` Cost: ${p.costPref}.` : "";
+  // Soft taste bias from onboarding — semantics ("roughly two-thirds, do not
+  // exclude other categories") live in the cached protocol. Skipped when the
+  // user picked an explicit category filter (a stronger, deliberate signal
+  // that overrides ambient taste).
+  const vibeStr =
+    !p.requestedCategory && p.vibes.length > 0
+      ? `\nVibe lean: ${p.vibes.map((v) => VIBE_MODEL_HINT[v]).join(", ")}`
+      : "";
+  const timeStr = p.localTime
+    ? `\nLocal context: ${p.localTime.weekday}, ~${formatHour12(p.localTime.hour)}`
     : "";
   const histogram = buildHistogram(p.typeCounts);
   const diversityStr = renderDiversitySeed(pickDiversitySeed(p.previousTitles));
 
-  // Request-context only — all teaching (principles, tiers, templates,
-  // anti-structures, format anchor) now lives in the cached constitution
-  // (SYSTEM_PROMPT). No few-shot/negative examples here.
-  const userMessage = `${categoryPrefix}Construct exactly 3 side quests per the constitution in the system prompt. Light context: the user is in ${p.region} (atmosphere only — NOT a venue list to draw from).
+  // Volatile request lines ONLY. All instruction text — what each line means
+  // and how to build/score/format the batch — lives in the cached
+  // REQUEST_PROTOCOL section of the system prompt, so per-request tokens
+  // stay minimal and the cached prefix stays byte-identical across calls.
+  const userMessage = `${countPrefix}${categoryPrefix}Region: ${p.region}
+Venue types nearby: ${histogram}
 
-GEOGRAPHIC PLAUSIBILITY: Use "${p.region}" only to keep quests physically possible for the area's climate, terrain, and density — e.g. no surfing/tide-pools in a landlocked region, no "hit 30 bars in an hour" in a rural town, no ski quests in a desert. Do NOT name any specific venue, street, or landmark; this is a sanity check on quest TYPE, not a place to drop proper nouns.
+${diversityStr}
+${vibeStr}${timeStr}
+Inputs: spice level ${p.spiceLevel}/10, group size ${groupSizeHint}, time available ${p.timeAvailable} minutes.${driveStr}${costStr}${previousStr}`;
 
-Venue TYPES available nearby (soft hint only — do NOT make all 3 quests at the dominant type): ${histogram}
-
-For example, if they have parks, your quest can say "a nearby park" — do NOT name the park.${diversityStr}
-
-Inputs: spice level ${p.spiceLevel}/10, group size ${groupSizeHint}, time available ${p.timeAvailable} minutes.${driveStr}${costStr}${previousStr}
-
-Build each quest from a DIFFERENT §6 structural template (different setting and verb), score against the §4 rubric, and reject any §5 anti-structure. Output EXACTLY per the §9 FORMAT ANCHOR: a minified JSON array of 3 objects, keys title/description/category only, each description 16 words MAX. No markdown, no commentary.`;
+  // Dev-mode visibility into exactly what the model sees — the assembled
+  // message is otherwise reconstructable only from scattered log fields.
+  if (process.env.NODE_ENV === "development" || process.env.GENERATE_DEBUG === "1") {
+    console.log("[generate] userMessage ↓\n" + userMessage);
+  }
 
   return { userMessage, histogram };
 }
@@ -880,6 +1149,9 @@ export async function POST(req: NextRequest) {
     data: { user: gateUser },
   } = await supabase.auth.getUser();
   let meterFreeUser = false;
+  // Server-verified Pro flag — feeds model routing below. Never trust a
+  // client-supplied tier for this.
+  let isProUser = false;
   // Surfaced in the success response (M12.3) so the mobile UI can render the
   // tier chip + reroll count without a second round-trip.
   let responseTier: "free" | "pro" = "free";
@@ -894,6 +1166,7 @@ export async function POST(req: NextRequest) {
       profile?.tier === "pro" &&
       (!profile.tier_expires_at ||
         new Date(profile.tier_expires_at).getTime() > Date.now());
+    isProUser = isPro;
     if (!isPro) {
       meterFreeUser = true;
       const used = profile?.daily_rerolls?.[dateKey] ?? 0;
@@ -918,12 +1191,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "bad json" }, { status: 400 });
   }
 
-  const location = (body.location ?? "").trim() || "your area";
+  const location = sanitizeRegion(body.location) || "your area";
   // Region is a coarse locale descriptor for geographic plausibility only.
   // Prefer the geocoded region; fall back to the raw location string so the
   // model always has *some* locale signal (the raw city is enough to avoid
   // "surf in landlocked Arizona" style misfires).
-  const region = (body.region ?? "").trim() || location;
+  const region = sanitizeRegion(body.region) || location;
   const places = Array.isArray(body.nearbyPlaces)
     ? body.nearbyPlaces
         .filter((p) => p && typeof p.name === "string" && typeof p.type === "string")
@@ -931,15 +1204,17 @@ export async function POST(req: NextRequest) {
     : [];
   // Histogram is built from the pre-capped typeCounts the place-fetch route
   // computed. If the client didn't send it, derive a fallback from places
-  // (which are already capped by /api/nearby-places).
-  const typeCounts: Record<string, number> =
+  // (which are already capped by /api/nearby-places). Either way the keys
+  // and values are sanitized before they can become prompt text.
+  const typeCounts: Record<string, number> = sanitizeTypeCounts(
     body.typeCounts && typeof body.typeCounts === "object"
       ? body.typeCounts
       : (() => {
           const tc: Record<string, number> = {};
           for (const p of places) tc[p.type] = (tc[p.type] ?? 0) + 1;
           return tc;
-        })();
+        })(),
+  );
   const spiceLevel = clamp(Math.round(Number(body.spiceLevel) || 5), 1, 10);
   const groupSize: GroupSizeBand =
     body.groupSize === "solo" || body.groupSize === "2" || body.groupSize === "group"
@@ -949,15 +1224,31 @@ export async function POST(req: NextRequest) {
   const excludeIds = Array.isArray(body.excludeIds)
     ? body.excludeIds.slice(0, 200)
     : [];
-  const previousTitles = Array.isArray(body.previousTitles)
-    ? body.previousTitles.filter((t) => typeof t === "string").slice(-9)
-    : [];
+  const previousTitles = sanitizePreviousTitles(body.previousTitles);
   const categoryRaw =
     typeof body.category === "string" ? body.category.trim() : "";
   const requestedCategory =
     categoryRaw && categoryRaw.toLowerCase() !== "all" ? categoryRaw : null;
   const canDrive = body.canDrive !== false;
-  const lowCostOnly = body.lowCostOnly === true;
+  const costPref = sanitizeCostPref(body.costPref, body.lowCostOnly === true);
+  const vibes = sanitizeVibes(body.vibeCategories);
+  const localTime = sanitizeLocalTime(body.localHour, body.localWeekday);
+
+  // Overgenerate-and-rank: ask for 6 candidates, hard-filter, ship the best
+  // 3. One model call either way; ~2x output tokens buys a ranked selection
+  // plus headroom so safety/dup/constraint drops rarely leave a short batch.
+  const BATCH_COUNT = 6;
+  const TARGET_COUNT = 3;
+
+  // Model routing: first roll of a session (empty blocklist) and Pro users
+  // get the stronger model; rerolls stay on the fast one. Every call in
+  // this request (main + any re-ask) uses the same routed model so the
+  // per-model prompt cache stays warm within the request.
+  const modelRoute = pickModel({
+    isFirstRoll: previousTitles.length === 0,
+    isPro: isProUser,
+  });
+  console.log("[generate] model", modelRoute);
 
   const { userMessage: baseUserMessage, histogram } = buildUserMessage({
     region,
@@ -966,9 +1257,12 @@ export async function POST(req: NextRequest) {
     timeAvailable,
     requestedCategory,
     canDrive,
-    lowCostOnly,
+    costPref,
+    vibes,
+    localTime,
     typeCounts,
     previousTitles,
+    count: BATCH_COUNT,
   });
 
   const rawNames = places.map((p) => p.name);
@@ -988,18 +1282,15 @@ export async function POST(req: NextRequest) {
   const messages: Msg[] = [{ role: "user", content: baseUserMessage }];
 
   let lastParsed: ClaudeQuest[] | null = null;
-  let lastViolations: string[] = [];
-  const MAX_RETRIES = 2;
+  let lastText = "";
+  let stopReason: string | null = null;
 
   // Per-stage timing — mirrors the [nearby-places] breakdown so before/after
   // p95 work can be measured rather than guessed. `llmUsage` captures the
   // per-call token accounting (incl. cache_read vs cache_creation) so we can
   // confirm prompt caching is actually being HIT.
   const llmStageMs: number[] = [];
-  const llmUsage: Array<Record<string, number | undefined>> = [];
-  // Retained in the timing log for continuity; the food top-up call was
-  // removed (it doubled p95), so this stays 0.
-  const topupMs = 0;
+  const llmUsage: Array<Record<string, number | string | undefined>> = [];
 
   function recordUsage(u: Anthropic.Messages.Usage | undefined): void {
     if (!u) return;
@@ -1010,6 +1301,7 @@ export async function POST(req: NextRequest) {
     // HIT = the cached prefix was read; MISS = we re-paid to (re)create it.
     const cacheHit = read > 0 && create === 0;
     llmUsage.push({
+      model: modelRoute.model,
       input: u.input_tokens,
       output: u.output_tokens,
       cacheRead: read,
@@ -1020,8 +1312,12 @@ export async function POST(req: NextRequest) {
     });
     // One-glance regime read in the Vercel function logs: scan a handful of
     // these and the hit fraction is immediately obvious. create1h > 0 on a
-    // miss confirms the 1h extended TTL is actually being applied.
+    // miss confirms the 1h extended TTL is actually being applied. The model
+    // is included so per-model daily token/cost totals (and per-model cache
+    // health — the cache is PER-MODEL) can be aggregated from logs.
     console.log("[generate] cache", {
+      model: modelRoute.model,
+      routeReason: modelRoute.reason,
       hit: cacheHit,
       read,
       create,
@@ -1036,24 +1332,24 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      // When the category is locked, the model's distribution narrows hard
-      // and we see the same handful of templates remixed across rerolls.
-      // 3 quests need ~750 output tokens. We hold both branches at 0.75 —
-      // higher temperatures were biasing toward JSON schema drift and the
-      // category-locked branch never actually benefited from the bump in
-      // practice.
-      const temperature = 0.75;
+    // Main call, plus ONE corrective re-ask when the output is malformed or
+    // truncated. Malformed JSON was previously terminal (break → 503) while
+    // the whole retry budget sat reserved for safety violations; safety is
+    // now enforced by the hard-drop pipeline below instead of conversation
+    // retries, so violators can never ship regardless of retry luck.
+    for (let attempt = 0; attempt < 2; attempt++) {
       const llmStart = Date.now();
       const response = await client.messages.create(
         {
-          model: "claude-haiku-4-5",
-          // Output generation is the single biggest latency term for the one
-          // call we make. With the slim 3-key schema + 16-word descriptions,
-          // 3 quests fit in ~180-220 tokens; 384 is a hard backstop that
-          // bounds the tail without truncating valid minified JSON.
-          max_tokens: 384,
-          temperature,
+          model: modelRoute.model,
+          // 6 candidates fit in ~450-550 output tokens with the slim 3-key
+          // schema; 1000 bounds the tail without truncating valid minified
+          // JSON (the old 384 ceiling could cut the array mid-object, which
+          // read as a parse failure and 503'd the whole request).
+          max_tokens: 1000,
+          // Held at 0.75 — higher temperatures biased toward JSON schema
+          // drift without measurably better variety.
+          temperature: 0.75,
           system: [
             {
               type: "text",
@@ -1071,59 +1367,40 @@ export async function POST(req: NextRequest) {
       );
       llmStageMs.push(Date.now() - llmStart);
       recordUsage(response.usage);
+      stopReason = response.stop_reason ?? null;
 
       const textBlock = response.content.find((b) => b.type === "text");
       const text =
         textBlock && textBlock.type === "text" ? textBlock.text : "";
-      if (!text) break;
-
-      let parsed: unknown;
-      try {
-        parsed = extractJsonArray(text);
-      } catch {
-        parsed = null;
+      let parsed: unknown = null;
+      if (text) {
+        try {
+          parsed = extractJsonArray(text);
+        } catch {
+          parsed = null;
+        }
       }
-      if (!Array.isArray(parsed)) break;
+      if (Array.isArray(parsed)) {
+        lastParsed = (parsed as ClaudeQuest[]).slice(0, BATCH_COUNT);
+        lastText = text;
+        break;
+      }
 
-      // Cap at the contract size up-front — when the model returns 6
-      // (which the Outdoor audit saw) we'd otherwise propagate the extras
-      // through to the client. Keeping the first 3 also makes the
-      // violation report deterministic.
-      const arr = (parsed as ClaudeQuest[]).slice(0, 3);
-      const report = detectViolations(
-        arr,
-        rawNames,
-        spiceLevel,
-        requestedCategory,
-        previousTitles,
-      );
-      lastParsed = arr;
-      lastViolations = report.violations;
-      console.log("[generate] attempt", attempt + 1, {
-        questCount: arr.length,
-        rawNames: rawNames.length,
-        violations: report.violations.length,
-        violationList: report.violations,
-        leaked: report.leakedNames,
+      console.log("[generate] parse failure", {
+        attempt: attempt + 1,
+        stopReason,
+        textLen: text.length,
       });
-
-      // p95 budget: a full corrective round-trip costs ~2-3s, so we only spend
-      // one on violations that post-processing CANNOT repair — i.e. safety
-      // bans. Venue leaks are fixed by scrub() below, food-density by the
-      // top-up pass, and spice/dupe/similarity are cosmetic; retrying for
-      // those was the main driver of the 6.8-10.8s tail. Accept the first
-      // draft for everything except a hard safety hit.
-      const blocking = report.violations.filter((v) =>
-        v.startsWith("VIOLATION_SAFETY"),
-      );
-      if (blocking.length === 0 || attempt === MAX_RETRIES) break;
-
-      // Append assistant + corrective user, then loop (safety-only).
-      messages.push({ role: "assistant", content: text });
-      messages.push({
-        role: "user",
-        content: `Previous attempt violated a hard safety rule: ${blocking.join("; ")}. Generate 3 NEW quests that fix this. Keep everything else (no named venues, max 1 food quest, spice ceiling).`,
-      });
+      if (attempt === 0) {
+        messages.push({ role: "assistant", content: text || "(empty)" });
+        messages.push({
+          role: "user",
+          content:
+            stopReason === "max_tokens"
+              ? "Your output was cut off before the array closed. Return ONLY the complete minified JSON array — trim every description toward 10 words so it fits."
+              : "That was not parseable JSON. Return ONLY the minified JSON array of quest objects — no prose, no markdown fences.",
+        });
+      }
     }
 
     clearTimeout(timer);
@@ -1135,37 +1412,125 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ---------- Food-bias post-check + smart top-up ----------
+    // Observational report — venue leaks, food density, spice drift. Logged
+    // for owner review; enforcement lives in the hard-drop pipeline + ranker
+    // below, which act on every batch regardless of what this reports.
+    const report = detectViolations(
+      lastParsed,
+      rawNames,
+      spiceLevel,
+      requestedCategory,
+      previousTitles,
+    );
+    console.log("[generate] batch", {
+      questCount: lastParsed.length,
+      rawNames: rawNames.length,
+      violations: report.violations.length,
+      violationList: report.violations,
+      leaked: report.leakedNames,
+    });
+
+    // Scrub leaked venue names UNCONDITIONALLY (stream-path parity). The old
+    // violation-gated scrub let a Food-category quest ship a real venue name
+    // in an otherwise clean batch, and ranking should see final text anyway.
+    scrub(lastParsed, places);
+
+    // ---------- Hard drops, then ONE shortfall re-ask ----------
     //
-    // Old behavior: a full second 3-quest regeneration whenever food count
-    // ≥ 2 — doubled tail latency in the worst case. New: keep at most one
-    // food quest, filter the rest, and only request the missing N quests
-    // with a tiny max_tokens ceiling. Strictly faster end-to-end (smaller
-    // prompt, smaller completion) and we never throw away the good non-food
-    // quests we already had.
-    const foodCheckUserRequested =
-      requestedCategory && requestedCategory.toLowerCase() === "food";
-    if (!foodCheckUserRequested) {
-      // p95: a food-heavy batch no longer triggers a second LLM round-trip.
-      // The old top-up fired a full extra Haiku call whenever >=2 quests
-      // looked food-related — and isFoodQuest is broad (bar/drink/cook/menu/
-      // meal...), so on a restaurant-dense city it false-positived and
-      // roughly DOUBLED latency on nearly every reroll. The single-call
-      // prompt already pushes hard for "max 1 food per batch"; we just log
-      // slips and ship the 3 quests we have instead of paying ~2-3s to
-      // regenerate.
-      const foodCount = lastParsed.filter(isFoodQuest).length;
-      if (foodCount >= 2) {
-        console.log("[generate] food-bias slip (accepted, no top-up)", {
-          foodCount,
-        });
+    // Safety violators are dropped BEFORE normalize — previously they could
+    // ship after retry exhaustion, or survive via a stale lastParsed when a
+    // corrective retry returned unparseable text. Near-dupes (≥0.45 bigram
+    // Jaccard or 3 shared consecutive title words vs the blocklist or a
+    // sibling) and detectable constraint violations (car-required when
+    // walking-only, paid when free-only) drop with them. With 6 candidates,
+    // drops rarely leave a short pool; when they do, spend ONE small extra
+    // call — with its own timeout, since the main 25s window is spent.
+    const walkingOnly = !canDrive;
+    const freeOnly = costPref === "free";
+    const rankerHooks = { findSafetyViolation, isNearDuplicate };
+    const filtered = hardFilterQuests(lastParsed, {
+      previousTitles,
+      walkingOnly,
+      freeOnly,
+      hooks: rankerHooks,
+    });
+    let pool = filtered.kept;
+    if (filtered.dropped.length > 0) {
+      console.log("[generate] hard-dropped", filtered.dropped);
+    }
+
+    if (pool.length < TARGET_COUNT) {
+      const need = TARGET_COUNT - pool.length;
+      const reaskAbort = new AbortController();
+      const reaskTimer = setTimeout(() => reaskAbort.abort(), 8_000);
+      try {
+        const reaskStart = Date.now();
+        const reask = await client.messages.create(
+          {
+            model: modelRoute.model,
+            max_tokens: 384,
+            temperature: 0.75,
+            system: [
+              {
+                type: "text",
+                text: SYSTEM_PROMPT,
+                cache_control: { type: "ephemeral", ttl: "1h" },
+              },
+            ],
+            messages: [
+              ...messages,
+              { role: "assistant", content: lastText },
+              {
+                role: "user",
+                content: `${filtered.dropped.length ? `These were rejected (${filtered.dropped.map((d) => `${d.title}: ${d.reason}`).join("; ")}). ` : ""}Generate exactly ${need} NEW quest${need === 1 ? "" : "s"}, clearly distinct from every banned title${pool.length ? ` and from: ${pool.map((q) => q.title).join("; ")}` : ""}, obeying every constraint from the request. Output ONLY a minified JSON array of exactly ${need} object(s), keys title/description/category.`,
+              },
+            ],
+          },
+          { signal: reaskAbort.signal },
+        );
+        llmStageMs.push(Date.now() - reaskStart);
+        recordUsage(reask.usage);
+        const rb = reask.content.find((b) => b.type === "text");
+        const rtext = rb && rb.type === "text" ? rb.text : "";
+        let rparsed: unknown = null;
+        try {
+          rparsed = extractJsonArray(rtext);
+        } catch {
+          rparsed = null;
+        }
+        if (Array.isArray(rparsed)) {
+          const refillRaw = (rparsed as ClaudeQuest[]).slice(0, need);
+          scrub(refillRaw, places);
+          const refill = hardFilterQuests(refillRaw, {
+            previousTitles,
+            alreadyKeptTitles: pool.map((q) => q.title ?? ""),
+            walkingOnly,
+            freeOnly,
+            hooks: rankerHooks,
+          });
+          pool = [...pool, ...refill.kept];
+        }
+      } catch (e) {
+        console.log("[generate] shortfall re-ask failed", e);
+      } finally {
+        clearTimeout(reaskTimer);
       }
     }
 
-    // Final-pass server-side scrub if violations remained after retries.
-    if (lastViolations.length > 0) {
-      scrub(lastParsed, places);
-    }
+    // ---------- Rank and select the shipped 3 ----------
+    const selected = selectTopQuests(pool, {
+      target: TARGET_COUNT,
+      preferredCategories: preferredV4Categories(vibes),
+      isFood: (q) => isFoodQuest(q as ClaudeQuest),
+      allowFoodHeavy:
+        (requestedCategory ?? "").toLowerCase() === "food",
+    });
+    console.log("[generate] ranked", {
+      pool: pool.length,
+      stopReason,
+      selected: selected.map((q) => ({ title: q.title, category: q.category })),
+    });
+    lastParsed = selected;
 
     const seen = new Set(excludeIds);
     const categoryOverride: QuestCategory | null =
@@ -1220,7 +1585,6 @@ export async function POST(req: NextRequest) {
     console.log("[generate] timing", {
       llmStageMs,
       llmTotalMs: llmStageMs.reduce((a, b) => a + b, 0),
-      topupMs,
       attempts: llmStageMs.length,
       // cacheRead > 0 on calls after the first confirms the system prompt is
       // being served from cache rather than re-billed as cache_creation.

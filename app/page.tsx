@@ -23,8 +23,9 @@ import { useActiveQuest } from "@/lib/active-quest-context";
 import { useStats } from "@/lib/stats-context";
 import { GROUP_MODE_SIZE, useOnboarding } from "@/lib/onboarding-context";
 import {
-  appendRecentQuestIds,
-  loadRecentQuestIds,
+  appendRecentQuests,
+  hasAnyRecentQuests,
+  loadRecentQuests,
 } from "@/lib/recent-quests";
 import { createClient } from "@/lib/supabase/client";
 import { FREE_DAILY_REROLLS } from "@/lib/constants";
@@ -164,6 +165,22 @@ function saveShownTitles(titles: string[]) {
   writeTtl(SHOWN_TITLES_KEY, titles.slice(-30));
 }
 
+// Append titles, deduping case-insensitively while preserving order (oldest
+// first, newest last). Fixes the old double-append: the on-screen batch was
+// pushed into a window that already contained it, so the 9-slot title memory
+// effectively held only ~2 batches.
+function mergeTitles(existing: string[], incoming: string[]): string[] {
+  const seen = new Set(existing.map((t) => t.trim().toLowerCase()));
+  const out = [...existing];
+  for (const t of incoming) {
+    const key = t.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+  }
+  return out;
+}
+
 function loadBookmarks(): GeneratedQuest[] {
   if (typeof window === "undefined") return [];
   try {
@@ -203,6 +220,63 @@ function saveRatings(records: RatingRecord[]) {
 }
 
 type View = "results" | "saved";
+
+// `region` is the geocoded locale descriptor (e.g. "Ashburn, Virginia, USA"),
+// null when the city couldn't be geocoded at all. Used for geographic
+// plausibility in the prompt — never to name venues.
+async function fetchNearby(loc: string): Promise<{
+  region: string | null;
+  places: NearbyPlace[];
+  typeCounts: Record<string, number>;
+}> {
+  // Attach the precise browser coords the client already holds when they
+  // belong to THIS location — the crosshair flow stores the geolocated
+  // label alongside the coords, so a label match means "the typed city IS
+  // where the user was located". In-flight only; the server centers the
+  // venue search on the user's neighborhood instead of the city centroid.
+  // Typing a different city skips the coords (they'd point at the wrong
+  // place) and falls back to the centroid path.
+  let coordQs = "";
+  try {
+    const raw = localStorage.getItem("lastKnownGeo");
+    if (raw) {
+      const last = JSON.parse(raw) as {
+        lat?: number;
+        lng?: number;
+        label?: string;
+        timestamp?: number;
+      };
+      if (
+        typeof last?.lat === "number" &&
+        typeof last?.lng === "number" &&
+        typeof last?.label === "string" &&
+        last.label.trim().toLowerCase() === loc.trim().toLowerCase() &&
+        typeof last?.timestamp === "number" &&
+        Date.now() - last.timestamp < 24 * 60 * 60 * 1000
+      ) {
+        coordQs = `&lat=${encodeURIComponent(String(last.lat))}&lon=${encodeURIComponent(String(last.lng))}`;
+      }
+    }
+  } catch {
+    // ignore — centroid fallback
+  }
+  try {
+    const r = await fetch(
+      `/api/nearby-places?location=${encodeURIComponent(loc)}${coordQs}`,
+    );
+    if (!r.ok) return { region: null, places: [], typeCounts: {} };
+    const data = (await r.json()) as NearbyResponse;
+    // ok:false means geocode failed → no region. ok:true (even with zero
+    // places, e.g. Overpass empty) still carries the resolved region.
+    return {
+      region: data.location?.display ?? null,
+      places: data.ok ? data.places : [],
+      typeCounts: data.ok ? data.typeCounts ?? {} : {},
+    };
+  } catch {
+    return { region: null, places: [], typeCounts: {} };
+  }
+}
 
 function formatTimeSince(iso: string): string {
   const elapsed = Date.now() - new Date(iso).getTime();
@@ -253,7 +327,7 @@ export default function Home() {
       onboardingAnswers.vibeCategories.length > 0 ||
       onboardingAnswers.canDrive !== null ||
       onboardingAnswers.costPref !== null;
-    const hasRecent = loadRecentQuestIds().length > 0;
+    const hasRecent = hasAnyRecentQuests();
     if (hasAnswers && hasRecent) {
       markOnboardingCompleted();
       return;
@@ -612,34 +686,80 @@ export default function Home() {
 
   const canGenerate = city.trim().length > 0;
 
-  // `region` is the geocoded locale descriptor (e.g. "Ashburn, Virginia, USA"),
-  // null when the city couldn't be geocoded at all. Used for geographic
-  // plausibility in the prompt — never to name venues.
-  async function fetchNearby(loc: string): Promise<{
-    region: string | null;
-    places: NearbyPlace[];
-    typeCounts: Record<string, number>;
-  }> {
-    try {
-      const r = await fetch(
-        `/api/nearby-places?location=${encodeURIComponent(loc)}`,
-      );
-      if (!r.ok) return { region: null, places: [], typeCounts: {} };
-      const data = (await r.json()) as NearbyResponse;
-      // ok:false means geocode failed → no region. ok:true (even with zero
-      // places, e.g. Overpass empty) still carries the resolved region.
-      return {
-        region: data.location?.display ?? null,
-        places: data.ok ? data.places : [],
-        typeCounts: data.ok ? data.typeCounts ?? {} : {},
-      };
-    } catch {
-      return { region: null, places: [], typeCounts: {} };
-    }
+  // Prefetch the nearby context as soon as a city is known (prefilled on
+  // mount or typed), debounced so keystrokes don't spam the geocoder. This
+  // makes the FIRST roll location-aware: previously the cold path fired the
+  // fetch in the background and only roll #2 saw venue data.
+  useEffect(() => {
+    const key = city.trim().toLowerCase();
+    if (!key || nearbyCacheRef.current[key]) return;
+    const t = window.setTimeout(() => {
+      void fetchNearby(city).then((res) => {
+        nearbyCacheRef.current[key] = res;
+      });
+    }, 600);
+    return () => window.clearTimeout(t);
+  }, [city]);
+
+  // One request body for both the streaming and JSON endpoints so the two
+  // calls can never drift. Threads through the personal signals the server
+  // renders since M13: onboarding vibes, the 3-value cost preference, and
+  // the user's local time (for temporal plausibility).
+  const WEEKDAY_NAMES = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
+  function buildGenerateBody(
+    region: string | null,
+    places: NearbyPlace[],
+    typeCounts: Record<string, number>,
+    excludeIds: string[],
+    previousTitles: string[],
+    category: QuestCategory | null,
+  ) {
+    const groupBand: "solo" | "2" | "group" =
+      groupSize === 1 ? "solo" : groupSize === 2 ? "2" : "group";
+    // Effective cost preference: the home toggle is the live override — ON
+    // always means free-only. When OFF, fall back to the onboarding answer,
+    // except an onboarding "free" with the toggle OFF means the user
+    // deliberately relaxed it, so send "any".
+    const costPref = lowCostOnly
+      ? "free"
+      : onboardingAnswers.costPref === "free"
+        ? "any"
+        : onboardingAnswers.costPref;
+    const now = new Date();
+    return {
+      location: city,
+      region: region ?? city,
+      nearbyPlaces: places
+        .map((p) => ({ name: p.name, type: p.type, bucket: p.bucket }))
+        .slice(0, 20),
+      typeCounts,
+      spiceLevel: spice,
+      groupSize: groupBand,
+      timeAvailable: timeMinutes,
+      excludeIds,
+      previousTitles,
+      category,
+      canDrive,
+      // Kept alongside costPref so a not-yet-redeployed server still gets
+      // the boolean it understands.
+      lowCostOnly,
+      vibeCategories: onboardingAnswers.vibeCategories,
+      costPref,
+      localHour: now.getHours(),
+      localWeekday: WEEKDAY_NAMES[now.getDay()],
+    };
   }
 
-  // Returns the generated quests, `null` to signal the local fallback should
-  // run, or "reroll_limit" when the server enforced the free-tier cap (402).
+  // Returns the generated quests, `null` to signal the caller should surface
+  // an error state, or "reroll_limit" when the server enforced the cap (402).
   async function fetchAiQuests(
     region: string | null,
     places: NearbyPlace[],
@@ -648,32 +768,23 @@ export default function Home() {
     previousTitles: string[],
     category: QuestCategory | null,
   ): Promise<GeneratedQuest[] | null | "reroll_limit"> {
-    const groupBand: "solo" | "2" | "group" =
-      groupSize === 1 ? "solo" : groupSize === 2 ? "2" : "group";
     try {
       const r = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          location: city,
-          region: region ?? city,
-          nearbyPlaces: places
-            .map((p) => ({ name: p.name, type: p.type, bucket: p.bucket }))
-            .slice(0, 20),
-          typeCounts,
-          spiceLevel: spice,
-          groupSize: groupBand,
-          timeAvailable: timeMinutes,
-          excludeIds,
-          previousTitles,
-          category,
-          canDrive,
-          lowCostOnly,
-        }),
+        body: JSON.stringify(
+          buildGenerateBody(
+            region,
+            places,
+            typeCounts,
+            excludeIds,
+            previousTitles,
+            category,
+          ),
+        ),
       });
-      // 402 = reroll cap hit (blocking). Distinct from 5xx/network below: the
-      // cap must NOT fall through to the local generator — that would leak
-      // free quests past the limit. Surface it so the caller opens the upsell.
+      // 402 = reroll cap hit (blocking). Distinct from 5xx/network below —
+      // surface it so the caller opens the upsell instead of the error toast.
       if (r.status === 402) {
         const data = (await r.json().catch(() => null)) as {
           error?: string;
@@ -681,7 +792,7 @@ export default function Home() {
         if (data?.error === "reroll_limit") return "reroll_limit";
         return null;
       }
-      // Any other non-OK status (5xx, etc.) → null → local fallback runs.
+      // Any other non-OK status (5xx, etc.) → null → error state upstream.
       if (!r.ok) return null;
       const data = (await r.json()) as {
         ok: boolean;
@@ -692,7 +803,7 @@ export default function Home() {
       }
       return data.quests;
     } catch {
-      // Network throw → null → local fallback runs.
+      // Network throw → null → error state upstream.
       return null;
     }
   }
@@ -712,28 +823,20 @@ export default function Home() {
     category: QuestCategory | null,
     onQuest: (q: GeneratedQuest) => void,
   ): Promise<GeneratedQuest[] | null | "reroll_limit"> {
-    const groupBand: "solo" | "2" | "group" =
-      groupSize === 1 ? "solo" : groupSize === 2 ? "2" : "group";
     try {
       const r = await fetch("/api/generate/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          location: city,
-          region: region ?? city,
-          nearbyPlaces: places
-            .map((p) => ({ name: p.name, type: p.type, bucket: p.bucket }))
-            .slice(0, 20),
-          typeCounts,
-          spiceLevel: spice,
-          groupSize: groupBand,
-          timeAvailable: timeMinutes,
-          excludeIds,
-          previousTitles,
-          category,
-          canDrive,
-          lowCostOnly,
-        }),
+        body: JSON.stringify(
+          buildGenerateBody(
+            region,
+            places,
+            typeCounts,
+            excludeIds,
+            previousTitles,
+            category,
+          ),
+        ),
       });
       if (r.status === 402) {
         const data = (await r.json().catch(() => null)) as {
@@ -792,51 +895,80 @@ export default function Home() {
     setView("results");
 
     // Locale signal for THIS generation. We always have at least the raw city
-    // (enough for geographic plausibility), so the LLM call never has to wait
-    // on the nearby fetch — that's what unstacks the two network legs.
+    // (enough for geographic plausibility), so rerolls never wait on the
+    // nearby fetch. The FIRST roll of a session is the exception below.
     const cityKey = city.trim().toLowerCase();
     const cachedNearby = nearbyCacheRef.current[cityKey];
-    const region: string | null = cachedNearby?.region ?? null;
-    const places: NearbyPlace[] = cachedNearby?.places ?? [];
-    const typeCounts: Record<string, number> = cachedNearby?.typeCounts ?? {};
+    let region: string | null = cachedNearby?.region ?? null;
+    let places: NearbyPlace[] = cachedNearby?.places ?? [];
+    let typeCounts: Record<string, number> = cachedNearby?.typeCounts ?? {};
 
     // We have a usable locale (raw city at minimum) → no alarming banner.
     setNearbyStatus("ok");
 
     if (cachedNearby) {
-      // Warm path: rerolls of the same city reuse the geocode + Overpass
-      // result and only pay the LLM call.
+      // Warm path (the common case now that the city-change effect
+      // prefetches): reuse the geocode + Overpass result, only pay the LLM.
       setNearbyStatus(cachedNearby.region ? "ok" : "fallback");
     } else {
-      // Cold path: fetch nearby in the BACKGROUND to warm the cache for the
-      // next reroll, but do NOT block this generation on it. The model still
-      // gets the raw city for plausibility; the richer region + category
-      // histogram land on the next roll.
-      void fetchNearby(city).then((res) => {
+      const nearbyPromise = fetchNearby(city).then((res) => {
         nearbyCacheRef.current[cityKey] = res;
         // Only flag a true geocode failure (no region at all). Empty venues on
         // a city that resolved fine is NOT a fallback — quests stay locale-aware
         // via the region/raw city.
         if (!res.region) setNearbyStatus("fallback");
+        return res;
       });
+      // First roll of a session (empty title memory): the impression-forming
+      // roll, and the one the server routes to the stronger model — give the
+      // nearby fetch up to ~2s so it isn't venue-blind, then proceed without
+      // it. Rerolls keep the old behavior: background warm, never block.
+      const isFirstRoll =
+        loadShownTitles().length === 0 && loadRecentQuests().length === 0;
+      if (isFirstRoll) {
+        const res = await Promise.race([
+          nearbyPromise,
+          new Promise<null>((resolve) =>
+            window.setTimeout(() => resolve(null), 2_000),
+          ),
+        ]);
+        if (res) {
+          region = res.region;
+          places = res.places;
+          typeCounts = res.typeCounts;
+        }
+      }
     }
 
+    // Session memory. The on-screen batch is merged in (deduped — it may
+    // already be here from the post-success append) to cover batches that
+    // rendered but never persisted, e.g. streamed cards from a stream that
+    // later errored before generate() saved them.
     let shown = loadShown();
     let shownTitles = loadShownTitles();
     if (quests) {
       const currentIds = quests.map((q) => q.id);
       const currentTitles = quests.map((q) => q.title);
       shown = Array.from(new Set([...shown, ...currentIds]));
-      shownTitles = [...shownTitles, ...currentTitles].slice(-9);
+      shownTitles = mergeTitles(shownTitles, currentTitles);
       saveShown(shown);
       saveShownTitles(shownTitles);
     }
 
-    // Persistent ring buffer (last 30, localStorage) — survives reload and
-    // tab close so rerolls don't keep surfacing the same set when the user
-    // returns later. Merged with the existing per-session `shown` list.
-    const recent = loadRecentQuestIds();
-    const excludeIds = Array.from(new Set([...shown, ...recent]));
+    // Persistent ring buffer (last 30 {id, title}, localStorage) — survives
+    // reload and tab close so rerolls don't keep surfacing the same set when
+    // the user returns later. Titles feed the server's BANNED TITLES
+    // blocklist (its similarity checks work on titles); ids keep feeding
+    // excludeIds. Oldest first so the server's oldest-first truncation drops
+    // the stalest memory.
+    const recent = loadRecentQuests();
+    const excludeIds = Array.from(
+      new Set([...shown, ...recent.map((r) => r.id)]),
+    );
+    const bannedTitles = mergeTitles(
+      recent.map((r) => r.title),
+      shownTitles,
+    );
 
     const cat =
       overrideCategory !== undefined ? overrideCategory : categoryFilter;
@@ -852,7 +984,7 @@ export default function Home() {
       places,
       typeCounts,
       excludeIds,
-      shownTitles,
+      bannedTitles,
       cat,
       (q) => {
         streamed.push(q);
@@ -867,12 +999,12 @@ export default function Home() {
         places,
         typeCounts,
         excludeIds,
-        shownTitles,
+        bannedTitles,
         cat,
       );
     }
-    // Free-tier cap hit — block here. No local fallback (would leak quests past
-    // the limit), no results rendered; just surface the upsell modal.
+    // Free-tier cap hit — block here. No results rendered; just surface the
+    // upsell modal.
     if (aiResult === "reroll_limit") {
       setRolling(false);
       setOutOfRerollsOpen(true);
@@ -889,28 +1021,19 @@ export default function Home() {
       return;
     }
     const picked = aiResult;
-    const resetShown = false;
 
-    const nextShown = resetShown
-      ? picked.map((q) => q.id)
-      : Array.from(new Set([...shown, ...picked.map((q) => q.id)]));
-    const nextShownTitles = resetShown
-      ? picked.map((q) => q.title)
-      : [...shownTitles, ...picked.map((q) => q.title)].slice(-9);
+    const nextShown = Array.from(
+      new Set([...shown, ...picked.map((q) => q.id)]),
+    );
+    const nextShownTitles = mergeTitles(
+      shownTitles,
+      picked.map((q) => q.title),
+    );
     saveShown(nextShown);
     saveShownTitles(nextShownTitles);
-    // Append every picked id into the persistent ring buffer. If generate.ts
-    // signaled a reset, we drop everything except this batch so the buffer
-    // stays in sync with what the user just saw.
-    if (resetShown) {
-      // ring buffer reset path — wipe, then seed with this batch.
-      try {
-        window.localStorage.removeItem("sqRecentQuestsV1");
-      } catch {
-        // ignore
-      }
-    }
-    appendRecentQuestIds(picked.map((q) => q.id));
+    // Append the batch into the persistent {id, title} ring buffer so the
+    // titles land in the next request's blocklist.
+    appendRecentQuests(picked.map((q) => ({ id: q.id, title: q.title })));
 
     setQuests(picked);
     setRolling(false);
