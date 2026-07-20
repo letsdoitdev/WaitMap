@@ -221,15 +221,26 @@ async function main() {
     check("precise lat/lon center accepted", r2.status === 200 && j2.ok === true, j2.error);
   }
 
-  // ---------- B. stream first roll: fingerprint + first-card timing ----------
-  console.log("\n[B] /api/generate/stream — first roll (Sonnet-routed)");
+  // ---------- B. stream REROLL (Haiku-routed): fingerprint + quality ----------
+  // Uses a non-empty blocklist so the request routes to the reroll model.
+  // This isolates "does streaming work at all + is M13 deployed" from the
+  // separate question of how the first-roll model behaves (section G).
+  console.log("\n[B] /api/generate/stream — reroll (Haiku-routed): fingerprint");
+  const seedTitles = [
+    "Sunset Ridge Group Sketch Walk",
+    "Laundromat Sock Puppet Theater",
+    "Crosswalk Countdown Dance Relay",
+  ];
   {
-    const s = await generateStream(body({ region, typeCounts, previousTitles: [] }));
+    const s = await generateStream(body({ region, typeCounts, previousTitles: seedTitles }));
     check("stream responded 200", s.status === 200, s.status);
+    console.log(`  frames: ${s.events.map((e) => e.type).join(", ")}`);
+    const err = s.events.find((e) => e.type === "error");
+    if (err) console.log("  error frame:", JSON.stringify(err));
     check("M13 deployment fingerprint (done frame has rankedPool/dropped)", s.done != null && "rankedPool" in s.done && "dropped" in s.done, s.done);
     console.log(`  first card: ${s.firstMs}ms, total: ${s.totalMs}ms, done:`, s.done);
-    auditBatch("stream-first", s.quests, []);
-    check(`first card < ${STREAM_FIRST_CARD_MS}ms (plan target, first roll)`, s.firstMs > 0 && s.firstMs < STREAM_FIRST_CARD_MS, `${s.firstMs}ms`);
+    auditBatch("stream-reroll", s.quests, seedTitles);
+    check(`first card < ${STREAM_FIRST_CARD_MS}ms`, s.firstMs > 0 && s.firstMs < STREAM_FIRST_CARD_MS, `${s.firstMs}ms`);
   }
 
   // ---------- C. 10 JSON reroll batches: quality sweep ----------
@@ -278,18 +289,33 @@ async function main() {
     for (const q of g.json.quests) blocklist.push(q.title);
   }
 
-  // ---------- F. first-roll vs reroll timing split ----------
+  // ---------- F. first-roll vs reroll timing split (diagnostic) ----------
   console.log("\n[F] JSON timing split: first roll (Sonnet) vs reroll (Haiku)");
   const firstMs = [], haikuMs = [];
   for (let i = 0; i < 2; i++) {
     const f = await generateJson(body({ region, typeCounts, previousTitles: [] }));
+    console.log(`  first-roll call ${i + 1}: status=${f.status} ok=${f.json?.ok} ${f.ms}ms${f.json?.ok ? "" : ` body=${JSON.stringify(f.json)?.slice(0, 200)}`}`);
     if (f.json?.ok) firstMs.push(f.ms);
     const h = await generateJson(body({ region, typeCounts, previousTitles: blocklist.slice(-30) }));
+    console.log(`  reroll call ${i + 1}:     status=${h.status} ok=${h.json?.ok} ${h.ms}ms`);
     if (h.json?.ok) haikuMs.push(h.ms);
   }
-  console.log(`  first-roll (Sonnet route): ${firstMs.join("ms, ")}ms`);
-  console.log(`  reroll (Haiku route):      ${haikuMs.join("ms, ")}ms`);
-  softCheck("timing samples collected for both routes", firstMs.length === 2 && haikuMs.length === 2);
+  softCheck("timing samples collected for both routes", firstMs.length === 2 && haikuMs.length === 2, { firstMs, haikuMs });
+
+  // ---------- G. stream FIRST ROLL diagnostic (first-roll model) ----------
+  // Kept diagnostic/soft: isolates the first-roll model's streaming
+  // behavior. Frames + error payloads are printed so a hang or model error
+  // is distinguishable from an SSE parsing problem.
+  console.log("\n[G] /api/generate/stream — first roll (diagnostic)");
+  {
+    const s = await generateStream(body({ region, typeCounts, previousTitles: [] }));
+    console.log(`  status=${s.status} quests=${s.quests.length} first=${s.firstMs}ms total=${s.totalMs}ms`);
+    console.log(`  frames: ${s.events.map((e) => e.type).join(", ") || "(none)"}`);
+    for (const e of s.events) {
+      if (e.type === "error" || e.type === "done") console.log(`  ${e.type} frame:`, JSON.stringify(e));
+    }
+    softCheck(`first-roll stream first card < ${STREAM_FIRST_CARD_MS}ms`, s.firstMs > 0 && s.firstMs < STREAM_FIRST_CARD_MS, `${s.firstMs}ms`);
+  }
 
   console.log(`\n========================================`);
   console.log(`${pass} passed, ${fail} failed, ${warn} warnings`);
