@@ -7,6 +7,7 @@ import { GeneratedQuest } from "@/lib/generate";
 import { NearbyBucket, NearbyPlace } from "@/lib/nearby";
 import { createClient } from "@/lib/supabase/server";
 import { FREE_DAILY_REROLLS, getUtcDateKey } from "@/lib/constants";
+import { hardFilterQuests, selectTopQuests } from "@/lib/quest-ranker";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -125,6 +126,28 @@ const VIBE_MODEL_HINT: Record<string, string> = {
   "Late Night": "late-night energy (Nightlife)",
   Chill: "calm, wholesome hangs (the chill tier-1 end)",
 };
+
+// UI vibe names → the model's §9 category vocabulary, for the ranker's
+// vibe-match bonus and exploration slot. Chill maps to no category — it
+// describes the calm tier, not a category.
+const VIBE_TO_V4: Record<string, string | null> = {
+  Chaos: "Challenge",
+  Outdoor: "Outdoor",
+  Social: "Social",
+  Creative: "Creative",
+  Food: "Food",
+  "Late Night": "Nightlife",
+  Chill: null,
+};
+
+export function preferredV4Categories(vibes: string[]): Set<string> {
+  const out = new Set<string>();
+  for (const v of vibes) {
+    const c = VIBE_TO_V4[v];
+    if (c) out.add(c);
+  }
+  return out;
+}
 
 export function sanitizeVibes(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
@@ -270,6 +293,8 @@ const REQUEST_PROTOCOL = `
 You are generating for the WaitMap web/mobile app. Each request supplies compact context lines. Interpret each line exactly as specified below, then construct the batch per the constitution above. Everything in this section restates or applies the constitution — nothing here relaxes a hard rule from §5, §7, or §8.
 
 **Task.** Construct exactly 3 side quests per request — unless the request explicitly asks for a different count, in which case produce exactly that many. Build each quest from a DIFFERENT §6 structural template (different setting and different verb), score each against the §4 rubric, and reject any §5 anti-structure before emitting. Output EXACTLY per the §9 FORMAT ANCHOR: a minified JSON array with one object per quest, keys title/description/category only, each description 10-14 words (16 ABSOLUTE MAX). No markdown fences, no commentary, no whitespace padding.
+
+**"Construct N quests."** (optional first line) — produce exactly N objects in the array instead of 3. All other rules hold at batch scale: still at most 1 food-flavored quest in the whole batch, never repeat a §6 template within the batch, and when N is 6 spread the batch across at least 4 different categories (unless a single category was requested). The server ranks and ships the best 3, so N distinct, rule-clean candidates beat N variations of one idea.
 
 **"Generate quests in the X category."** (optional first line) — a deliberate user filter. Every quest in the batch should land in or near that category; the 3-different-categories spread rule is suspended for that request. The spice ceiling, anti-food rule, and all safety bans still apply.
 
@@ -1049,7 +1074,12 @@ export function buildUserMessage(p: {
   localTime: LocalTime | null;
   typeCounts: Record<string, number>;
   previousTitles: string[];
+  /** Candidate count to request (default 3). The protocol's "Construct N
+   * quests." line is emitted when this differs from 3. */
+  count?: number;
 }): { userMessage: string; histogram: string } {
+  const count = p.count ?? 3;
+  const countPrefix = count !== 3 ? `Construct ${count} quests.\n` : "";
   const groupSizeHint =
     p.groupSize === "solo"
       ? "1 person"
@@ -1082,7 +1112,7 @@ export function buildUserMessage(p: {
   // and how to build/score/format the batch — lives in the cached
   // REQUEST_PROTOCOL section of the system prompt, so per-request tokens
   // stay minimal and the cached prefix stays byte-identical across calls.
-  const userMessage = `${categoryPrefix}Region: ${p.region}
+  const userMessage = `${countPrefix}${categoryPrefix}Region: ${p.region}
 Venue types nearby: ${histogram}
 
 ${diversityStr}
@@ -1199,6 +1229,12 @@ export async function POST(req: NextRequest) {
   const vibes = sanitizeVibes(body.vibeCategories);
   const localTime = sanitizeLocalTime(body.localHour, body.localWeekday);
 
+  // Overgenerate-and-rank: ask for 6 candidates, hard-filter, ship the best
+  // 3. One Haiku call either way; ~2x output tokens buys a ranked selection
+  // plus headroom so safety/dup/constraint drops rarely leave a short batch.
+  const BATCH_COUNT = 6;
+  const TARGET_COUNT = 3;
+
   const { userMessage: baseUserMessage, histogram } = buildUserMessage({
     region,
     spiceLevel,
@@ -1211,6 +1247,7 @@ export async function POST(req: NextRequest) {
     localTime,
     typeCounts,
     previousTitles,
+    count: BATCH_COUNT,
   });
 
   const rawNames = places.map((p) => p.name);
@@ -1231,8 +1268,7 @@ export async function POST(req: NextRequest) {
 
   let lastParsed: ClaudeQuest[] | null = null;
   let lastText = "";
-  let lastViolations: string[] = [];
-  const MAX_RETRIES = 2;
+  let stopReason: string | null = null;
 
   // Per-stage timing — mirrors the [nearby-places] breakdown so before/after
   // p95 work can be measured rather than guessed. `llmUsage` captures the
@@ -1240,9 +1276,6 @@ export async function POST(req: NextRequest) {
   // confirm prompt caching is actually being HIT.
   const llmStageMs: number[] = [];
   const llmUsage: Array<Record<string, number | undefined>> = [];
-  // Retained in the timing log for continuity; the food top-up call was
-  // removed (it doubled p95), so this stays 0.
-  const topupMs = 0;
 
   function recordUsage(u: Anthropic.Messages.Usage | undefined): void {
     if (!u) return;
@@ -1279,24 +1312,24 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      // When the category is locked, the model's distribution narrows hard
-      // and we see the same handful of templates remixed across rerolls.
-      // 3 quests need ~750 output tokens. We hold both branches at 0.75 —
-      // higher temperatures were biasing toward JSON schema drift and the
-      // category-locked branch never actually benefited from the bump in
-      // practice.
-      const temperature = 0.75;
+    // Main call, plus ONE corrective re-ask when the output is malformed or
+    // truncated. Malformed JSON was previously terminal (break → 503) while
+    // the whole retry budget sat reserved for safety violations; safety is
+    // now enforced by the hard-drop pipeline below instead of conversation
+    // retries, so violators can never ship regardless of retry luck.
+    for (let attempt = 0; attempt < 2; attempt++) {
       const llmStart = Date.now();
       const response = await client.messages.create(
         {
           model: "claude-haiku-4-5",
-          // Output generation is the single biggest latency term for the one
-          // call we make. With the slim 3-key schema + 16-word descriptions,
-          // 3 quests fit in ~180-220 tokens; 384 is a hard backstop that
-          // bounds the tail without truncating valid minified JSON.
-          max_tokens: 384,
-          temperature,
+          // 6 candidates fit in ~450-550 output tokens with the slim 3-key
+          // schema; 1000 bounds the tail without truncating valid minified
+          // JSON (the old 384 ceiling could cut the array mid-object, which
+          // read as a parse failure and 503'd the whole request).
+          max_tokens: 1000,
+          // Held at 0.75 — higher temperatures biased toward JSON schema
+          // drift without measurably better variety.
+          temperature: 0.75,
           system: [
             {
               type: "text",
@@ -1314,60 +1347,40 @@ export async function POST(req: NextRequest) {
       );
       llmStageMs.push(Date.now() - llmStart);
       recordUsage(response.usage);
+      stopReason = response.stop_reason ?? null;
 
       const textBlock = response.content.find((b) => b.type === "text");
       const text =
         textBlock && textBlock.type === "text" ? textBlock.text : "";
-      if (!text) break;
-
-      let parsed: unknown;
-      try {
-        parsed = extractJsonArray(text);
-      } catch {
-        parsed = null;
+      let parsed: unknown = null;
+      if (text) {
+        try {
+          parsed = extractJsonArray(text);
+        } catch {
+          parsed = null;
+        }
       }
-      if (!Array.isArray(parsed)) break;
+      if (Array.isArray(parsed)) {
+        lastParsed = (parsed as ClaudeQuest[]).slice(0, BATCH_COUNT);
+        lastText = text;
+        break;
+      }
 
-      // Cap at the contract size up-front — when the model returns 6
-      // (which the Outdoor audit saw) we'd otherwise propagate the extras
-      // through to the client. Keeping the first 3 also makes the
-      // violation report deterministic.
-      const arr = (parsed as ClaudeQuest[]).slice(0, 3);
-      const report = detectViolations(
-        arr,
-        rawNames,
-        spiceLevel,
-        requestedCategory,
-        previousTitles,
-      );
-      lastParsed = arr;
-      lastText = text;
-      lastViolations = report.violations;
-      console.log("[generate] attempt", attempt + 1, {
-        questCount: arr.length,
-        rawNames: rawNames.length,
-        violations: report.violations.length,
-        violationList: report.violations,
-        leaked: report.leakedNames,
+      console.log("[generate] parse failure", {
+        attempt: attempt + 1,
+        stopReason,
+        textLen: text.length,
       });
-
-      // p95 budget: a full corrective round-trip costs ~2-3s, so we only spend
-      // one on violations that post-processing CANNOT repair — i.e. safety
-      // bans. Venue leaks are fixed by scrub() below, food-density by the
-      // top-up pass, and spice/dupe/similarity are cosmetic; retrying for
-      // those was the main driver of the 6.8-10.8s tail. Accept the first
-      // draft for everything except a hard safety hit.
-      const blocking = report.violations.filter((v) =>
-        v.startsWith("VIOLATION_SAFETY"),
-      );
-      if (blocking.length === 0 || attempt === MAX_RETRIES) break;
-
-      // Append assistant + corrective user, then loop (safety-only).
-      messages.push({ role: "assistant", content: text });
-      messages.push({
-        role: "user",
-        content: `Previous attempt violated a hard safety rule: ${blocking.join("; ")}. Generate 3 NEW quests that fix this. Keep everything else (no named venues, max 1 food quest, spice ceiling).`,
-      });
+      if (attempt === 0) {
+        messages.push({ role: "assistant", content: text || "(empty)" });
+        messages.push({
+          role: "user",
+          content:
+            stopReason === "max_tokens"
+              ? "Your output was cut off before the array closed. Return ONLY the complete minified JSON array — trim every description toward 10 words so it fits."
+              : "That was not parseable JSON. Return ONLY the minified JSON array of quest objects — no prose, no markdown fences.",
+        });
+      }
     }
 
     clearTimeout(timer);
@@ -1379,108 +1392,125 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ---------- Near-duplicate drop (+ one corrective re-ask) ----------
+    // Observational report — venue leaks, food density, spice drift. Logged
+    // for owner review; enforcement lives in the hard-drop pipeline + ranker
+    // below, which act on every batch regardless of what this reports.
+    const report = detectViolations(
+      lastParsed,
+      rawNames,
+      spiceLevel,
+      requestedCategory,
+      previousTitles,
+    );
+    console.log("[generate] batch", {
+      questCount: lastParsed.length,
+      rawNames: rawNames.length,
+      violations: report.violations.length,
+      violationList: report.violations,
+      leaked: report.leakedNames,
+    });
+
+    // Scrub leaked venue names UNCONDITIONALLY (stream-path parity). The old
+    // violation-gated scrub let a Food-category quest ship a real venue name
+    // in an otherwise clean batch, and ranking should see final text anyway.
+    scrub(lastParsed, places);
+
+    // ---------- Hard drops, then ONE shortfall re-ask ----------
     //
-    // VIOLATION_SIMILAR* used to be recorded and shipped anyway. Now any
-    // quest at/over the bigram-Jaccard threshold (or sharing 3 consecutive
-    // title words) with a banned previous title OR a sibling kept from this
-    // batch is DROPPED. If dropping leaves fewer than 3, spend ONE small
-    // extra call on the shortfall — a budget separate from the safety-retry
-    // loop, with its own timeout since the main 25s window is already spent.
-    const dedup = filterNearDuplicates(lastParsed, previousTitles);
-    let keptQuests = dedup.kept;
-    if (dedup.dropped.length > 0) {
-      console.log("[generate] near-dupes dropped", {
-        dropped: dedup.dropped,
-        kept: keptQuests.length,
-      });
-      if (keptQuests.length < 3) {
-        const need = 3 - keptQuests.length;
-        const reaskAbort = new AbortController();
-        const reaskTimer = setTimeout(() => reaskAbort.abort(), 8_000);
+    // Safety violators are dropped BEFORE normalize — previously they could
+    // ship after retry exhaustion, or survive via a stale lastParsed when a
+    // corrective retry returned unparseable text. Near-dupes (≥0.45 bigram
+    // Jaccard or 3 shared consecutive title words vs the blocklist or a
+    // sibling) and detectable constraint violations (car-required when
+    // walking-only, paid when free-only) drop with them. With 6 candidates,
+    // drops rarely leave a short pool; when they do, spend ONE small extra
+    // call — with its own timeout, since the main 25s window is spent.
+    const walkingOnly = !canDrive;
+    const freeOnly = costPref === "free";
+    const rankerHooks = { findSafetyViolation, isNearDuplicate };
+    const filtered = hardFilterQuests(lastParsed, {
+      previousTitles,
+      walkingOnly,
+      freeOnly,
+      hooks: rankerHooks,
+    });
+    let pool = filtered.kept;
+    if (filtered.dropped.length > 0) {
+      console.log("[generate] hard-dropped", filtered.dropped);
+    }
+
+    if (pool.length < TARGET_COUNT) {
+      const need = TARGET_COUNT - pool.length;
+      const reaskAbort = new AbortController();
+      const reaskTimer = setTimeout(() => reaskAbort.abort(), 8_000);
+      try {
+        const reaskStart = Date.now();
+        const reask = await client.messages.create(
+          {
+            model: "claude-haiku-4-5",
+            max_tokens: 384,
+            temperature: 0.75,
+            system: [
+              {
+                type: "text",
+                text: SYSTEM_PROMPT,
+                cache_control: { type: "ephemeral", ttl: "1h" },
+              },
+            ],
+            messages: [
+              ...messages,
+              { role: "assistant", content: lastText },
+              {
+                role: "user",
+                content: `${filtered.dropped.length ? `These were rejected (${filtered.dropped.map((d) => `${d.title}: ${d.reason}`).join("; ")}). ` : ""}Generate exactly ${need} NEW quest${need === 1 ? "" : "s"}, clearly distinct from every banned title${pool.length ? ` and from: ${pool.map((q) => q.title).join("; ")}` : ""}, obeying every constraint from the request. Output ONLY a minified JSON array of exactly ${need} object(s), keys title/description/category.`,
+              },
+            ],
+          },
+          { signal: reaskAbort.signal },
+        );
+        llmStageMs.push(Date.now() - reaskStart);
+        recordUsage(reask.usage);
+        const rb = reask.content.find((b) => b.type === "text");
+        const rtext = rb && rb.type === "text" ? rb.text : "";
+        let rparsed: unknown = null;
         try {
-          const reaskStart = Date.now();
-          const reask = await client.messages.create(
-            {
-              model: "claude-haiku-4-5",
-              max_tokens: 384,
-              temperature: 0.75,
-              system: [
-                {
-                  type: "text",
-                  text: SYSTEM_PROMPT,
-                  cache_control: { type: "ephemeral", ttl: "1h" },
-                },
-              ],
-              messages: [
-                ...messages,
-                { role: "assistant", content: lastText },
-                {
-                  role: "user",
-                  content: `These titles were rejected as near-duplicates of the banned list: ${dedup.dropped.join("; ")}. Generate exactly ${need} NEW quest${need === 1 ? "" : "s"}, clearly distinct from every banned title${keptQuests.length ? ` and from: ${keptQuests.map((q) => q.title).join("; ")}` : ""}. Same rules and constraints as before. Output ONLY a minified JSON array of exactly ${need} object(s), keys title/description/category.`,
-                },
-              ],
-            },
-            { signal: reaskAbort.signal },
-          );
-          llmStageMs.push(Date.now() - reaskStart);
-          recordUsage(reask.usage);
-          const rb = reask.content.find((b) => b.type === "text");
-          const rtext = rb && rb.type === "text" ? rb.text : "";
-          let rparsed: unknown = null;
-          try {
-            rparsed = extractJsonArray(rtext);
-          } catch {
-            rparsed = null;
-          }
-          if (Array.isArray(rparsed)) {
-            const refill = filterNearDuplicates(
-              (rparsed as ClaudeQuest[]).slice(0, need),
-              previousTitles,
-              keptQuests.map((q) => q.title ?? ""),
-            );
-            keptQuests = [...keptQuests, ...refill.kept].slice(0, 3);
-          }
-        } catch (e) {
-          console.log("[generate] dedup re-ask failed", e);
-        } finally {
-          clearTimeout(reaskTimer);
+          rparsed = extractJsonArray(rtext);
+        } catch {
+          rparsed = null;
         }
-      }
-    }
-    lastParsed = keptQuests;
-
-    // ---------- Food-bias post-check + smart top-up ----------
-    //
-    // Old behavior: a full second 3-quest regeneration whenever food count
-    // ≥ 2 — doubled tail latency in the worst case. New: keep at most one
-    // food quest, filter the rest, and only request the missing N quests
-    // with a tiny max_tokens ceiling. Strictly faster end-to-end (smaller
-    // prompt, smaller completion) and we never throw away the good non-food
-    // quests we already had.
-    const foodCheckUserRequested =
-      requestedCategory && requestedCategory.toLowerCase() === "food";
-    if (!foodCheckUserRequested) {
-      // p95: a food-heavy batch no longer triggers a second LLM round-trip.
-      // The old top-up fired a full extra Haiku call whenever >=2 quests
-      // looked food-related — and isFoodQuest is broad (bar/drink/cook/menu/
-      // meal...), so on a restaurant-dense city it false-positived and
-      // roughly DOUBLED latency on nearly every reroll. The single-call
-      // prompt already pushes hard for "max 1 food per batch"; we just log
-      // slips and ship the 3 quests we have instead of paying ~2-3s to
-      // regenerate.
-      const foodCount = lastParsed.filter(isFoodQuest).length;
-      if (foodCount >= 2) {
-        console.log("[generate] food-bias slip (accepted, no top-up)", {
-          foodCount,
-        });
+        if (Array.isArray(rparsed)) {
+          const refillRaw = (rparsed as ClaudeQuest[]).slice(0, need);
+          scrub(refillRaw, places);
+          const refill = hardFilterQuests(refillRaw, {
+            previousTitles,
+            alreadyKeptTitles: pool.map((q) => q.title ?? ""),
+            walkingOnly,
+            freeOnly,
+            hooks: rankerHooks,
+          });
+          pool = [...pool, ...refill.kept];
+        }
+      } catch (e) {
+        console.log("[generate] shortfall re-ask failed", e);
+      } finally {
+        clearTimeout(reaskTimer);
       }
     }
 
-    // Final-pass server-side scrub if violations remained after retries.
-    if (lastViolations.length > 0) {
-      scrub(lastParsed, places);
-    }
+    // ---------- Rank and select the shipped 3 ----------
+    const selected = selectTopQuests(pool, {
+      target: TARGET_COUNT,
+      preferredCategories: preferredV4Categories(vibes),
+      isFood: (q) => isFoodQuest(q as ClaudeQuest),
+      allowFoodHeavy:
+        (requestedCategory ?? "").toLowerCase() === "food",
+    });
+    console.log("[generate] ranked", {
+      pool: pool.length,
+      stopReason,
+      selected: selected.map((q) => ({ title: q.title, category: q.category })),
+    });
+    lastParsed = selected;
 
     const seen = new Set(excludeIds);
     const categoryOverride: QuestCategory | null =
@@ -1535,7 +1565,6 @@ export async function POST(req: NextRequest) {
     console.log("[generate] timing", {
       llmStageMs,
       llmTotalMs: llmStageMs.reduce((a, b) => a + b, 0),
-      topupMs,
       attempts: llmStageMs.length,
       // cacheRead > 0 on calls after the first confirms the system prompt is
       // being served from cache rather than re-billed as cache_creation.

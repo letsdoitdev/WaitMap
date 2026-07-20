@@ -21,10 +21,18 @@ import {
   sanitizeRegion,
   sanitizeTypeCounts,
   isNearDuplicate,
+  isFoodQuest,
+  preferredV4Categories,
   type GenerateBody,
   type ClaudeQuest,
   type GroupSizeBand,
 } from "../route";
+import {
+  hardFilterQuests,
+  requiresCar,
+  requiresSpend,
+  selectTopQuests,
+} from "@/lib/quest-ranker";
 
 // Additive streaming sibling of /api/generate. The JSON endpoint is unchanged
 // and remains the contract the mobile app (M12.3) depends on. This route emits
@@ -185,6 +193,15 @@ export async function POST(req: NextRequest) {
   const vibes = sanitizeVibes(body.vibeCategories);
   const localTime = sanitizeLocalTime(body.localHour, body.localWeekday);
 
+  // Overgenerate-and-rank (mirrors the JSON path): request 6 candidates,
+  // ship the best 3. Hybrid emission strategy — the FIRST candidate that
+  // passes the hard checks is emitted the moment its object closes, so
+  // first-card latency is unchanged; slots 2-3 are ranked over the full
+  // candidate pool once the stream completes. Chosen over buffer-everything
+  // because the whole point of this endpoint is time-to-first-card.
+  const BATCH_COUNT = 6;
+  const TARGET_COUNT = 3;
+
   const { userMessage, histogram } = buildUserMessage({
     region,
     spiceLevel,
@@ -197,6 +214,7 @@ export async function POST(req: NextRequest) {
     localTime,
     typeCounts,
     previousTitles,
+    count: BATCH_COUNT,
   });
 
   // Defaults the model no longer emits — filled from the user's own request.
@@ -244,10 +262,9 @@ export async function POST(req: NextRequest) {
       const abort = new AbortController();
       const timer = setTimeout(() => abort.abort(), 25_000);
 
-      // True iff the quest survives the per-quest gate: valid shape, and after
-      // scrub() it does not trip a hard safety rule. SAFETY is the ONLY reason
-      // a quest is withheld (we do NOT drop for food-density or dupes — the
-      // JSON path ships those as-is post #43).
+      // True iff the quest survives the per-quest safety gate: valid shape,
+      // and after scrub() it does not trip a hard safety rule. Near-dup and
+      // constraint drops live in passesHardChecks/hardFilterQuests below.
       function isSafe(q: ClaudeQuest): boolean {
         if (
           !q ||
@@ -293,51 +310,66 @@ export async function POST(req: NextRequest) {
         ctrl.enqueue(sse({ type: "quest", quest: normalized }));
       }
 
-      // Near-duplicate drop — mirror of the JSON path's filter, checked
-      // against the banned previous titles plus the given sibling set. The
-      // diagnostic counter is deduped by title because the reconcile pass
-      // re-simulates acceptance over quests the progressive pass already saw.
-      const dupSeen = new Set<string>();
-      function isDupAgainst(q: ClaudeQuest, siblingTitles: string[]): boolean {
-        const title = typeof q.title === "string" ? q.title : "";
-        if (!isNearDuplicate(title, previousTitles, siblingTitles)) {
+      // Full hard-check pipeline for the progressive first-card path —
+      // shape+scrub+safety via isSafe (held logging), then near-dup and
+      // detectable constraint violations, mirroring lib/quest-ranker's
+      // hardFilterQuests order. Deduped drop counter for diagnostics.
+      const walkingOnly = !canDrive;
+      const freeOnly = costPref === "free";
+      const dropSeen = new Set<string>();
+      function noteDrop(title: string, reason: string): void {
+        const key = `${title.trim().toLowerCase()}`;
+        if (!dropSeen.has(key)) {
+          dropSeen.add(key);
+          console.log("[generate/stream] dropped", { title, reason });
+        }
+      }
+      function passesHardChecks(
+        q: ClaudeQuest,
+        siblingTitles: string[],
+      ): boolean {
+        if (!isSafe(q)) return false;
+        const haystack = `${q.title} ${q.description}`;
+        if (isNearDuplicate(q.title, previousTitles, siblingTitles)) {
+          noteDrop(q.title, "duplicate");
           return false;
         }
-        const key = title.trim().toLowerCase();
-        if (!dupSeen.has(key)) {
-          dupSeen.add(key);
-          console.log("[generate/stream] near-dupe dropped", { title });
+        if (walkingOnly && requiresCar(haystack)) {
+          noteDrop(q.title, "car_required");
+          return false;
+        }
+        if (freeOnly && requiresSpend(haystack)) {
+          noteDrop(q.title, "paid_activity");
+          return false;
         }
         return true;
       }
-      const isDup = (q: ClaudeQuest) =>
-        isDupAgainst(
-          q,
-          emitted.map((e) => e.title),
-        );
 
-      // Progressive path: a freshly-completed streamed object → emit if safe
-      // and not a near-duplicate of a banned title or an emitted sibling.
+      // Progressive path: every completed object joins the candidate pool;
+      // ONLY the first hard-check-passing quest is emitted immediately (the
+      // ranked remainder ships at end of stream).
+      const scanned: ClaudeQuest[] = [];
       function consider(raw: string): void {
-        if (emitted.length >= 3) return;
         let q: ClaudeQuest;
         try {
           q = JSON.parse(raw) as ClaudeQuest;
         } catch {
           return;
         }
-        if (isSafe(q) && !isDup(q)) emit(q);
+        scanned.push(q);
+        if (emitted.length === 0 && passesHardChecks(q, [])) emit(q);
       }
 
       try {
         const llm = client.messages.stream(
           {
             model: "claude-haiku-4-5",
-            // Headroom so the 3rd quest object always closes before the model
-            // stops — a tighter 384 ceiling could truncate it mid-stream on a
-            // longer batch, leaving only 2 parseable objects. Typical output is
-            // ~250 tokens, so this does not change normal latency.
-            max_tokens: 600,
+            // 6 candidates fit in ~450-550 output tokens with the slim 3-key
+            // schema; 1000 gives headroom so the final object always closes
+            // before the model stops (a tight ceiling truncates mid-object,
+            // costing parseable candidates). max_tokens is a ceiling, not a
+            // target — normal latency is unchanged.
+            max_tokens: 1000,
             temperature: 0.75,
             system: [
               {
@@ -351,28 +383,27 @@ export async function POST(req: NextRequest) {
           { signal: abort.signal },
         );
 
-        // Progressive emission is best-effort and purely cosmetic: render each
-        // quest the moment the SDK surfaces its completed object. Reliability of
-        // the FINAL count does NOT depend on this — see the authoritative
-        // reconcile below. Using .on("text") (SDK-accumulated deltas) instead of
-        // raw-event iteration avoids any event-shape/tail edge cases.
+        // Progressive scanning: every completed object joins the candidate
+        // pool (also the parse-failure fallback), and the first passing quest
+        // is emitted immediately for time-to-first-card. Reliability of the
+        // FINAL batch does NOT depend on this — see the authoritative
+        // reconcile below. Using .on("text") (SDK-accumulated deltas) instead
+        // of raw-event iteration avoids any event-shape/tail edge cases.
         let buf = "";
         const scan = makeScanState();
         llm.on("text", (delta: string) => {
-          if (emitted.length >= 3) return;
           buf += delta;
           for (const obj of scanObjects(buf, scan)) {
             consider(obj);
-            if (emitted.length >= 3) break;
           }
         });
 
-        // Authoritative reconcile: finalMessage() is the COMPLETE response. We
-        // parse it with the SAME extractJsonArray() the reliable JSON path uses,
-        // filter to the safe set IN ORDER, and emit the suffix the progressive
-        // pass hasn't sent yet (matched by position, not title — so a missed
-        // tail OR a duplicate title still yields 3). This makes the stream's
-        // final count equal to the JSON path's.
+        // Authoritative reconcile: finalMessage() is the COMPLETE response.
+        // Parse the full array (falling back to the progressively scanned
+        // objects), exclude the already-emitted first card, hard-filter the
+        // rest, and RANK the remaining slots — highest mechanical score with
+        // category-spread bonus, final slot reserved for the exploration
+        // pick outside the user's vibes.
         const finalMsg = await llm.finalMessage();
         clearTimeout(timer);
         const stopReason = finalMsg.stop_reason ?? null;
@@ -380,7 +411,9 @@ export async function POST(req: NextRequest) {
         const fullText = tb && tb.type === "text" ? tb.text : buf;
 
         let parsedLen = 0;
-        if (emitted.length < 3) {
+        let rankedPool = 0;
+        if (emitted.length < TARGET_COUNT) {
+          let candidates: ClaudeQuest[] = scanned;
           let parsed: unknown = null;
           try {
             parsed = extractJsonArray(fullText);
@@ -389,44 +422,97 @@ export async function POST(req: NextRequest) {
           }
           if (Array.isArray(parsed)) {
             parsedLen = parsed.length;
-            // Accepted set in model order, re-simulated from scratch with the
-            // SAME safe + near-dup checks the progressive pass ran (sibling
-            // comparisons see the same growing prefix). The progressive pass
-            // emitted exactly a prefix of this list, so emit the suffix from
-            // emitted.length onward.
-            const accepted: ClaudeQuest[] = [];
-            for (const q of parsed as ClaudeQuest[]) {
-              if (accepted.length >= 3) break;
-              if (!isSafe(q)) continue;
-              if (isDupAgainst(q, accepted.map((a) => a.title ?? ""))) continue;
-              accepted.push(q);
-            }
-            for (
-              let i = emitted.length;
-              i < accepted.length && emitted.length < 3;
-              i++
-            ) {
-              emit(accepted[i]);
-            }
+            candidates = (parsed as ClaudeQuest[]).slice(0, BATCH_COUNT);
           }
+
+          // The progressive pass emitted the FIRST passing candidate, so the
+          // first title match in model order is that quest — skip exactly it.
+          const emittedTitles = emitted.map((e) => e.title);
+          const rest: ClaudeQuest[] = [];
+          let skippedEmitted = emitted.length === 0;
+          for (const q of candidates) {
+            if (
+              !skippedEmitted &&
+              typeof q?.title === "string" &&
+              q.title.trim() === emittedTitles[0]
+            ) {
+              skippedEmitted = true;
+              continue;
+            }
+            rest.push(q);
+          }
+          // isSafe scrubs progressively-seen instances, but the full-parse
+          // candidates are fresh objects — scrub before filtering/ranking.
+          scrub(rest, places);
+          const filtered = hardFilterQuests(rest, {
+            previousTitles,
+            alreadyKeptTitles: emittedTitles,
+            walkingOnly,
+            freeOnly,
+            hooks: { findSafetyViolation, isNearDuplicate },
+          });
+          for (const d of filtered.dropped) noteDrop(d.title, d.reason);
+          rankedPool = filtered.kept.length;
+          const ranked = selectTopQuests(filtered.kept, {
+            target: TARGET_COUNT - emitted.length,
+            preferredCategories: preferredV4Categories(vibes),
+            isFood: (q) => isFoodQuest(q as ClaudeQuest),
+            allowFoodHeavy:
+              (requestedCategory ?? "").toLowerCase() === "food",
+            foodAlreadyPicked: emitted.some((e) =>
+              isFoodQuest({
+                title: e.title,
+                description: e.description,
+                category: e.category,
+              } as ClaudeQuest),
+            ),
+          });
+          for (const q of ranked) emit(q);
         }
 
-        // Guarantee 3: if we're still short — because the model genuinely
-        // produced fewer (parsedLen < 3) or a quest was safety-held — fill the
-        // gap with one top-up generation, mirroring how the JSON path recovers.
-        // This fires at most once and only when needed; the first quests have
-        // already streamed, so perceived latency is unaffected. The 3rd just
-        // arrives a beat later.
+        // Guarantee 3: if we're still short — the model produced fewer than
+        // requested, or hard drops thinned the pool — fill the gap with one
+        // top-up generation. Fires at most once; the first card has already
+        // streamed, so perceived latency is unaffected.
         let topupMs = 0;
-        if (emitted.length < 3) {
-          const need = 3 - emitted.length;
+        if (emitted.length < TARGET_COUNT) {
+          const need = TARGET_COUNT - emitted.length;
           const tStart = Date.now();
+          // Fresh abort — the route's 25s timer was cleared right after
+          // finalMessage, so the old code passed an already-inert signal
+          // here and the top-up ran with no timeout at all.
+          const topupAbort = new AbortController();
+          const topupTimer = setTimeout(() => topupAbort.abort(), 10_000);
           try {
+            // Full request context via the shared builder — the old
+            // hand-rolled prompt carried only region + spice, discarding the
+            // requested category, banned titles, group size, and the
+            // walking/cost constraints, and ran hot at temperature 0.9 (the
+            // main call is pinned at 0.75 precisely because higher
+            // temperatures bias toward JSON schema drift). Emitted titles
+            // join the blocklist so the refill can't duplicate this batch.
+            const { userMessage: topupMessage } = buildUserMessage({
+              region,
+              spiceLevel,
+              groupSize,
+              timeAvailable,
+              requestedCategory,
+              canDrive,
+              costPref,
+              vibes,
+              localTime,
+              typeCounts,
+              previousTitles: sanitizePreviousTitles([
+                ...previousTitles,
+                ...emitted.map((e) => e.title),
+              ]),
+              count: need,
+            });
             const topup = await client.messages.create(
               {
                 model: "claude-haiku-4-5",
-                max_tokens: 384,
-                temperature: 0.9,
+                max_tokens: 120 + 200 * need,
+                temperature: 0.75,
                 system: [
                   {
                     type: "text",
@@ -434,14 +520,9 @@ export async function POST(req: NextRequest) {
                     cache_control: { type: "ephemeral", ttl: "1h" },
                   },
                 ],
-                messages: [
-                  {
-                    role: "user",
-                    content: `Generate exactly ${need} more side quest${need === 1 ? "" : "s"} for ${region} at spice ${spiceLevel}/10, distinct from anything typical. Return ONLY a minified JSON array of exactly ${need} object(s), keys title/description/category, each description 16 words max. No commentary.`,
-                  },
-                ],
+                messages: [{ role: "user", content: topupMessage }],
               },
-              { signal: abort.signal },
+              { signal: topupAbort.signal },
             );
             topupMs = Date.now() - tStart;
             const tub = topup.content.find((b) => b.type === "text");
@@ -453,13 +534,24 @@ export async function POST(req: NextRequest) {
               tup = null;
             }
             if (Array.isArray(tup)) {
-              for (const item of tup as ClaudeQuest[]) {
-                if (emitted.length >= 3) break;
-                if (isSafe(item) && !isDup(item)) emit(item);
+              const refill = (tup as ClaudeQuest[]).slice(0, need + 1);
+              scrub(refill, places);
+              for (const item of refill) {
+                if (emitted.length >= TARGET_COUNT) break;
+                if (
+                  passesHardChecks(
+                    item,
+                    emitted.map((e) => e.title),
+                  )
+                ) {
+                  emit(item);
+                }
               }
             }
           } catch (e) {
             console.log("[generate/stream] topup failed", e);
+          } finally {
+            clearTimeout(topupTimer);
           }
         }
 
@@ -486,9 +578,10 @@ export async function POST(req: NextRequest) {
           // means the model truly produced fewer; stopReason "max_tokens" means
           // genuine truncation.
           parsedLen,
+          rankedPool,
           stopReason,
           heldCount,
-          dupDropped: dupSeen.size,
+          dropped: dropSeen.size,
           topupMs,
           textLen: fullText.length,
           region,
@@ -520,11 +613,13 @@ export async function POST(req: NextRequest) {
               count: emitted.length,
               // Diagnostics surfaced in the stream so they're readable client-
               // side (server logs aren't): parsedLen = objects in the complete
-              // message; heldCount = quests dropped for safety; stopReason from
-              // the model; topupMs > 0 means the fill-to-3 call fired.
+              // message; heldCount = quests dropped for safety; dropped = all
+              // hard drops (safety + dup + constraint); stopReason from the
+              // model; topupMs > 0 means the fill-to-3 call fired.
               parsedLen,
+              rankedPool,
               heldCount,
-              dupDropped: dupSeen.size,
+              dropped: dropSeen.size,
               stopReason,
               topupMs,
             }),
