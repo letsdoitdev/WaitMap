@@ -12,6 +12,10 @@ import { pickModel } from "@/lib/model-routing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Vercel function ceiling. Sonnet generation runs ~17-19s per model call and
+// the internal abort window is 55s — without an explicit maxDuration the
+// platform default could kill the function first on some plans.
+export const maxDuration = 60;
 
 export type GroupSizeBand = "solo" | "2" | "group";
 
@@ -1296,7 +1300,12 @@ export async function POST(req: NextRequest) {
     defaultHeaders: { "anthropic-beta": "extended-cache-ttl-2025-04-11" },
   });
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 25_000);
+  // Sized for Sonnet, not Haiku: a single claude-sonnet-4-6 generation runs
+  // ~17-19s cold, so the old 25s window aborted any run that needed a second
+  // model round-trip (corrective re-ask) — surfacing as "Request was
+  // aborted." 55s covers two Sonnet calls + overhead and stays under the
+  // route's maxDuration=60. Harmless backstop when routing returns to Haiku.
+  const timer = setTimeout(() => controller.abort(), 55_000);
 
   // Multi-turn conversation so retries can append assistant + corrective user.
   type Msg = { role: "user" | "assistant"; content: string };
@@ -1483,7 +1492,9 @@ export async function POST(req: NextRequest) {
     if (pool.length < TARGET_COUNT) {
       const need = TARGET_COUNT - pool.length;
       const reaskAbort = new AbortController();
-      const reaskTimer = setTimeout(() => reaskAbort.abort(), 8_000);
+      // 8s was Haiku-sized and shorter than a single Sonnet call — the
+      // re-ask ALWAYS aborted under Sonnet routing. 25s fits one Sonnet call.
+      const reaskTimer = setTimeout(() => reaskAbort.abort(), 25_000);
       try {
         const reaskStart = Date.now();
         const reask = await client.messages.create(

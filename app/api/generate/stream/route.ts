@@ -49,6 +49,9 @@ import { pickModel } from "@/lib/model-routing";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Vercel function ceiling — must exceed the 55s internal abort window now
+// that Sonnet calls run ~17-19s each (see the timer below).
+export const maxDuration = 60;
 
 const enc = new TextEncoder();
 function sse(event: Record<string, unknown>): Uint8Array {
@@ -273,7 +276,11 @@ export async function POST(req: NextRequest) {
       }> = [];
       const heldSeen = new Set<string>();
       const abort = new AbortController();
-      const timer = setTimeout(() => abort.abort(), 25_000);
+      // Sized for Sonnet: one claude-sonnet-4-6 call runs ~17-19s cold, so the
+      // old 25s window aborted any run needing a second round-trip (top-up /
+      // reconcile) — the SDK's "Request was aborted." then surfaced as the SSE
+      // error frame. 55s covers two Sonnet calls and stays under maxDuration.
+      const timer = setTimeout(() => abort.abort(), 55_000);
 
       // Per-call token accounting, tagged with the routed model so per-model
       // daily totals and per-model cache health (the cache is PER-MODEL) can
@@ -516,7 +523,9 @@ export async function POST(req: NextRequest) {
           // finalMessage, so the old code passed an already-inert signal
           // here and the top-up ran with no timeout at all.
           const topupAbort = new AbortController();
-          const topupTimer = setTimeout(() => topupAbort.abort(), 10_000);
+          // 10s was Haiku-sized — shorter than a single Sonnet call, so the
+          // top-up always aborted under Sonnet routing. 25s fits one call.
+          const topupTimer = setTimeout(() => topupAbort.abort(), 25_000);
           try {
             // Full request context via the shared builder — the old
             // hand-rolled prompt carried only region + spice, discarding the
