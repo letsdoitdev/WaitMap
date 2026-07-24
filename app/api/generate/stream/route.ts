@@ -28,10 +28,12 @@ import {
   type GroupSizeBand,
 } from "../route";
 import {
+  findBatchConflict,
   hardFilterQuests,
   requiresCar,
   requiresSpend,
   selectTopQuests,
+  type RankableQuest,
 } from "@/lib/quest-ranker";
 import { pickModel } from "@/lib/model-routing";
 
@@ -366,12 +368,25 @@ export async function POST(req: NextRequest) {
       }
       function passesHardChecks(
         q: ClaudeQuest,
-        siblingTitles: string[],
+        keptSiblings: RankableQuest[],
       ): boolean {
         if (!isSafe(q)) return false;
         const haystack = `${q.title} ${q.description}`;
-        if (isNearDuplicate(q.title, previousTitles, siblingTitles)) {
+        if (
+          isNearDuplicate(
+            q.title,
+            previousTitles,
+            keptSiblings.map((k) => k.title),
+          )
+        ) {
           noteDrop(q.title, "duplicate");
+          return false;
+        }
+        // Anti-fixation belt (mirrors hardFilterQuests): no shared central
+        // prop/motif noun and no repeated capped mechanic vs kept siblings.
+        const conflict = findBatchConflict(q, keptSiblings);
+        if (conflict) {
+          noteDrop(q.title, conflict.reason);
           return false;
         }
         if (walkingOnly && requiresCar(haystack)) {
@@ -487,7 +502,10 @@ export async function POST(req: NextRequest) {
           scrub(rest, places);
           const filtered = hardFilterQuests(rest, {
             previousTitles,
-            alreadyKeptTitles: emittedTitles,
+            // Full emitted quests (not just titles) so the prop/mechanic
+            // belt can also veto candidates that fixate on the first card's
+            // central prop or mechanic.
+            alreadyKept: emitted,
             walkingOnly,
             freeOnly,
             hooks: { findSafetyViolation, isNearDuplicate },
@@ -507,6 +525,10 @@ export async function POST(req: NextRequest) {
                 category: e.category,
               } as ClaudeQuest),
             ),
+            // Cross-batch stock-mechanic pressure + category/core-verb
+            // spread seeded from the already-emitted first card.
+            previousTitles,
+            alreadyPicked: emitted,
           });
           for (const q of ranked) emit(q);
         }
@@ -582,12 +604,7 @@ export async function POST(req: NextRequest) {
               scrub(refill, places);
               for (const item of refill) {
                 if (emitted.length >= TARGET_COUNT) break;
-                if (
-                  passesHardChecks(
-                    item,
-                    emitted.map((e) => e.title),
-                  )
-                ) {
+                if (passesHardChecks(item, emitted)) {
                   emit(item);
                 }
               }

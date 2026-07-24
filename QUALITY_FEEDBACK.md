@@ -1,12 +1,12 @@
 <!--
 QUALITY_FEEDBACK.md — MANUAL SCRATCHPAD. NOT loaded at runtime.
 
-As of the constitution consolidation (v5), this file is NO LONGER read by the
-generator — the auto-injection was retired to kill copy-bias. It now serves as
-a human scratchpad: collect KEEP/KILL observations here, then periodically
-HAND-DISTILL them into the constitution at
+As of the constitution consolidation (v5, restructured in v6), this file is NO
+LONGER read by the generator — the auto-injection was retired to kill
+copy-bias. It serves as a human scratchpad: collect KEEP/KILL observations
+here, then periodically HAND-DISTILL them into the constitution at
 .claude/skills/side-quest-generator/SKILL.md — good shapes into §6 (structural
-templates), bad shapes into §5 (abstract anti-structures). Do NOT paste
+templates), bad shapes into §5 (abstract anti-structures / caps). Do NOT paste
 copyable example quests into SKILL.md; express them as abstract structure.
 
 (Historical note: this file used to be parsed by lib/quality-feedback.ts and
@@ -14,81 +14,29 @@ folded into the cached system prompt as GOOD/BAD examples. That path was
 removed; the entries below are reference material only.)
 
 FORMAT
-Two sections, "## KEEP" and "## KILL". Each entry is a "- Title:" block with
-three single-line, labeled fields:
+Three sections: "## KEEP", "## KILL", and "## ARCHIVED KEEP (v5 era)".
+Each entry is a "- Title:" block with four single-line, labeled fields:
 
   - Title: <the quest title, 5-8 words>
     Description: <the quest description, 1-2 sentences, on ONE line>
+    Register: <the SKILL.md §3 interest register the quest occupies>
     Reason: <one line — why this is a keeper / why this is bad>
 
-NOTES
-  • One entry per "- Title:" line. Title + Description are required; Reason is
-    optional but strongly encouraged (it's shown to the model).
-  • Keep each field on a SINGLE line.
-  • Paste the FULL quest text (exactly what the app produced) so the exemplar is
-    concrete.
-  • HTML comments like this one are stripped before parsing, so the example
-    below is inert until you copy it OUT of the comment into a section.
-
-EXAMPLE (copy into "## KEEP" below, outside this comment, to activate):
-  - Title: Highest Point Before Sunrise
-    Description: Race in pairs with no GPS to the highest nearby spot before sunrise, then watch it together at the top.
-    Reason: Cooperative outdoor exemplar — concrete anchor, near-certain payoff, story-generating.
+RULES FOR NEW KEEP ENTRIES (v6)
+  • Name the §3 register. A KEEP list that clusters in one or two registers is
+    itself a quality bug — the list should span all seven over time.
+  • Never add a KEEP that shares a central prop/material/motif OR a §5-capped
+    mechanic (C1-C7: stranger-persuasion, relay, synchronized, decode, silent,
+    photograph-a-count, navigate-by-deprivation) with an EXISTING KEEP entry.
+    Two exemplars of one pattern turn distillation into amplification — that is
+    exactly how the v5-era list went stale (see the archive below).
+  • Keep each field on a SINGLE line; paste the FULL quest text as produced.
 -->
 
 ## KEEP
 
-- Title: Interview One Stranger, Whole Crew
-  Description: As a whole group, approach one willing stranger together and take turns asking about the worst decision they've ever made, building on each other's questions.
-  Reason: Group-cohesion exemplar — the whole crew engages one person together instead of splitting into solo tasks; brief, willing interaction.
-
-- Title: Chalk Portrait Relay on the Pavement
-  Description: Grab sidewalk chalk and relay-draw portraits of each other on the pavement, each person adding to the previous drawing before passing the chalk on.
-  Reason: Cooperative and equipment-light; every member has an active role, concrete and filmable.
-
-- Title: Speed Ordering Synchronized Chaos
-  Description: The whole group steps up to a counter and places the exact same order in perfect unison, word for word, then thanks the cashier together.
-  Reason: Compelled-audience bit with the whole crew acting as one; legal and low-stakes.
-
-- Title: Navigate a Neighborhood by Sound Alone
-  Description: As a group, walk a few blocks choosing every turn by ear alone — follow traffic, music, or voices instead of looking where you're going. Keep a friend nearby.
-  Reason: Novel constraint done together; exactly one short safety note, no heavy caveats.
-
-- Title: Supermarket Fake Recall Stunt
-  Description: As a group, calmly ask a supermarket employee where a product is because you "heard it got recalled" for a funny, obviously-harmless reason, then keep a straight face.
-  Reason: Compelled-audience bit kept legal and plausible — no absurd false claims. Borderline case: leans on the app-wide safety disclaimer rather than per-quest caveats.
-
-- Title: Furniture Store Couple Consultation
-  Description: Pair off and roam a furniture store in character, asking employees which sofa best suits your imaginary shared home and staying in role the whole time.
-  Reason: Sustained in-character bit with a compelled audience; pairs keep every member actively engaged.
-
-- Title: Grocery Store Weird Order Relay
-  Description: At a grocery store, build one deliberately odd but harmless basket as a relay — each person adds a single strange item and hands the basket to the next.
-  Reason: Whole-group relay with a compelled audience; legal and low-stakes.
-
-- Title: Guess a Stranger's Job in Five Questions
-  Description: As a group, approach one willing stranger and try to guess their job or hobby using only five yes/no questions between you.
-  Reason: Whole crew engages one person together; feasible, with a clear five-question end condition.
-
-- Title: Balloon Relay Race Across an Open Field
-  Description: Split into a relay and race a balloon across an open field, tapping it along without letting it touch the ground until the last person crosses.
-  Reason: Active whole-group physical play, equipment-light; no filler taglines.
-
-- Title: Constellation Hunt
-  Description: Head somewhere dark together and find as many constellations as you can, comparing what each person spots until you run out of sky.
-  Reason: Calm cooperative outdoor moment; plain instructions with no movie-narration phrasing.
-
-- Title: Silent Sunrise Relay to High Ground
-  Description: Before dawn, relay your way to the highest nearby spot in total silence, then watch the sunrise together once everyone arrives.
-  Reason: Wholesome tier-1 whole-group exemplar; concrete payoff, story-generating.
-
-- Title: Improv Story Chain on a Night Walk
-  Description: Take a late-night stroll and build one shared story together, each person narrating one minute before passing it to the next.
-  Reason: Plain real-life instructions with no jargon; cooperative and equipment-free.
-
-- Title: Chalk a Giant Collaborative Mural
-  Description: As a group, chalk one giant collaborative mural across a stretch of pavement, everyone drawing at the same time on the same picture.
-  Reason: Whole-group creative cooperation; concrete and filmable.
+<!-- Empty on purpose after the v6 reset. Accumulate fresh, register-tagged
+     exemplars here per the rules above; distill structure, never surface. -->
 
 ## KILL
 
@@ -119,3 +67,68 @@ EXAMPLE (copy into "## KEEP" below, outside this comment, to activate):
 - Title: Find the Oldest Tree in a Local Park
   Description: Search a park to find and identify its single oldest tree.
   Reason: Infeasible — no group can actually determine a tree's age; not fun.
+
+## ARCHIVED KEEP (v5 era — do NOT distill from these)
+
+<!-- Quarantined 2026-07: these exemplars encode exactly the stale attractors
+     the v6 constitution now caps — relay/handoff x4 (chalk relay, grocery
+     basket relay, balloon relay, silent sunrise relay), a synchronized-unison
+     order, a navigate-by-deprivation walk, chalk as a central prop x2, and
+     stranger-persuasion bits x5 — plus a narration-chain quest (R5-adjacent).
+     Production batches were collapsing onto these exact patterns; distilling
+     from this list again would re-amplify them. Kept only as history and as a
+     record of what over-representation in a KEEP list does. Do not promote
+     entries back without checking them against §5 C1-C10 and the register
+     spread of the current KEEP list. -->
+
+- Title: Interview One Stranger, Whole Crew
+  Description: As a whole group, approach one willing stranger together and take turns asking about the worst decision they've ever made, building on each other's questions.
+  Reason: Group-cohesion exemplar — but stranger-persuasion family (C1), over-represented in this list.
+
+- Title: Chalk Portrait Relay on the Pavement
+  Description: Grab sidewalk chalk and relay-draw portraits of each other on the pavement, each person adding to the previous drawing before passing the chalk on.
+  Reason: Relay mechanic (C2) + chalk prop shared with another entry (C8) — the archetype of the stale pattern.
+
+- Title: Speed Ordering Synchronized Chaos
+  Description: The whole group steps up to a counter and places the exact same order in perfect unison, word for word, then thanks the cashier together.
+  Reason: Synchronized-unison family (C3), over-distilled.
+
+- Title: Navigate a Neighborhood by Sound Alone
+  Description: As a group, walk a few blocks choosing every turn by ear alone — follow traffic, music, or voices instead of looking where you're going. Keep a friend nearby.
+  Reason: Navigate-by-deprivation family (C7) — the skeleton the KILL list already flags as massively over-repeated.
+
+- Title: Supermarket Fake Recall Stunt
+  Description: As a group, calmly ask a supermarket employee where a product is because you "heard it got recalled" for a funny, obviously-harmless reason, then keep a straight face.
+  Reason: Stranger-persuasion family (C1), over-represented in this list.
+
+- Title: Furniture Store Couple Consultation
+  Description: Pair off and roam a furniture store in character, asking employees which sofa best suits your imaginary shared home and staying in role the whole time.
+  Reason: Stranger-persuasion / roleplay-insertion family (C1), over-represented in this list.
+
+- Title: Grocery Store Weird Order Relay
+  Description: At a grocery store, build one deliberately odd but harmless basket as a relay — each person adds a single strange item and hands the basket to the next.
+  Reason: Relay mechanic (C2), over-distilled.
+
+- Title: Guess a Stranger's Job in Five Questions
+  Description: As a group, approach one willing stranger and try to guess their job or hobby using only five yes/no questions between you.
+  Reason: Stranger-persuasion family (C1), over-represented in this list.
+
+- Title: Balloon Relay Race Across an Open Field
+  Description: Split into a relay and race a balloon across an open field, tapping it along without letting it touch the ground until the last person crosses.
+  Reason: Relay mechanic (C2) + balloon prop — both stale attractors.
+
+- Title: Constellation Hunt
+  Description: Head somewhere dark together and find as many constellations as you can, comparing what each person spots until you run out of sky.
+  Reason: Still a decent sensory-cozy shape, but archived with its era; re-admit only against the current list's register spread.
+
+- Title: Silent Sunrise Relay to High Ground
+  Description: Before dawn, relay your way to the highest nearby spot in total silence, then watch the sunrise together once everyone arrives.
+  Reason: Relay (C2) + silent (C5) stacked in one quest — two capped mechanics.
+
+- Title: Improv Story Chain on a Night Walk
+  Description: Take a late-night stroll and build one shared story together, each person narrating one minute before passing it to the next.
+  Reason: Narration framing (R5-adjacent) + pass-along chain (C2-adjacent).
+
+- Title: Chalk a Giant Collaborative Mural
+  Description: As a group, chalk one giant collaborative mural across a stretch of pavement, everyone drawing at the same time on the same picture.
+  Reason: Chalk prop shared with another entry (C8) — duplicated prop across the KEEP list drove chalk fixation.
