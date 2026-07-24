@@ -297,9 +297,9 @@ const REQUEST_PROTOCOL = `
 
 You are generating for the WaitMap web/mobile app. Each request supplies compact context lines. Interpret each line exactly as specified below, then construct the batch per the constitution above. Everything in this section restates or applies the constitution — nothing here relaxes a hard rule from §5, §7, or §8.
 
-**Task.** Construct exactly 3 side quests per request — unless the request explicitly asks for a different count, in which case produce exactly that many. Build each quest from a DIFFERENT §6 structural template (different setting and different verb), score each against the §4 rubric, and reject any §5 anti-structure before emitting. Output EXACTLY per the §9 FORMAT ANCHOR: a minified JSON array with one object per quest, keys title/description/category only, each description 10-14 words (16 ABSOLUTE MAX). No markdown fences, no commentary, no whitespace padding.
+**Task.** Construct exactly 3 side quests per request — unless the request explicitly asks for a different count, in which case produce exactly that many. Build each quest from a DIFFERENT §6 structural template (different setting, different core verb, different central prop), score each against the §4 rubric, and reject any §5 anti-structure before emitting. Output EXACTLY per the §9 FORMAT ANCHOR: a minified JSON array with one object per quest, keys title/description/category only, each description 10-14 words (16 ABSOLUTE MAX). No markdown fences, no commentary, no whitespace padding.
 
-**"Construct N quests."** (optional first line) — produce exactly N objects in the array instead of 3. All other rules hold at batch scale: still at most 1 food-flavored quest in the whole batch, never repeat a §6 template within the batch, and when N is 6 spread the batch across at least 4 different categories (unless a single category was requested). The server ranks and ships the best 3, so N distinct, rule-clean candidates beat N variations of one idea.
+**"Construct N quests."** (optional first line) — produce exactly N objects in the array instead of 3. All other rules hold at batch scale: still at most 1 food-flavored quest in the whole batch, never repeat a §6 template within the batch, and when N is 6 spread the batch across at least 4 different categories (unless a single category was requested). The §5 per-batch caps also apply to the WHOLE set of N: no two candidates built around the same central prop/object/material, no two using the same capped mechanic family, no two sharing a core verb — the server hard-drops such duplicates, so a second variation of an idea is a wasted slot. The server ranks and ships the best 3, so N distinct, rule-clean candidates beat N variations of one idea.
 
 **"Generate quests in the X category."** (optional first line) — a deliberate user filter. Every quest in the batch should land in or near that category; the 3-different-categories spread rule is suspended for that request. The spice ceiling, anti-food rule, and all safety bans still apply.
 
@@ -307,7 +307,7 @@ You are generating for the WaitMap web/mobile app. Each request supplies compact
 
 **"Venue types nearby:"** — a soft, generic hint about what kinds of places exist near the user (drawn from: restaurants, fast food spots, cafes, bars, cinemas, theatres, libraries, gyms, parks, playgrounds, sports centres, stadiums, museums, attractions, viewpoints, supermarkets, malls, hardware stores). Do NOT set every quest at the dominant type, and remember the anti-food rule: the hint list skews food-heavy; resist it. If parks are listed, a quest may say "a nearby park" — never a park's name. "(no nearby info)" means no venue data — lean on settings that exist everywhere (streets, homes, open spaces).
 
-**"DIVERSITY SEED:"** — four axis hints (verb / setting / prop or constraint / group dynamic). Use at least one tag per quest, and make the batch collectively touch at least 3 of the 4 axes. The seed exists to pull batches out of repetitive attractors; treat it as creative fuel, not a checklist to name-drop.
+**"DIVERSITY SEED:"** — four axis hints (verb / setting / prop or constraint / group dynamic). Use at least one tag per quest, and make the batch collectively touch at least 3 of the 4 axes. The seed exists to pull batches out of repetitive attractors; treat it as creative fuel, not a checklist to name-drop. It must never collapse the batch instead: the prop/constraint tag may anchor AT MOST ONE quest (never build two quests around the seed prop — §5 PROP/MOTIF CAP), and no seed tag excuses breaking a §5 cap.
 
 **"Vibe lean:"** (optional) — the user's standing taste from onboarding. Favor these vibes in roughly two-thirds of the batch, but do NOT exclude other categories — the batch must still span at least 3 different categories. A vibe lean is a lean; variety within it is still the point.
 
@@ -322,11 +322,11 @@ You are generating for the WaitMap web/mobile app. Each request supplies compact
 - "Cost: cheap." — free or low-cost preferred; nothing over ~$15 per person.
 - "Cost: any." — cost is not a constraint; free and paid activities are both fine when they fit.
 
-**"BANNED TITLES:"** (optional) — a blocklist of the user's recently seen quest titles, oldest first. Do NOT generate any quest whose title or core mechanic closely matches one (exact or near-paraphrase). Generating a banned quest is a failure — treat the list as a hard blocklist, not inspiration.
+**"BANNED TITLES:"** (optional) — a blocklist of the user's recently seen quest titles, oldest first. Do NOT generate any quest whose title or core mechanic closely matches one (exact or near-paraphrase). Treat mechanics visible in the list as recently spent too: if the banned titles already show a relay, a decode/hidden-message, a silent round, a photograph-a-count scavenger, or a blind/backwards navigation, do not build a new quest on that same mechanic. Generating a banned quest is a failure — treat the list as a hard blocklist, not inspiration.
 
 **Server post-processing (why sloppiness is wasted).** The server independently drops quests that trip a §8 safety ban or near-duplicate a banned title, scrubs any leaked venue names, and discards malformed JSON. A dropped quest costs the user a visible slot — construct clean, rule-following quests the first time.
 
-**Batch self-check before emitting.** Run down this list for the finished batch: (1) every description is 10-14 words, never over 16 — count them; (2) every title is 5-8 words; (3) no title matches or paraphrases a banned title; (4) at most 1 food-flavored quest, and no food used as a mechanic, reward, or penalty anywhere; (5) the batch spans at least 3 different categories unless a single category was requested; (6) every quest sits at or below the spice ceiling; (7) every quest fits the time window, the group size, and any walking/cost constraints; (8) no proper-noun venues, streets, or landmarks anywhere; (9) valid minified JSON, correct key set, nothing else in the output. Fix any failure BEFORE emitting — the array you return is final.`;
+**Batch self-check before emitting.** Run down this list for the finished batch: (1) every description is 10-14 words, never over 16 — count them; (2) every title is 5-8 words; (3) no title matches or paraphrases a banned title, and no quest reuses a mechanic visible in the banned titles; (4) at most 1 food-flavored quest, and no food used as a mechanic, reward, or penalty anywhere; (5) the batch spans at least 3 different categories unless a single category was requested; (6) no two quests share a central prop/object/material, no two use the same capped §5 mechanic family, and every quest has a different core verb; (7) every quest sits at or below the spice ceiling; (8) every quest fits the time window, the group size, and any walking/cost constraints; (9) no proper-noun venues, streets, or landmarks anywhere; (10) valid minified JSON, correct key set, nothing else in the output. Fix any failure BEFORE emitting — the array you return is final.`;
 
 export const SYSTEM_PROMPT = `${SKILL_BODY}${REQUEST_PROTOCOL}`;
 
@@ -498,6 +498,12 @@ function buildHistogram(typeCounts: Record<string, number>): string {
 // request. We tell the model "use AT LEAST ONE per quest and span 3+ axes
 // across the batch", which steers each batch away from the
 // "supermarket sprint" attractor without hard-filtering the space.
+//
+// Pool hygiene: options naming a §5-capped mechanic family (decode, relay,
+// silent) or a banned anti-structure (narrated) are deliberately absent —
+// seeding a capped mechanic invited Haiku to build the whole batch on it,
+// which the ranker then had to shred. Props stay (chalk, balloon, …) because
+// the protocol caps a seed prop to anchoring at most ONE quest.
 
 const DIVERSITY_AXES = {
   verb: [
@@ -512,7 +518,7 @@ const DIVERSITY_AXES = {
     "collect",
     "photograph",
     "interview",
-    "decode",
+    "stack",
     "build",
     "perform",
     "barter",
@@ -548,9 +554,9 @@ const DIVERSITY_AXES = {
     "cooperative",
     "secret",
     "public",
-    "relay",
-    "silent",
-    "narrated",
+    "head-to-head",
+    "rotating-roles",
+    "one-vs-all",
     "timed",
     "open-ended",
   ],
@@ -1535,7 +1541,7 @@ export async function POST(req: NextRequest) {
           scrub(refillRaw, places);
           const refill = hardFilterQuests(refillRaw, {
             previousTitles,
-            alreadyKeptTitles: pool.map((q) => q.title ?? ""),
+            alreadyKept: pool,
             walkingOnly,
             freeOnly,
             hooks: rankerHooks,
@@ -1556,6 +1562,10 @@ export async function POST(req: NextRequest) {
       isFood: (q) => isFoodQuest(q as ClaudeQuest),
       allowFoodHeavy:
         (requestedCategory ?? "").toLowerCase() === "food",
+      // Cross-batch stock-mechanic pressure: a relay/decode/silent/photo-N/
+      // navigate-blind candidate ranks lower when the user's recent titles
+      // already show that mechanic.
+      previousTitles,
     });
     console.log("[generate] ranked", {
       pool: pool.length,

@@ -1,5 +1,6 @@
 // Offline verification harness for the M9-revision safety filter +
-// title-bigram Jaccard dedup. Run with: `node app/api/generate/_verify.mjs`.
+// title-bigram Jaccard dedup + the prop/mechanic anti-fixation belt.
+// Run with: `node app/api/generate/_verify.mjs`.
 //
 // We can't fire 5x4 live generations from this sandbox (no ANTHROPIC_API_KEY,
 // no outbound to api.anthropic.com), so this harness verifies the pure
@@ -193,6 +194,238 @@ for (const [a, b] of jaccardOk) {
   } else {
     console.log(`  ✗ ${j.toFixed(2)} FALSE "${a}" / "${b}"`);
     failures.push(`Jaccard false positive: ${a} / ${b}`);
+    fail++;
+  }
+}
+
+// ---------- Prop / mechanic anti-fixation belt ----------
+// Duplicated from lib/quest-ranker.ts (same edit-both rule as the safety
+// patterns above).
+
+const MECHANIC_FAMILIES = [
+  {
+    name: "relay",
+    regex:
+      /\brelay\b|\bpass(?:es|ing)?\s+(?:it|them|the\s+\w+)\s+(?:down|along|to\s+the\s+next)\b|\bhand(?:s|ing)?\s+(?:it|them|the\s+\w+)\s+(?:off|to\s+the\s+next)\b|\btak(?:e|es|ing)\s+turns\s+adding\b/i,
+  },
+  {
+    name: "decode",
+    regex:
+      /\b(?:decode|decoding|decipher|encoded|cipher|hidden\s+(?:message|note|clue)|secret\s+(?:message|code|note)|coded\s+(?:message|note|clue))\b/i,
+  },
+  {
+    name: "silent",
+    regex:
+      /\b(?:silent|silently|silence|without\s+(?:talking|speaking|words|saying)|no\s+(?:talking|speaking)|gestures?\s+only|only\s+gestures|mime|miming)\b/i,
+  },
+  {
+    name: "photo_count",
+    regex:
+      /\b(?:photograph|photo|snap|picture)\w*\b[^.!?]{0,40}\b(?:two|three|four|five|six|seven|eight|nine|ten|\d+)\b|\b(?:two|three|four|five|six|seven|eight|nine|ten|\d+)\b[^.!?]{0,25}\b(?:photos?|photographs?|pictures?|snaps?)\b/i,
+  },
+  {
+    name: "navigate_blind",
+    regex:
+      /\b(?:blindfold(?:ed)?|walk(?:s|ing)?\s+backwards?|navigate\w*[^.!?]{0,30}\b(?:backwards?|blind|landmarks?\s+only|without\s+(?:gps|a\s+map|maps|phones?))|by\s+landmarks?\s+only|eyes\s+closed)\b/i,
+  },
+];
+
+function detectMechanics(text) {
+  const out = [];
+  for (const f of MECHANIC_FAMILIES) {
+    if (f.regex.test(text)) out.push(f.name);
+  }
+  return out;
+}
+
+const ANCHOR_STOPWORDS = new Set([
+  "the", "and", "but", "nor", "with", "without", "from", "into", "onto",
+  "over", "under", "down", "out", "off", "that", "these", "those", "this",
+  "your", "yours", "their", "them", "they", "then", "than", "each", "every",
+  "all", "any", "some", "none", "nothing", "only", "just", "most", "more",
+  "least", "less", "own", "same", "other", "another", "both", "either",
+  "neither", "while", "until", "before", "after", "during", "once", "twice",
+  "again", "still", "ever", "never", "also", "even", "like", "via", "per",
+  "instead", "together", "apart", "exactly", "about", "against", "through",
+  "between", "behind", "across", "toward", "towards", "along", "around",
+  "inside", "outside", "someone", "something", "anything", "everything",
+  "whoever", "whatever", "whichever", "where", "when", "what", "here",
+  "there", "back", "away", "left", "right", "near", "nearby", "local",
+  "group", "crew", "everyone", "everybody", "anyone", "friend", "people",
+  "person", "member", "team", "partner", "player", "opponent", "side",
+  "pair", "solo", "whole", "gang", "squad", "passerby", "passersby",
+  "quest", "challenge", "game", "mission", "adventure", "contest",
+  "tournament", "showdown", "battle", "round", "level", "rule", "turn",
+  "point", "score", "scored", "scoring", "win", "winner", "winning", "lose",
+  "loser", "losing", "prize", "stake", "bet", "wager", "goal", "task",
+  "edition", "mode",
+  "photo", "photograph", "picture", "selfie", "video", "clip", "film",
+  "camera", "phone", "screen", "proof", "evidence", "shot", "recap",
+  "park", "street", "store", "shop", "spot", "place", "corner", "block",
+  "neighborhood", "town", "city", "home", "house", "apartment", "room",
+  "aisle", "area", "venue", "location", "cafe", "restaurant", "mall",
+  "market", "supermarket", "library", "museum", "playground", "cinema",
+  "theater", "theatre", "station", "sidewalk", "entrance", "exit", "door",
+  "indoor", "indoors", "outdoor", "outdoors", "public",
+  "minute", "hour", "second", "time", "today", "tonight", "night", "day",
+  "week", "weekend", "morning", "afternoon", "evening", "midnight",
+  "find", "walk", "make", "take", "get", "give", "going", "turn", "pick",
+  "play", "start", "end", "meet", "try", "use", "see", "watch", "look",
+  "tell", "say", "ask", "keep", "hold", "put", "set", "let", "send",
+  "bring", "choose", "grab", "head", "run", "race", "chase", "sprint",
+  "visit", "order", "buy", "pay", "eat", "drink", "snap", "count", "swap",
+  "trade", "guess", "draw", "hide", "hunt", "build", "stack", "climb",
+  "read", "write", "share", "shared", "sharing", "begin", "begins",
+  "finish", "finishes", "complete", "completes", "return", "returns",
+  "arrive", "arrives", "leave", "leaves", "stay", "stays", "stop", "stops",
+  "wait", "waits", "declare", "declares", "crown", "crowned", "crowns",
+  "vote", "votes", "voting", "judge", "judged", "judging", "rate", "rated",
+  "rating",
+  "new", "old", "first", "last", "next", "best", "worst", "random",
+  "secret", "hidden", "full", "half", "single", "double", "triple",
+  "couple", "dozen", "entire", "total", "final", "finally", "weird",
+  "weirdest", "wild", "wildest", "crazy", "craziest", "silly", "silliest",
+  "funny", "funniest", "fast", "fastest", "slow", "slowest", "tall",
+  "tallest", "big", "biggest", "small", "smallest", "long", "longest",
+  "short", "shortest", "high", "highest", "low", "lowest", "close",
+  "closest", "nearest", "deep", "deepest", "cheap", "cheapest", "quiet",
+  "loud", "free", "real", "fake", "perfect", "favorite",
+  "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
+  "ten",
+  "thing", "item", "object", "stuff", "way", "route", "path", "word",
+  "line", "list", "money", "dollar", "buck", "hand", "hands", "foot",
+  "feet", "eye", "eyes", "face", "voice", "body", "staff",
+]);
+
+function anchorTokens(text) {
+  const out = new Set();
+  for (const raw of text.toLowerCase().split(/[^a-z0-9']+/)) {
+    const t = raw.replace(/'/g, "");
+    if (t.length < 4 || ANCHOR_STOPWORDS.has(t)) continue;
+    const sing =
+      t.length > 4 && t.endsWith("s") && !t.endsWith("ss")
+        ? t.slice(0, -1)
+        : t;
+    if (ANCHOR_STOPWORDS.has(sing)) continue;
+    out.add(sing);
+  }
+  return out;
+}
+
+function findBatchConflict(candidate, kept) {
+  const text = `${candidate.title} ${candidate.description}`;
+  const anchors = anchorTokens(text);
+  const mechanics = detectMechanics(text);
+  for (const k of kept) {
+    const kText = `${k.title} ${k.description ?? ""}`;
+    const kAnchors = anchorTokens(kText);
+    for (const a of anchors) {
+      if (kAnchors.has(a)) {
+        return { reason: "duplicate_prop", shared: a, withTitle: k.title };
+      }
+    }
+    if (mechanics.length > 0) {
+      const kMechanics = new Set(detectMechanics(kText));
+      for (const m of mechanics) {
+        if (kMechanics.has(m)) {
+          return { reason: "duplicate_mechanic", shared: m, withTitle: k.title };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+const q = (title, description) => ({ title, description });
+
+// Pairs that MUST conflict — the observed fixation patterns: one central
+// prop told through different structural shapes, or one stock mechanic
+// reused across siblings.
+const MUST_CONFLICT = [
+  // single-prop fixation (different shapes, same anchor noun)
+  [q("Chalk Bet Showdown", "Bet on who draws the best chalk doodle outside."),
+   q("Chalk Portrait Gauntlet", "Sketch each other in chalk, strangers judge the best one.")],
+  [q("Balloon Debate Club", "Argue absurd topics while keeping a balloon airborne."),
+   q("Balloon Tower Build", "Stack balloons into the tallest tower that stands ten seconds.")],
+  [q("Storefront Cipher Hunt", "Decode a hidden message spelled by storefront signs."),
+   q("Storefront Color Collection", "Photograph five storefronts in rainbow order before sunset.")],
+  // stock-mechanic repetition (different props, same engine)
+  [q("Sock Relay Sprint", "Relay a rolled sock across the park without using hands."),
+   q("Pinecone Relay Loop", "Relay a pinecone around the block, last leg walks backwards.")],
+  [q("Menu Cipher Night", "Decode a secret message hidden in a takeout menu."),
+   q("Sidewalk Code Drop", "Plant a coded note for the crew to decipher.")],
+  [q("Mime the Order Round", "Order snacks using only gestures, no talking allowed."),
+   q("Silent Park Olympics", "Compete in mini games in total silence, first laugh loses.")],
+  [q("Snap Five Doors Dash", "Photograph five green doors before the timer dies."),
+   q("Ten Dogs Camera Hunt", "Snap ten different dogs, weirdest leash wins it all.")],
+  [q("Backwards Block Guide", "Guide a blindfolded friend around the block by voice."),
+   q("Landmark Only Trek", "Navigate home by landmarks only, phones stay zipped away.")],
+];
+
+// Pairs that MUST NOT conflict — distinct props and mechanics, plus pairs
+// sharing only generic quest vocabulary (winner/route/proof-photo/etc.).
+const MUST_NOT_CONFLICT = [
+  [q("Sunrise Hill Cocoa Mission", "Hike the nearest hill for sunrise, thermos cocoa at the top."),
+   q("Cardboard Fort Build-Off", "Build a couch fort from cardboard, hold a housewarming.")],
+  [q("Wrong Skill Level Pickup", "Join a pickup game way above your level, celebrate every point."),
+   q("Thrift Store Outfit Oracle", "Style each other blind from thrift racks, wear it out.")],
+  // shared generic stake phrasing must not read as a shared prop
+  [q("Alley Bocce Invitational", "Roll oranges at a target, winner picks the route home."),
+   q("Stairwell Echo Choir", "Harmonize one chord in a stairwell, winner picks the route home.")],
+  // a single proof photo is not the photo-count mechanic
+  [q("Fountain Coin Diplomacy", "Trade wishes out loud, seal the best with a group photo."),
+   q("Grandma Recipe Roulette", "Cook one random family recipe from memory, plate it fancy.")],
+];
+
+console.log("\n[anti-fixation] pairs that MUST conflict:");
+for (const [a, b] of MUST_CONFLICT) {
+  const c = findBatchConflict(b, [a]);
+  if (c) {
+    console.log(`  ✓ ${c.reason} (${c.shared}) "${a.title}" / "${b.title}"`);
+    pass++;
+  } else {
+    console.log(`  ✗ MISSED  "${a.title}" / "${b.title}"`);
+    failures.push(`Anti-fixation miss: ${a.title} / ${b.title}`);
+    fail++;
+  }
+}
+
+console.log("\n[anti-fixation] pairs that MUST NOT conflict:");
+for (const [a, b] of MUST_NOT_CONFLICT) {
+  const c = findBatchConflict(b, [a]);
+  if (!c) {
+    console.log(`  ✓ ok      "${a.title}" / "${b.title}"`);
+    pass++;
+  } else {
+    console.log(
+      `  ✗ FALSE ${c.reason} (${c.shared}) "${a.title}" / "${b.title}"`,
+    );
+    failures.push(
+      `Anti-fixation false positive (${c.reason}:${c.shared}): ${a.title} / ${b.title}`,
+    );
+    fail++;
+  }
+}
+
+console.log("\n[mechanics] single-quest detection sanity:");
+const MECHANIC_CASES = [
+  ["Race to photograph five murals before dark.", ["photo_count"]],
+  ["Snap one group photo at the summit as proof.", []],
+  ["Walk the whole loop without talking once.", ["silent"]],
+  ["Find the viewpoint with no GPS, paper map allowed.", []],
+];
+for (const [text, expected] of MECHANIC_CASES) {
+  const got = detectMechanics(text);
+  const okCase =
+    got.length === expected.length && expected.every((m) => got.includes(m));
+  if (okCase) {
+    console.log(`  ✓ [${got.join(",") || "none"}] "${text}"`);
+    pass++;
+  } else {
+    console.log(
+      `  ✗ got [${got.join(",")}] want [${expected.join(",")}] "${text}"`,
+    );
+    failures.push(`Mechanic detect: "${text}"`);
     fail++;
   }
 }
