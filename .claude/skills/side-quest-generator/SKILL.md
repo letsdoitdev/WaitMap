@@ -3,21 +3,26 @@ name: side-quest-generator
 description: Generate spontaneous side quests for friend groups (mostly ages 16 to 25) to do together. Use this skill whenever the user wants a side quest, asks "what should we do", says they are bored with friends, wants a random thing to do, asks for a group activity idea, or says something like "we need an idea for tonight" even if the exact phrase "side quest" never appears. Always trigger this skill for any request that smells like "give me something fun to do with friends right now or this weekend." Quests range from wholesome group adventures (sunrise hikes) to public chaos comedy (group stunts at retail), with everything in between. The skill is organized by spiciness level only; vibe variety within each tier is the whole point.
 ---
 
-# Side Quest Constitution (v5)
+# Side Quest Constitution (v6)
 
-This is the single canonical source of truth for generating side quests. It supersedes the old prose output format and folds in every hard website rule. Follow it top to bottom: understand what a quest is (§1), the principles (§2) and tiers (§3); construct each quest from a STRUCTURAL TEMPLATE (§6); score it against the rubric (§4); reject anything matching an ANTI-STRUCTURE (§5); obey the hard content rules (§7) and safety bans (§8); and emit exactly in the FORMAT ANCHOR (§9).
+The single canonical source of truth for generating side quests. v6 is written to be applied MECHANICALLY: run the §0 build procedure for every batch, using §1–§3 to know what a quest is, §6 to construct, §5 to reject and diversify, §4 to score, §7–§8 to stay in bounds, and §9 to emit.
 
-You CONSTRUCT quests from scratch using the abstract templates in §6 — you are never copying example quests. There are deliberately no worked example quests in this document; concrete examples cause copying and collapse variety. Build original quests that satisfy the structure, not variations of a sample.
+You CONSTRUCT quests from the abstract templates in §6 — you are never copying example quests. There are deliberately NO worked example quests anywhere in this document: concrete examples cause copying and collapse variety. Never reproduce a quest you remember; build an original one that satisfies the structure.
+
+## §0 — Build procedure (run this in order, every batch)
+
+1. **Read the request lines** (region, venue hint, diversity seed, vibe lean, local time, inputs, banned titles). Every line is binding; their exact semantics are defined in the request protocol below this constitution.
+2. **Plan the batch BEFORE writing.** For a batch of N quests (default 3), choose N DIFFERENT §6 templates, and assign each quest its OWN setting, its OWN core verb (the single verb naming its main action), its OWN central prop, and its OWN category. If two planned quests share any of those, replan now — it is cheaper than rebuilding.
+3. **Draft each quest**: title 5–8 words; description ONE second-person sentence of 10–14 words, concrete action plus payoff, casual Gen-Z register.
+4. **Sweep §5 across the whole batch**: every cap C1–C9, every reject R1–R19. On a broken cap, keep the strongest offender and rebuild each other offender from a DIFFERENT §6 template around a DIFFERENT prop and verb.
+5. **Check §7 content rules and §8 safety, then score against §4.** Anything below 14/20 gets rebuilt, not shipped.
+6. **Emit EXACTLY per §9.** Minified JSON only, nothing else, as small as possible.
 
 ## §1 — What a side quest IS / ISN'T
 
-A side quest is something a friend group does together that makes life feel more alive than a normal evening: a wholesome adventure, a real challenge with a real constraint, a cooperative activity with stakes, public weirdness with strangers as a compelled audience, or a coordinated stunt that risks getting kicked out.
+A side quest IS something a friend group does together that makes life feel more alive than a normal evening: a wholesome adventure, a real challenge with a real constraint, a cooperative activity with stakes, public weirdness with strangers as a compelled audience, or a coordinated stunt that risks getting kicked out.
 
-It is NOT:
-- Self-improvement disguised as fun.
-- A performance-art piece hoping passersby notice.
-- Solo-with-watchers (one person acts, others watch).
-- A generic tourist activity ("visit a museum," "try a new restaurant").
+It ISN'T: self-improvement disguised as fun; a performance-art piece hoping passersby notice; solo-with-watchers (one person acts, others watch); a generic tourist activity ("visit a museum," "try a new restaurant").
 
 ## §2 — Core principles
 
@@ -26,9 +31,9 @@ It is NOT:
 3. **Compelled audience.** When strangers are involved they must be obligated to engage (cashiers, employees, real opponents) — never hoped-for passersby.
 4. **Wholesome counts.** Sunrise hikes and midnight diner runs are as valid as chaos comedy.
 5. **Premises must be absurd, not bland.** An intrinsically funny premise — never a dull pretext.
-6. **Variety per batch.** Mix wholesome adventure, real challenges, social weirdness, and chaos. Don't collapse to one vibe.
-7. **Feasibility.** Every quest must be realistically doable right now with no special equipment, venue access, or expert knowledge. Brief friendly interactions with willing strangers are fine; tasks needing a stranger's sustained cooperation, or expertise to do/judge, are not.
-8. **Group cohesion.** Prefer quests where the WHOLE group engages together over splitting into solo tasks. When strangers are involved, the crew engages them together.
+6. **Variety per batch.** Mix wholesome adventure, real challenges, social weirdness, and chaos. Never collapse the batch to one vibe, one prop, or one mechanic.
+7. **Feasibility.** Realistically doable right now with no special equipment, venue access, or expert knowledge. Brief friendly interactions with willing strangers are fine; a stranger's sustained cooperation or expertise is not.
+8. **Group cohesion.** The WHOLE group engages together — including engaging strangers together — rather than splitting into parallel solo tasks.
 
 ## §3 — The four spiciness tiers (the requested spice is a CEILING, not a target)
 
@@ -52,33 +57,47 @@ Every quest must sit AT OR BELOW the requested spice level.
 9. Clear end condition — count, photo, return time, kick-out, achievement.
 10. High payoff probability — the reward is near-certain, not contingent.
 
-## §5 — Anti-structures (reject if the quest's SHAPE matches any of these)
+## §5 — Anti-structures: hard per-batch caps and auto-rejects
 
-These describe whole quest *shapes* to avoid, not banned topics. If a quest's entire skeleton is one of these, rebuild it from a different §6 template.
+### Per-batch caps (HARD). Each capped family below may claim AT MOST ONE quest per batch — at any batch size N, never two.
 
-**PER-BATCH SHAPE & MECHANIC CAPS (HARD).** The over-used families below are each capped at AT MOST ONE of the 3 quests in a batch — never two quests of the same family. If a draft batch would break a cap, reshape all but one of the offenders using a DIFFERENT §6 template. The capped families:
+If a draft batch breaks a cap, keep the strongest offender and rebuild every other offender from a DIFFERENT §6 template around a DIFFERENT prop and verb.
 
-- **Stranger-persuasion / compelled-audience (CAP: ≤1 of 3).** The "approach a cashier/clerk/employee/stranger and convince them you are X / get them to react to a bit / ask them deadpan about a fake situation" shape. Treat ALL variants as the SAME shape: "convince a cashier you're X," "get a clerk to believe Y," "persuade a stranger that Z," "make an employee react to an absurd order/request," "ask staff, straight-faced, about a made-up scenario." At most ONE quest may use it; the other two must NOT involve approaching/convincing strangers. Separately, always reject (any batch count) the infeasible version: getting a stranger to perform an EFFORTFUL task (solve a handed riddle, debate you, decode a note) — strangers won't; brief willing chats are fine.
-- **Relay / pass-an-object handoff (CAP: ≤1 of 3).** Any "relay," "pass the X down the line," "hand it to the next person," "take turns adding" handoff structure. Treat all of these as the SAME shape. At most ONE quest may be a relay/handoff; if two or more would be, reshape all but one into a different §6 template.
-- **Synchronized / unison / simultaneous action (CAP: ≤1 of 3).** Any "everyone does the same thing at once," "in perfect unison," "all order/say/move the same," "synchronized," "simultaneously" structure (at a counter or anywhere). Treat all of these as the SAME shape. At most ONE quest may be synchronized/unison; if two or more would be, reshape all but one.
-- **Decode / hidden-message (CAP: ≤1 of 3).** Any quest whose engine is a code, cipher, or hidden/secret message — writing one, planting one, or deciphering one. All variants are the SAME mechanic. At most ONE per batch.
-- **Silent / no-talking round (CAP: ≤1 of 3).** Any "do X without talking / in silence / gestures only / mime it" constraint, whatever the activity underneath. One idea. At most ONE per batch.
-- **Photograph-a-count scavenger (CAP: ≤1 of 3).** Any "photograph/snap N things of a category" camera-collection. At most ONE per batch. (A single end-of-quest proof photo is NOT this mechanic and stays fine.)
-- **Navigate-by-deprivation (CAP: ≤1 of 3).** Navigating/guiding with a sense or tool removed (blindfold / backwards / sound-only / landmark-only / no-map-as-the-whole-point). This is ONE idea. At most ONE per batch.
-- **Expert-knowledge / infeasible-judgment** — needs expertise to do or judge (a tree's age, a precise "2-mile loop", identifying landmarks).
-- **Solo-with-watchers** — one person performs while others watch.
-- **Implausible-premise persuasion** — requires a stranger to BELIEVE something absurd (a balloon is essential cargo). Absurd premises are allowed only when feasible-but-weird.
-- **Filler / narration shell** — empty hype taglines ("Chaos guaranteed") or movie-narration phrasing ("the crew narrates…"). Plain real-world instructions only.
+- **C1 — Stranger-persuasion / compelled-audience bit.** Approach a cashier/clerk/employee/stranger and convince them you are X / get them to believe Y / make them react to a bit / ask them deadpan about a fake situation. ALL variants are ONE family. The other quests in the batch must NOT involve approaching or convincing strangers at all.
+- **C2 — Relay / pass-an-object handoff.** Any "relay," "pass the X down the line," "hand it to the next person," "take turns adding" structure. ONE family.
+- **C3 — Synchronized / unison action.** Any "everyone does the same thing at once," "in perfect unison," "all order/say/move the same," "simultaneously" structure, at a counter or anywhere. ONE family.
+- **C4 — Decode / hidden message.** Any quest whose engine is a code, cipher, or hidden/secret message — writing one, planting one, or deciphering one. ONE family.
+- **C5 — Silent / no-talking round.** Any "do X without talking / in silence / gestures only / mime it" constraint, whatever the activity underneath. ONE family.
+- **C6 — Photograph-a-count scavenger.** Any "photograph/snap N things of a category" camera-collection. (A single end-of-quest proof photo is NOT this mechanic and stays fine.)
+- **C7 — Navigate-by-deprivation.** Navigating or guiding with a sense or tool removed: blindfold / backwards / sound-only / landmark-only / no-map-as-the-whole-point. ONE idea, ONE family.
+- **C8 — PROP/MOTIF cap.** No two quests in a batch may share a central object, material, prop, or motif — EVEN WHEN their structural shapes differ. A bet, a hunt, and a relay all built around the same material are one idea told three ways, not three quests. The test: if removing that object guts more than one quest, they share an anchor. A prop suggested by the request's DIVERSITY SEED may anchor at most ONE quest — the seed is fuel for one quest, never a theme for the batch.
+- **C9 — Distinct core verbs.** Every quest in the batch is built on a DIFFERENT core verb — the single verb naming its main action — even in different settings. And note: the mechanics in C2–C7 are over-used defaults across ALL batches, not just this one. Reach for a fresh mechanic first; treat C2–C7 as last resorts, and never build one that already appears in the banned titles.
 
-**PER-BATCH PROP/MOTIF CAP (HARD).** The 3 quests in a batch must never share a central object, material, prop, or motif. Two drafts anchored on the same noun are duplicates EVEN WHEN their structural shapes differ — a bet, a hunt, and a relay all built around the same material are one idea told three ways, not three quests. The test: if removing that object guts more than one quest, they share an anchor. Keep the strongest offender; rebuild every other offender from a DIFFERENT §6 template AND around a DIFFERENT central prop. A prop suggested by the request's DIVERSITY SEED may anchor at most ONE quest — the seed is fuel for one quest, never a theme for the batch.
+### Auto-reject ANY single quest that is:
 
-**DISTINCT CORE VERBS (HARD).** Build each of the 3 quests on a different core verb — the single verb that names its main action. Never two quests whose main action is the same verb, even in different settings. The capped mechanic families above (relay, decode, silent, photograph-a-count, navigate-by-deprivation) are over-used defaults across ALL batches, not just this one: reach for a fresh mechanic first, and treat any of them as a last resort rather than a starting point.
-
-Also auto-reject (carried from the prior anti-rubric): verbal-rule gimmicks ("only speak in movie quotes"); any writing/journaling/reflection component; wellness or "make a memory" framing; targeting a marginalized group as joke or audience; manufactured comedic outcomes that probably won't happen; predictable boring responses ("yeah it's good"); hidden pranks with delayed payoff (visible-immediate works, invisible fails); an earnest 35-year-old tone (sound Gen Z); stage directions for the ride home (stop at the action); rigid exact counts when open-ended lands better; unnecessary losing-stakes when the activity already suffices; just-ask-employees-questions with no prop/scenario/character; sports quests with code names or rule overlays (just play badly); the Tier-4 "synchronized-performance-hoping-passersby-notice" trap (conga lines, slow claps, silent staring) — real Tier 4 is group physical chaos with real kick-out risk.
+- **R1** Expert-knowledge / infeasible judgment — needs expertise to do or judge (a tree's age, a precise "2-mile loop," identifying landmarks).
+- **R2** Solo-with-watchers — one person performs while others watch.
+- **R3** Implausible-premise persuasion — requires a stranger to BELIEVE something absurd. Absurd premises are allowed only when feasible-but-weird.
+- **R4** Stranger-effortful-task — needs a stranger to perform real work (solve a handed riddle, debate you, decode a note). Strangers won't; brief willing chats are fine.
+- **R5** Filler / narration shell — empty hype taglines ("Chaos guaranteed") or movie-narration phrasing ("the crew narrates…"). Plain real-world instructions only.
+- **R6** Verbal-rule gimmick ("only speak in movie quotes").
+- **R7** Any writing, journaling, or reflection component.
+- **R8** Wellness or "make a memory" framing.
+- **R9** Targets a marginalized group as joke or audience.
+- **R10** Manufactured comedic outcome that probably won't happen.
+- **R11** Hinges on a predictable boring response ("yeah it's good").
+- **R12** Hidden prank with delayed payoff — visible-immediate works, invisible fails.
+- **R13** Earnest 35-year-old tone — sound Gen Z instead.
+- **R14** Stage directions for the ride home — stop at the action.
+- **R15** Rigid exact count where open-ended lands better.
+- **R16** Unnecessary losing-stakes when the activity already suffices.
+- **R17** Just-ask-employees-questions with no prop, scenario, or character.
+- **R18** Sports with code names or rule overlays — just play badly.
+- **R19** The Tier-4 synchronized-performance-hoping-passersby-notice trap (conga lines, slow claps, silent staring) — real Tier 4 is group physical chaos with real kick-out risk.
 
 ## §6 — Structural templates ("X is Y:") — construct from these
 
-Grammar: **A `<tier/vibe>` quest IS: `{hook/premise}` + `{concrete coordinated group action}` + `{clear end condition}`.** Fill the axes — **tier**, **a role for every member**, **setting** — with original content. Pick a DIFFERENT template, a different setting, a different CORE VERB, and a different central prop for each of the 3 quests in a batch (§5's per-batch caps are hard).
+Grammar: **A `<tier/vibe>` quest IS: `{hook/premise}` + `{concrete coordinated group action}` + `{clear end condition}`.** Fill the axes — **tier**, **a role for every member**, **setting** — with original content. Pick a DIFFERENT template, a different setting, a different CORE VERB, and a different central prop for each quest in the batch (§5 C8/C9 are hard).
 
 1. **Constraint challenge IS:** an ordinary outing + the whole group adopting one artificial limit (a removed sense, a banned tool, a time box) + a measurable success/failure line.
 2. **Compelled-audience bit IS:** the whole crew + a committed shared bit performed to an obligated stranger (cashier/employee/opponent) + an exit when it lands or you're asked to stop.
@@ -93,10 +112,10 @@ Grammar: **A `<tier/vibe>` quest IS: `{hook/premise}` + `{concrete coordinated g
 
 ## §7 — Hard content rules
 
-- **Anti-food (HARD).** The nearby venue hint is food-dominated; resist it. At most 1 food/eating/drinking quest per batch of 3 — the other 2 must be clearly non-food. Even in non-food quests, never use food/eating/drinking/buying-food as a mechanic, reward, or penalty (no "loser buys coffee"); use "loser picks the next quest," "winner picks the route home," or "group photo as proof" instead.
+- **Anti-food (HARD).** The nearby venue hint is food-dominated; resist it. At most 1 food/eating/drinking quest per batch — the others must be clearly non-food. Even in non-food quests, never use food/eating/drinking/buying-food as a mechanic, reward, or penalty (no "loser buys coffee"); use "loser picks the next quest," "winner picks the route home," or "group photo as proof" instead.
 - **No named venues (HARD).** Never put a specific venue, business, restaurant, cafe, bar, street, park, playground, landmark, neighborhood, or institution name in a title or description. Use generic descriptors: "a nearby park," "a local cafe," "a community space." Location is for geographic plausibility only.
 - **Geographic plausibility.** Use the location only to keep quests physically possible for the area's climate, terrain, and density — e.g. no surfing/tide-pools in a landlocked region, no "hit 30 bars in an hour" in a rural town, no ski quests in a desert. It is a sanity check on quest TYPE, not a place to drop proper nouns.
-- **Category coverage (spread, don't default to Social).** The 3 quests should land in 3 DIFFERENT `category` values. Do NOT default to Social — it is badly over-used; use Social for at most ONE quest in a batch unless the request explicitly asks for it. Actively reach for the under-used categories when the context fits: **Indoor** (at home/inside, no travel), **Food** (at most 1 per batch — see Anti-food), **Nightlife** (late/evening energy), **Creative**, and **Culture**. Let the time of day, spice, group, and setting pick a fitting category rather than falling back to Social.
+- **Category coverage (spread, don't default to Social).** The quests in a batch should land in DIFFERENT `category` values (all 3 different in a 3-quest batch). Do NOT default to Social — it is badly over-used; use Social for at most ONE quest per batch unless the request explicitly asks for it. Actively reach for the under-used categories when the context fits: **Indoor** (at home/inside, no travel), **Food** (at most 1 per batch — see Anti-food), **Nightlife** (late/evening energy), **Creative**, and **Culture**. Let the time of day, spice, group, and setting pick a fitting category rather than falling back to Social.
 - **Category placement.** Outdoor/Nature happens outside (parks, trails, streets, fields, water), never inside a business or at a named venue. Social/Food is the right home for business/venue-based activities. Indoor is done at home/inside with no travel (rearrange furniture, cook from pantry only, pass-the-controller-on-death).
 - **Pronouns / group size.** Match the group: solo → "you"; 2+ → "your crew" / "everyone" / "the group."
 - **No filler.** No empty hype taglines and no movie-narration phrasing; plain, real-world instructions.
@@ -125,7 +144,7 @@ Shape (this is a schema placeholder, NOT a quest to copy — fill the angle-brac
 Rules for the anchor:
 - Exactly 3 objects.
 - **Description length: TARGET 10–14 words. 16 words is the ABSOLUTE HARD CEILING — never exceed it.** Short and punchy beats descriptive. Concrete, action-forward, casual Gen-Z register, second person, no "don't do X" language, no writing tasks.
-- Titles 5–8 words.
+- Titles 5-8 words.
 - `category` must be one of: Outdoor, Food, Social, Challenge, Culture, Nightlife, Creative, Indoor.
 - Do NOT emit `duration`, `groupSize`, `spiceLevel`, `rating`, or any other key — those are set server-side.
 - Minified, no markdown, no prose around the array. Keep total output as small as possible.
