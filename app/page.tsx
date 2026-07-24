@@ -367,6 +367,19 @@ export default function Home() {
   const [spice, setSpice] = useState(5);
   const [quests, setQuests] = useState<GeneratedQuest[] | null>(null);
   const [rolling, setRolling] = useState(false);
+  // Long-wait progress stage. Sonnet-routed generation takes ~17-19s to the
+  // first card (vs Haiku's ~2.5s) — without an escalating in-progress message
+  // a silent 17s spinner reads as broken. Flips true after 6s of rolling;
+  // resets whenever rolling ends (first streamed quest sets rolling false).
+  const [longWait, setLongWait] = useState(false);
+  useEffect(() => {
+    if (!rolling) {
+      setLongWait(false);
+      return;
+    }
+    const t = window.setTimeout(() => setLongWait(true), 6_000);
+    return () => window.clearTimeout(t);
+  }, [rolling]);
   const [nearbyStatus, setNearbyStatus] = useState<
     "idle" | "loading" | "ok" | "fallback"
   >("idle");
@@ -1392,7 +1405,9 @@ export default function Home() {
                   <span>
                     {nearbyStatus === "loading"
                       ? "Finding nearby spots…"
-                      : "Generating…"}
+                      : longWait
+                        ? "Still cooking — top-shelf quests take ~20s…"
+                        : "Generating…"}
                   </span>
                 </>
               ) : quests ? (
