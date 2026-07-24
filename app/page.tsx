@@ -353,6 +353,14 @@ export default function Home() {
   const [startError, setStartError] = useState<string | null>(null);
   const [outOfRerollsOpen, setOutOfRerollsOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // Persistent generation-failure state. The old 4s toast was the ONLY failure
+  // surface — a server-side generation error (bad API key, model access, etc.)
+  // left the results view silently empty once the toast faded. genError renders
+  // an inline error card until the next generate attempt; genErrorDetailRef
+  // carries the server's actual error text (SSE error frame / JSON error body)
+  // from the fetch helpers up to generate() without threading return types.
+  const [genError, setGenError] = useState<string | null>(null);
+  const genErrorDetailRef = useRef<string | null>(null);
   const [city, setCity] = useState("");
   const [groupSize, setGroupSize] = useState(3);
   const [timeMinutes, setTimeMinutes] = useState(90);
@@ -793,17 +801,28 @@ export default function Home() {
         return null;
       }
       // Any other non-OK status (5xx, etc.) → null → error state upstream.
-      if (!r.ok) return null;
+      // Capture the server's error body (e.g. the Anthropic failure message on
+      // a 503) so the visible error state can say WHY, not just "failed".
+      if (!r.ok) {
+        const data = (await r.json().catch(() => null)) as {
+          error?: string;
+        } | null;
+        if (data?.error) genErrorDetailRef.current = data.error;
+        return null;
+      }
       const data = (await r.json()) as {
         ok: boolean;
         quests?: GeneratedQuest[];
+        error?: string;
       };
       if (!data.ok || !Array.isArray(data.quests) || data.quests.length === 0) {
+        if (data?.error) genErrorDetailRef.current = data.error;
         return null;
       }
       return data.quests;
     } catch {
       // Network throw → null → error state upstream.
+      genErrorDetailRef.current = "network error reaching /api/generate";
       return null;
     }
   }
@@ -863,13 +882,23 @@ export default function Home() {
           buf = buf.slice(sep + 2);
           const line = frame.split("\n").find((l) => l.startsWith("data:"));
           if (!line) continue;
-          let evt: { type?: string; quest?: GeneratedQuest } | null = null;
+          let evt: {
+            type?: string;
+            quest?: GeneratedQuest;
+            error?: string;
+          } | null = null;
           try {
             evt = JSON.parse(line.slice(5).trim());
           } catch {
             evt = null;
           }
           if (!evt) continue;
+          // The stream reports server-side generation failures as an SSE
+          // error frame on an HTTP 200 — capture it so the failure is
+          // visible instead of reading as a silent empty result.
+          if (evt.type === "error" && evt.error) {
+            genErrorDetailRef.current = evt.error;
+          }
           if (evt.type === "quest" && evt.quest) {
             collected.push(evt.quest);
             onQuest(evt.quest);
@@ -893,6 +922,9 @@ export default function Home() {
     setQuests(null);
     setRolling(true);
     setView("results");
+    // Reset the failure surface for this attempt.
+    setGenError(null);
+    genErrorDetailRef.current = null;
 
     // Locale signal for THIS generation. We always have at least the raw city
     // (enough for geographic plausibility), so rerolls never wait on the
@@ -1013,9 +1045,15 @@ export default function Home() {
     // AI-only generation: if the API call returns null (network/5xx/parse
     // failure), surface an error to the user. There is no local fallback —
     // we deliberately removed the template-based generator so the model is
-    // the single source of truth.
+    // the single source of truth. The toast is transient; genError renders a
+    // persistent inline error card in the results view (with the server's
+    // actual failure detail when we have it) until the next attempt.
     if (!aiResult) {
       setRolling(false);
+      setGenError(
+        genErrorDetailRef.current ??
+          "The quest generator hit a server error. Please try again.",
+      );
       setToast("Couldn't generate quests right now. Please try again.");
       setTimeout(() => setToast(null), 4000);
       return;
@@ -1379,6 +1417,30 @@ export default function Home() {
                 Couldn&apos;t pin your exact area — quests may be a little less
                 locale-specific.
               </p>
+            )}
+            {/* Persistent generation-failure card — replaces the silent empty
+                results the old 4s toast left behind. Stays until the next
+                generate attempt clears it. */}
+            {genError && !rolling && !quests && (
+              <div
+                role="alert"
+                className="ds-hero-helper"
+                style={{
+                  marginTop: "var(--space-4)",
+                  padding: "var(--space-4)",
+                  border: "1px solid var(--warning)",
+                  borderRadius: "12px",
+                  color: "var(--warning)",
+                  textAlign: "center",
+                }}
+              >
+                <strong>Quest generation failed.</strong>
+                <br />
+                {genError}
+                <br />
+                Hit &ldquo;Generate quests&rdquo; to try again — if this keeps
+                happening, the server may be misconfigured.
+              </div>
             )}
           </div>
         </motion.section>
