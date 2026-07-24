@@ -1129,6 +1129,27 @@ Inputs: spice level ${p.spiceLevel}/10, group size ${groupSizeHint}, time availa
   return { userMessage, histogram };
 }
 
+/**
+ * Secrets-free config check for production debugging. Reports whether the
+ * pieces generation depends on are present — NEVER the values themselves.
+ * `keyPresent: false` → set ANTHROPIC_API_KEY in the deployment env.
+ * `keyPresent: true` + failing POSTs → the key is invalid/expired, the org
+ * lacks access to `firstRollModel`, or billing — read the POST 503 body.
+ */
+export async function GET() {
+  const firstRoll = pickModel({ isFirstRoll: true, isPro: false });
+  const reroll = pickModel({ isFirstRoll: false, isPro: false });
+  return NextResponse.json({
+    ok: true,
+    keyPresent: !!process.env.ANTHROPIC_API_KEY,
+    firstRollModel: firstRoll.model,
+    rerollModel: reroll.model,
+    forceHaiku: process.env.MODEL_FORCE_HAIKU === "1",
+    constitutionLoaded: SYSTEM_PROMPT.length > 500,
+    constitutionBytes: SYSTEM_PROMPT.length,
+  });
+}
+
 export async function POST(req: NextRequest) {
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json(
