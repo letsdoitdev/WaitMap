@@ -430,6 +430,142 @@ for (const [text, expected] of MECHANIC_CASES) {
   }
 }
 
+// ---------- Interest registers (two-axis grid) ----------
+// Duplicated from lib/quest-ranker.ts (same edit-both rule).
+
+const REGISTER_PATTERNS = [
+  {
+    name: "social-performative",
+    regex:
+      /\b(?:cashier|employee|clerk|barista|staff|strangers?|deadpan|in[- ]character|role[- ]?play\w*|accent|persona|improv|perform\w*|convince|persuade|audience)\b/i,
+  },
+  {
+    name: "cerebral-puzzle",
+    regex:
+      /\b(?:puzzle|riddle|deduc\w+|estimat\w+|memori[sz]e|memory|trivia|quiz|logic|mystery|clues?|decode|cipher|guess\w*)\b/i,
+  },
+  {
+    name: "creative-maker",
+    regex:
+      /\b(?:build\w*|sketch\w*|draw\w*|doodle\w*|craft\w*|design\w*|compose|invent\w*|assembl\w+|sculpt\w*|fold\w*|paint\w*|decorate|collage|origami)\b/i,
+  },
+  {
+    name: "sensory-cozy",
+    regex:
+      /\b(?:sunrise|sunset|stargaz\w+|cozy|calm\w*|quiet\w*|listen\w*|playlist|blanket|breeze|clouds?|savor\w*|golden hour|ambient)\b/i,
+  },
+  {
+    name: "exploratory-discovery",
+    regex:
+      /\b(?:explor\w+|wander\w*|discover\w*|unfamiliar|uncharted|scout\w*|roam\w*|trek\w*|never (?:been|visited)|new[- ]to[- ]you)\b/i,
+  },
+  {
+    name: "competitive",
+    regex:
+      /\b(?:tournament|bracket|best[- ]of[- ]\w+|head[- ]to[- ]head|duel|showdown|face[- ]off|1v1|versus|champion\w*|wager|bets?)\b/i,
+  },
+  {
+    name: "active-physical",
+    regex:
+      /\b(?:sprint\w*|climb\w*|hik\w+|jog\w*|laps?|stairs|balanc\w+|obstacle|parkour|rac(?:e|es|ing)|dash|throw\w*|catch|kick\w*|jump\w*|carry\w*|piggyback)\b/i,
+  },
+];
+
+function detectRegister(text) {
+  for (const r of REGISTER_PATTERNS) {
+    if (r.regex.test(text)) return r.name;
+  }
+  return null;
+}
+
+// Constraint-feasibility belts, duplicated from lib/quest-ranker.ts.
+const CAR_REQUIRED =
+  /\b(drive|driving|drove|road trip|drive-?thr(?:u|ough)|carpool|in (?:your|the) car|by car)\b/i;
+const PAID_ACTIVITY =
+  /\b(tickets?|admission|cover charge|entry fee|rental|rent an?)\b|\$\s?(?:[5-9]|[1-9]\d+)\b/;
+
+console.log("\n[registers] detection sanity:");
+const REGISTER_CASES = [
+  ["Stairwell Interval Ladder", "Sprint the stairwell in laps, each round adds a floor.", "active-physical"],
+  ["Fake Art Docents Takeover", "Roam a gallery in character as deadpan docents until someone asks.", "social-performative"],
+  ["Parking Meter Estimation Duel", "Estimate odd quantities around you, verify each guess on the spot.", "cerebral-puzzle"],
+  ["Pocket Junk Sculpture Show", "Sculpt tiny statues from pocket junk, unveil them gallery-style.", "creative-maker"],
+  ["Golden Hour Cloud Cinema", "Lie back and narrate clouds until the golden hour fades.", "sensory-cozy"],
+  ["Coin Flip Street Roulette", "Wander with a coin picking every turn until somewhere unfamiliar.", "exploratory-discovery"],
+  ["Bottle Cap Flick Championship", "Face off in a bottle cap flicking tournament, crown a champion.", "competitive"],
+  ["Totally Plain Evening Errand", "Do the errand together and head back.", null],
+];
+for (const [title, desc, expected] of REGISTER_CASES) {
+  const got = detectRegister(`${title} ${desc}`);
+  if (got === expected) {
+    console.log(`  ✓ ${got ?? "null"} "${title}"`);
+    pass++;
+  } else {
+    console.log(`  ✗ got ${got} want ${expected} "${title}"`);
+    failures.push(`Register detect: "${title}"`);
+    fail++;
+  }
+}
+
+// End-to-end batch check: a 6-candidate pool goes through the duplicated
+// hard-filter (safety + prop/mechanic conflicts), then a register-spread
+// greedy pick (mirroring selectTopQuests' tiebreaker). The shipped batch
+// must (a) still hold 3 quests, (b) span 3 DISTINCT registers, and
+// (c) pass safety + walking-only/free-only feasibility.
+console.log("\n[registers] batch pipeline (3 shipped, 3 distinct registers, safe/feasible):");
+const BATCH_POOL = [
+  q("Stairwell Interval Ladder", "Sprint the stairwell in laps, each round adds a floor."),
+  q("Lobby Sprint Ladder Rematch", "Sprint lobby laps again, one more floor every round."),
+  q("Parking Meter Estimation Duel", "Estimate odd quantities around you, verify each guess on the spot."),
+  q("Pocket Junk Sculpture Show", "Sculpt tiny statues from pocket junk, unveil them gallery-style."),
+  q("Golden Hour Cloud Cinema", "Lie back and narrate clouds until the golden hour fades."),
+  q("Coin Flip Street Roulette", "Wander with a coin picking every turn until somewhere unfamiliar."),
+];
+{
+  const kept = [];
+  for (const cand of BATCH_POOL) {
+    if (findSafetyViolation(`${cand.title} ${cand.description}`)) continue;
+    if (findBatchConflict(cand, kept)) continue;
+    kept.push(cand);
+  }
+  const pickedRegs = new Set();
+  const shipped = [];
+  for (const cand of kept) {
+    if (shipped.length >= 3) break;
+    const r = detectRegister(`${cand.title} ${cand.description}`);
+    if (r && pickedRegs.has(r)) continue; // spread preference (test-side greedy)
+    shipped.push(cand);
+    if (r) pickedRegs.add(r);
+  }
+  const regs = shipped.map((s) => detectRegister(`${s.title} ${s.description}`));
+  const okCount = shipped.length === 3;
+  const okDistinct =
+    regs.every(Boolean) && new Set(regs).size === regs.length;
+  const okSafe = shipped.every(
+    (s) => !findSafetyViolation(`${s.title} ${s.description}`),
+  );
+  const okFeasible = shipped.every(
+    (s) =>
+      !CAR_REQUIRED.test(`${s.title} ${s.description}`) &&
+      !PAID_ACTIVITY.test(`${s.title} ${s.description}`),
+  );
+  for (const [label, ok] of [
+    [`ships 3 quests (got ${shipped.length})`, okCount],
+    [`3 distinct registers (${regs.join(", ")})`, okDistinct],
+    ["all shipped pass safety", okSafe],
+    ["all shipped pass walking-only + free-only feasibility", okFeasible],
+  ]) {
+    if (ok) {
+      console.log(`  ✓ ${label}`);
+      pass++;
+    } else {
+      console.log(`  ✗ ${label}`);
+      failures.push(`Register batch: ${label}`);
+      fail++;
+    }
+  }
+}
+
 console.log(`\n[summary] ${pass} passed, ${fail} failed`);
 if (failures.length) {
   console.log("[summary] failure detail:");

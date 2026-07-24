@@ -247,6 +247,62 @@ export function leadVerb(description: string): string {
   return m ? m[0].replace(/'/g, "") : "";
 }
 
+// ---------- Interest registers (two-axis grid) ----------
+//
+// SKILL.md §3 axis 2: what KIND of fun a quest is. Detection here is a
+// LOCAL keyword heuristic — no model call — and register spread is a
+// selection-time PREFERENCE only (a small scoring tiebreaker in
+// selectTopQuests), never a hard drop, so it cannot thin the candidate
+// pool or trigger extra re-asks. Patterns are ordered most-specific
+// first; the first match wins, and no match returns null (no bonus, no
+// penalty).
+
+export const REGISTER_PATTERNS: ReadonlyArray<{ name: string; regex: RegExp }> =
+  [
+    {
+      name: "social-performative",
+      regex:
+        /\b(?:cashier|employee|clerk|barista|staff|strangers?|deadpan|in[- ]character|role[- ]?play\w*|accent|persona|improv|perform\w*|convince|persuade|audience)\b/i,
+    },
+    {
+      name: "cerebral-puzzle",
+      regex:
+        /\b(?:puzzle|riddle|deduc\w+|estimat\w+|memori[sz]e|memory|trivia|quiz|logic|mystery|clues?|decode|cipher|guess\w*)\b/i,
+    },
+    {
+      name: "creative-maker",
+      regex:
+        /\b(?:build\w*|sketch\w*|draw\w*|doodle\w*|craft\w*|design\w*|compose|invent\w*|assembl\w+|sculpt\w*|fold\w*|paint\w*|decorate|collage|origami)\b/i,
+    },
+    {
+      name: "sensory-cozy",
+      regex:
+        /\b(?:sunrise|sunset|stargaz\w+|cozy|calm\w*|quiet\w*|listen\w*|playlist|blanket|breeze|clouds?|savor\w*|golden hour|ambient)\b/i,
+    },
+    {
+      name: "exploratory-discovery",
+      regex:
+        /\b(?:explor\w+|wander\w*|discover\w*|unfamiliar|uncharted|scout\w*|roam\w*|trek\w*|never (?:been|visited)|new[- ]to[- ]you)\b/i,
+    },
+    {
+      name: "competitive",
+      regex:
+        /\b(?:tournament|bracket|best[- ]of[- ]\w+|head[- ]to[- ]head|duel|showdown|face[- ]off|1v1|versus|champion\w*|wager|bets?)\b/i,
+    },
+    {
+      name: "active-physical",
+      regex:
+        /\b(?:sprint\w*|climb\w*|hik\w+|jog\w*|laps?|stairs|balanc\w+|obstacle|parkour|rac(?:e|es|ing)|dash|throw\w*|catch|kick\w*|jump\w*|carry\w*|piggyback)\b/i,
+    },
+  ];
+
+export function detectRegister(text: string): string | null {
+  for (const r of REGISTER_PATTERNS) {
+    if (r.regex.test(text)) return r.name;
+  }
+  return null;
+}
+
 export type HardFilterResult<Q extends RankableQuest> = {
   kept: Q[];
   dropped: Array<{ title: string; reason: HardDropReason }>;
@@ -396,9 +452,10 @@ export type SelectOptions = {
  *
  * Slots 1..target-1 are greedy: highest score with a +2 bonus for a
  * category not yet picked, a penalty for repeating a picked quest's core
- * (lead) verb, and (unless allowFoodHeavy) never a second food quest — the
- * constitution's anti-food rule is hard, so a thinner batch beats a second
- * food card.
+ * (lead) verb, a ±1 tiebreaker preferring an interest register not yet
+ * picked (§3 axis 2 — never a drop), and (unless allowFoodHeavy) never a
+ * second food quest — the constitution's anti-food rule is hard, so a
+ * thinner batch beats a second food card.
  *
  * The final slot is the EXPLORATION slot: among survivors, prefer the
  * best-scoring quest whose category is OUTSIDE the user's vibe preferences
@@ -429,10 +486,13 @@ export function selectTopQuests<Q extends RankableQuest>(
   const picked: Q[] = [];
   const pickedCats = new Set<string>();
   const pickedVerbs = new Set<string>();
+  const pickedRegisters = new Set<string>();
   for (const p of opts.alreadyPicked ?? []) {
     pickedCats.add(normCat(p.category));
     const v = leadVerb(p.description);
     if (v) pickedVerbs.add(v);
+    const r = detectRegister(`${p.title} ${p.description}`);
+    if (r) pickedRegisters.add(r);
   }
   let foodPicked = opts.foodAlreadyPicked ?? false;
 
@@ -446,6 +506,8 @@ export function selectTopQuests<Q extends RankableQuest>(
     pickedCats.add(normCat(entry.q.category));
     const v = leadVerb(entry.q.description);
     if (v) pickedVerbs.add(v);
+    const r = detectRegister(`${entry.q.title} ${entry.q.description}`);
+    if (r) pickedRegisters.add(r);
     if (opts.isFood(entry.q)) foodPicked = true;
     pool.splice(pool.indexOf(entry), 1);
   };
@@ -474,7 +536,16 @@ export function selectTopQuests<Q extends RankableQuest>(
     const v = leadVerb(q.description);
     return v && pickedVerbs.has(v) ? -1.5 : 0;
   };
-  const slotBonus = (q: Q) => spreadBonus(q) + verbPenalty(q);
+  // Register-diversity preference (§3 axis 2 / §5 C10): a small tiebreaker
+  // so the shipped batch spans distinct interest registers when the pool
+  // allows it. Deliberately weaker than the category-spread bonus, and
+  // inert (0) when the heuristic can't classify the quest.
+  const registerBonus = (q: Q) => {
+    const r = detectRegister(`${q.title} ${q.description}`);
+    if (!r) return 0;
+    return pickedRegisters.has(r) ? -1 : 1;
+  };
+  const slotBonus = (q: Q) => spreadBonus(q) + verbPenalty(q) + registerBonus(q);
 
   while (picked.length < Math.max(0, opts.target - 1)) {
     const pick = bestBy(eligible(), slotBonus);
@@ -494,7 +565,8 @@ export function selectTopQuests<Q extends RankableQuest>(
           )
         : [];
     const pick =
-      bestBy(explorers, verbPenalty) ?? bestBy(eligible(), slotBonus);
+      bestBy(explorers, (q) => verbPenalty(q) + registerBonus(q)) ??
+      bestBy(eligible(), slotBonus);
     if (pick) take(pick);
   }
 
