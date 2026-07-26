@@ -35,8 +35,13 @@ RULES FOR NEW KEEP ENTRIES (v6)
 
 ## KEEP
 
-<!-- Empty on purpose after the v6 reset. Accumulate fresh, register-tagged
-     exemplars here per the rules above; distill structure, never surface. -->
+<!-- QUARANTINE — same treatment as the ARCHIVED KEEP block below.
+     Entries in this section (current and future) are raw quality
+     OBSERVATIONS, NOT exemplars and NOT templates. Do NOT distill, copy,
+     or paraphrase quests from here into SKILL.md or anything else the
+     model reads — distill only abstract structure (register, shape,
+     stakes), never surface text. Empty on purpose after the v6 reset;
+     accumulate fresh, register-tagged entries per the rules above. -->
 
 ## KILL
 
