@@ -79,6 +79,16 @@ function bigramJaccard(a, b) {
   return union === 0 ? 0 : inter / union;
 }
 
+// ============================================================================
+// TEST FIXTURES ONLY — NOT EXEMPLARS.
+// Do NOT distill or copy quests from this file; every quest string below
+// (here and in later fixture blocks) exists solely to exercise the
+// verifier's regexes and pipeline logic. Many are deliberately BAD or
+// deliberately stale-patterned (relays, chalk, multi-venue errands) so the
+// checks have something to catch. Treat all of them as radioactive for
+// SKILL.md / prompt / KEEP-list distillation purposes.
+// ============================================================================
+
 // ---------- Test cases ----------
 
 // Cases that MUST trigger a violation (the 4 ban categories).
@@ -338,6 +348,7 @@ function findBatchConflict(candidate, kept) {
 
 const q = (title, description) => ({ title, description });
 
+// (Fixtures — see the NOT-EXEMPLARS banner above.)
 // Pairs that MUST conflict — the observed fixation patterns: one central
 // prop told through different structural shapes, or one stock mechanic
 // reused across siblings.
@@ -561,6 +572,85 @@ const BATCH_POOL = [
     } else {
       console.log(`  ✗ ${label}`);
       failures.push(`Register batch: ${label}`);
+      fail++;
+    }
+  }
+}
+
+// ---------- Multi-venue feasibility (soft penalty) ----------
+// Duplicated from lib/quest-ranker.ts (same edit-both rule). Fixtures —
+// see the NOT-EXEMPLARS banner above.
+
+const MULTI_VENUE =
+  /\bat (?:each|every) (?:stop|store|shop|venue|location|cafe|bar|restaurant|business)\b|\b(?:two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:different\s+)?(?:stops|stores|shops|venues|locations|businesses|cafes|bars|restaurants)\b|\b(?:store|shop|cafe|bar|restaurant)\s+to\s+(?:store|shop|cafe|bar|restaurant)\b|\bmulti[- ]stop\b/i;
+const JOURNEY_POINT =
+  /\b(?:expedition|trek\w*|hik\w+|wander\w*|stroll|walking tour|road trip|loop|trail|summit|viewpoint|journey|pilgrimage|crawl)\b/i;
+const requiresMultiVenue = (t) => MULTI_VENUE.test(t) && !JOURNEY_POINT.test(t);
+
+console.log("\n[multi-venue] penalty MUST fire (errand-chain logistics):");
+const MULTI_VENUE_FIRE = [
+  ["Cheapest Item Cashier Chat Tour", "Order the cheapest item at five different shops, rank the small talk."],
+  ["Mall Sample Circuit Sweep", "Collect one free sample at each store before the mall closes."],
+  ["Napkin Diplomacy Sweep", "Charm a napkin from three different cafes, crown the smoothest ask."],
+];
+for (const [title, desc] of MULTI_VENUE_FIRE) {
+  if (requiresMultiVenue(`${title} ${desc}`)) {
+    console.log(`  ✓ fires  "${title}"`);
+    pass++;
+  } else {
+    console.log(`  ✗ MISSED "${title}"`);
+    failures.push(`Multi-venue miss: "${title}"`);
+    fail++;
+  }
+}
+
+console.log("\n[multi-venue] penalty MUST NOT fire (single venue / journey-is-the-point):");
+const MULTI_VENUE_SKIP = [
+  ["Napkin Tower Table Record", "Build the tallest napkin tower one cafe table allows."],
+  ["Ridge Loop Golden Hour Push", "Hike the ridge loop, pausing at three viewpoint stops before sunset."],
+  ["Coin Flip Corner Roulette", "Wander with a coin picking every corner until somewhere unfamiliar."],
+];
+for (const [title, desc] of MULTI_VENUE_SKIP) {
+  if (!requiresMultiVenue(`${title} ${desc}`)) {
+    console.log(`  ✓ quiet  "${title}"`);
+    pass++;
+  } else {
+    console.log(`  ✗ FALSE  "${title}"`);
+    failures.push(`Multi-venue false positive: "${title}"`);
+    fail++;
+  }
+}
+
+// Soft-only guarantee: a multi-venue quest passes the HARD filter (it is
+// penalized in scoring, never dropped), and the batch still ships 3.
+console.log("\n[multi-venue] soft-only: multi-venue quest survives hard filter, batch still ships 3:");
+{
+  const poolWithMulti = [
+    q("Cheapest Item Cashier Chat Tour", "Order the cheapest item at five different shops, rank the small talk."),
+    q("Stairwell Interval Ladder", "Sprint the stairwell in laps, each round adds a floor."),
+    q("Parking Meter Estimation Duel", "Estimate odd quantities around you, verify each guess on the spot."),
+    q("Pocket Junk Sculpture Show", "Sculpt tiny statues from pocket junk, unveil them gallery-style."),
+    q("Golden Hour Cloud Cinema", "Lie back and narrate clouds until the golden hour fades."),
+    q("Coin Flip Street Roulette", "Wander with a coin picking every turn until somewhere unfamiliar."),
+  ];
+  const kept = [];
+  for (const cand of poolWithMulti) {
+    if (findSafetyViolation(`${cand.title} ${cand.description}`)) continue;
+    if (findBatchConflict(cand, kept)) continue;
+    kept.push(cand);
+  }
+  const multiKept = kept.some((k) => k.title === "Cheapest Item Cashier Chat Tour");
+  const shipped = kept.slice(0, 3);
+  for (const [label, ok] of [
+    ["multi-venue quest NOT hard-dropped (soft penalty only)", multiKept],
+    [`batch still ships 3 (kept ${kept.length})`, shipped.length === 3],
+  ]) {
+    if (ok) {
+      console.log(`  ✓ ${label}`);
+      pass++;
+    } else {
+      console.log(`  ✗ ${label}`);
+      failures.push(`Multi-venue soft-only: ${label}`);
       fail++;
     }
   }

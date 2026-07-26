@@ -325,6 +325,22 @@ export function requiresSpend(text: string): boolean {
   return PAID_ACTIVITY.test(text);
 }
 
+// Multi-venue coordination ("do X across N stops/shops") is the top
+// human-scored feasibility failure mode. SOFT signal only: it feeds a
+// scoring deduction in scoreQuest, never a hard drop, so it cannot thin
+// the candidate pool or trigger re-asks. Same conservative keyword style
+// as CAR_REQUIRED/PAID_ACTIVITY above.
+const MULTI_VENUE =
+  /\bat (?:each|every) (?:stop|store|shop|venue|location|cafe|bar|restaurant|business)\b|\b(?:two|three|four|five|six|seven|eight|nine|ten|\d+)\s+(?:different\s+)?(?:stops|stores|shops|venues|locations|businesses|cafes|bars|restaurants)\b|\b(?:store|shop|cafe|bar|restaurant)\s+to\s+(?:store|shop|cafe|bar|restaurant)\b|\bmulti[- ]stop\b/i;
+// When the journey itself is the quest (expeditions, wanders, crawls),
+// multiple waypoints are the point, not a logistics burden — exempt.
+const JOURNEY_POINT =
+  /\b(?:expedition|trek\w*|hik\w+|wander\w*|stroll|walking tour|road trip|loop|trail|summit|viewpoint|journey|pilgrimage|crawl)\b/i;
+
+export function requiresMultiVenue(text: string): boolean {
+  return MULTI_VENUE.test(text) && !JOURNEY_POINT.test(text);
+}
+
 /**
  * Hard-drop pipeline, sequential so sibling dedup sees the growing kept
  * list (matching the stream path's progressive acceptance order).
@@ -410,6 +426,7 @@ export type ScoreContext = {
  */
 export function scoreQuest(q: RankableQuest, ctx: ScoreContext): number {
   let score = 0;
+  const text = `${q.title} ${q.description}`;
   const dw = wordCount(q.description);
   if (dw >= 10 && dw <= 14) score += 2;
   else if (dw <= 16) score += 1;
@@ -418,10 +435,13 @@ export function scoreQuest(q: RankableQuest, ctx: ScoreContext): number {
   if (tw >= 5 && tw <= 8) score += 1;
   if (ctx.preferredCategories.has(normCat(q.category))) score += 1.5;
   if (ctx.batchFoodHeavy && !ctx.isFood(q)) score += 1;
-  for (const m of detectMechanics(`${q.title} ${q.description}`)) {
+  for (const m of detectMechanics(text)) {
     score -= 1;
     if (ctx.recentMechanics?.has(m)) score -= 2;
   }
+  // SKILL.md §4 axis 7's logistics clause, enforced softly: multi-venue
+  // errand-chains rank behind logistically simple siblings.
+  if (requiresMultiVenue(text)) score -= 1.5;
   return score;
 }
 
@@ -471,8 +491,14 @@ export function selectTopQuests<Q extends RankableQuest>(
     Array.from(opts.preferredCategories, (c) => normCat(c)),
   );
   const recentMechanics = new Set<string>();
+  // Lead words of recent titles approximate recently-used core verbs
+  // (titles are usually verb-led). Articles are skipped; noun-led titles
+  // add harmless noise since descriptions never open with a noun phrase.
+  const recentVerbs = new Set<string>();
   for (const t of opts.previousTitles ?? []) {
     for (const m of detectMechanics(t)) recentMechanics.add(m);
+    const v = leadVerb(t);
+    if (v && v !== "the" && v !== "a" && v !== "an") recentVerbs.add(v);
   }
   const pool = candidates.map((q) => ({
     q,
@@ -531,10 +557,17 @@ export function selectTopQuests<Q extends RankableQuest>(
   const spreadBonus = (q: Q) => (pickedCats.has(normCat(q.category)) ? 0 : 2);
   // "Distinct core verb per quest": descriptions are imperative, so the
   // lead word is effectively the core verb. Repeats aren't excluded
-  // outright (the pool may be thin) — just pushed behind fresh verbs.
+  // outright (the pool may be thin) — just pushed hard behind fresh
+  // verbs. -3 outweighs the +2 category-spread bonus, so a repeated verb
+  // can no longer win a slot on category spread alone; the milder -1
+  // fires when the verb led a recent title (session-level dominance —
+  // human scoring found one core verb claiming 4 of 14 quests).
   const verbPenalty = (q: Q) => {
     const v = leadVerb(q.description);
-    return v && pickedVerbs.has(v) ? -1.5 : 0;
+    if (!v) return 0;
+    if (pickedVerbs.has(v)) return -3;
+    if (recentVerbs.has(v)) return -1;
+    return 0;
   };
   // Register-diversity preference (§3 axis 2 / §5 C10): a small tiebreaker
   // so the shipped batch spans distinct interest registers when the pool
