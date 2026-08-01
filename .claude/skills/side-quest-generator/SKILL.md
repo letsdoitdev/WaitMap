@@ -59,7 +59,7 @@ Every quest sits on TWO independent axes. Axis 1 is the spiciness TIER — how i
 ## §4 — Universal rubric (score 0–2 per axis; auto-reject below 17/24)
 
 1. Specificity — a named generic venue type, item, action, or count (never a real proper-noun venue; see §7).
-2. Concrete action — the group does a real thing.
+2. Concrete action — the group does a real thing that physically works as described; a mechanic that cannot actually function as written scores 0.
 3. Anchor — something concrete makes this quest THIS quest.
 4. Story-generating / STAKES GATE — score 2 ONLY when there is a genuine hook: a real win/loss consequence, a social payoff, a you-must-act-on-the-result moment, or something the group would brag about unprompted (the test: would anyone TEXT A FRIEND about it afterward?). Score 0 for quietly-doable-but-forgettable busywork — assembling, collecting, or estimating with nothing riding on the outcome.
 5. Filmable in one phone shot (relax at tier 1).
@@ -138,6 +138,7 @@ Grammar: **A `<tier/vibe>` quest IS: `{hook/premise}` + `{concrete coordinated g
 - **Geographic plausibility.** Use the location only to keep quests physically possible for the area's climate, terrain, and density — e.g. no surfing/tide-pools in a landlocked region, no "hit 30 bars in an hour" in a rural town, no ski quests in a desert. It is a sanity check on quest TYPE, not a place to drop proper nouns.
 - **Category coverage (spread, don't default to Social).** The quests in a batch should land in DIFFERENT `category` values (all 3 different in a 3-quest batch). Do NOT default to Social — it is badly over-used; use Social for at most ONE quest per batch unless the request explicitly asks for it. Actively reach for the under-used categories when the context fits: **Indoor** (at home/inside, no travel), **Food** (at most 1 per batch — see Anti-food), **Nightlife** (late/evening energy), **Creative**, and **Culture**. Let the time of day, spice, group, and setting pick a fitting category rather than falling back to Social.
 - **Category placement.** Outdoor/Nature happens outside (parks, trails, streets, fields, water), never inside a business or at a named venue. Social/Food is the right home for business/venue-based activities. Indoor is done at home/inside with no travel (rearrange furniture, cook from pantry only, pass-the-controller-on-death).
+- **Category honesty (HARD).** The `category` must describe the quest as written. Never file a quest under a category it doesn't belong to — a quest with no food in it is not Food — to satisfy the spread rules; fix the batch instead.
 - **Pronouns / group size.** Match the group: solo → "you"; 2+ → "your crew" / "everyone" / "the group."
 - **No filler.** No empty hype taglines and no movie-narration phrasing; plain, real-world instructions.
 - **Minimal safety text.** A single app-wide disclaimer covers safety. Do not pad quests with safety caveats — at most one short note, and only when genuinely needed.

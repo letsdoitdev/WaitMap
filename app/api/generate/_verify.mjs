@@ -656,6 +656,89 @@ console.log("\n[multi-venue] soft-only: multi-venue quest survives hard filter, 
   }
 }
 
+// ---------- Stakes gate (soft penalty) ----------
+// Duplicated from lib/quest-ranker.ts (same edit-both rule). Fixtures —
+// see the NOT-EXEMPLARS banner above.
+
+const RESOLUTION_MARKERS =
+  /\b(?:wins?|winners?|winning|lose|loses|losers?|losing|crown\w*|champion\w*|judge\w*|vot(?:e|es|ed|ing)|first\s+to|last\s+(?:one|person)\s+(?:standing|wins|left)|fastest|reveal\w*|guess\w*|scor(?:e|es|ed|ing)|points?|dar(?:e|es|ed)|tally\w*|rank(?:s|ed|ing)?|bragging|before\s+(?:the\s+)?(?:timer|clock)|time(?:'s|\s+runs?)\s+(?:up|out)|kicked\s+out|showdown|head[- ]to[- ]head)\b/i;
+const DOCUMENT_ONLY_END =
+  /\b(?:photograph|photo|snap|document|picture)\w*[^.!?]{0,40}\b(?:result|finished|final|structure|sculpture|creation|masterpiece|before\s+leaving)\b/i;
+const lacksStakes = (t) => !RESOLUTION_MARKERS.test(t);
+const isDocumentOnlyEnd = (t) => DOCUMENT_ONLY_END.test(t);
+
+console.log("\n[stakes] staked quests MUST pass the marker check:");
+const STAKED = [
+  ["Blind Sauce Championship Night", "Taste five sauces blind, guess each, reveal and crown the champion."],
+  ["Furniture Course Speedrun Gauntlet", "Race a furniture obstacle course, fastest time takes bragging rights."],
+  ["Absurd Motions Kitchen Court", "Argue ridiculous motions before a friend judge, scoreboard decides it."],
+];
+for (const [title, desc] of STAKED) {
+  if (!lacksStakes(`${title} ${desc}`)) {
+    console.log(`  ✓ staked "${title}"`);
+    pass++;
+  } else {
+    console.log(`  ✗ MISSED "${title}"`);
+    failures.push(`Stakes miss: "${title}"`);
+    fail++;
+  }
+}
+
+console.log("\n[stakes] busywork MUST trip the no-stakes (and document-only) checks:");
+const BUSYWORK = [
+  // no resolution marker at all
+  ["Creekside Trinket Circle Swap", "Gather riverside sticks and stones, then swap finds until everyone holds another's.", false],
+  // no marker AND photograph-the-artifact payoff — the full template
+  ["Found Stone Marker Stack", "Gather rocks in an open space, stack a marker, photograph the finished structure.", true],
+  ["Litter Sculpture Assembly Hour", "Collect scraps near benches, assemble a shared sculpture, photograph the result.", true],
+];
+for (const [title, desc, wantDocEnd] of BUSYWORK) {
+  const text = `${title} ${desc}`;
+  const okCase = lacksStakes(text) && isDocumentOnlyEnd(text) === wantDocEnd;
+  if (okCase) {
+    console.log(`  ✓ tripped (docEnd=${wantDocEnd}) "${title}"`);
+    pass++;
+  } else {
+    console.log(
+      `  ✗ lacksStakes=${lacksStakes(text)} docEnd=${isDocumentOnlyEnd(text)} "${title}"`,
+    );
+    failures.push(`Stakes busywork case: "${title}"`);
+    fail++;
+  }
+}
+
+// Soft-only guarantee: a stake-free quest still passes the HARD filter —
+// the gate demotes in scoring, it never drops.
+console.log("\n[stakes] soft-only: stake-free quest survives hard filter, batch still ships 3:");
+{
+  const poolWithBusywork = [
+    q("Found Stone Marker Stack", "Gather rocks in an open space, stack a marker, photograph the finished structure."),
+    q("Stairwell Interval Ladder", "Sprint the stairwell in laps, each round adds a floor."),
+    q("Parking Meter Estimation Duel", "Estimate odd quantities around you, verify each guess on the spot."),
+    q("Golden Hour Cloud Cinema", "Lie back and narrate clouds until the golden hour fades."),
+  ];
+  const kept = [];
+  for (const cand of poolWithBusywork) {
+    if (findSafetyViolation(`${cand.title} ${cand.description}`)) continue;
+    if (findBatchConflict(cand, kept)) continue;
+    kept.push(cand);
+  }
+  const busyKept = kept.some((k) => k.title === "Found Stone Marker Stack");
+  for (const [label, ok] of [
+    ["stake-free quest NOT hard-dropped (soft penalty only)", busyKept],
+    [`batch still ships 3 (kept ${kept.length})`, kept.length >= 3],
+  ]) {
+    if (ok) {
+      console.log(`  ✓ ${label}`);
+      pass++;
+    } else {
+      console.log(`  ✗ ${label}`);
+      failures.push(`Stakes soft-only: ${label}`);
+      fail++;
+    }
+  }
+}
+
 console.log(`\n[summary] ${pass} passed, ${fail} failed`);
 if (failures.length) {
   console.log("[summary] failure detail:");

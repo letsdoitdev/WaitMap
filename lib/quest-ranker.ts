@@ -341,6 +341,26 @@ export function requiresMultiVenue(text: string): boolean {
   return MULTI_VENUE.test(text) && !JOURNEY_POINT.test(text);
 }
 
+// SKILL.md §4 axis 4 (stakes/retellability gate), enforced softly. A
+// 102-quest human audit found the largest failure bucket was no-stakes
+// busywork — assemble/collect/stack something, photograph it, done — which
+// the prompt-side gate alone does not stop. A quest with no detectable
+// resolution moment ranks behind staked siblings; the assemble-and-document
+// template is pushed further back. Scoring only, never a hard drop.
+const RESOLUTION_MARKERS =
+  /\b(?:wins?|winners?|winning|lose|loses|losers?|losing|crown\w*|champion\w*|judge\w*|vot(?:e|es|ed|ing)|first\s+to|last\s+(?:one|person)\s+(?:standing|wins|left)|fastest|reveal\w*|guess\w*|scor(?:e|es|ed|ing)|points?|dar(?:e|es|ed)|tally\w*|rank(?:s|ed|ing)?|bragging|before\s+(?:the\s+)?(?:timer|clock)|time(?:'s|\s+runs?)\s+(?:up|out)|kicked\s+out|showdown|head[- ]to[- ]head)\b/i;
+// "…photograph the result/finished thing" as the quest's payoff.
+const DOCUMENT_ONLY_END =
+  /\b(?:photograph|photo|snap|document|picture)\w*[^.!?]{0,40}\b(?:result|finished|final|structure|sculpture|creation|masterpiece|before\s+leaving)\b/i;
+
+export function lacksStakes(text: string): boolean {
+  return !RESOLUTION_MARKERS.test(text);
+}
+
+export function isDocumentOnlyEnd(text: string): boolean {
+  return DOCUMENT_ONLY_END.test(text);
+}
+
 /**
  * Hard-drop pipeline, sequential so sibling dedup sees the growing kept
  * list (matching the stream path's progressive acceptance order).
@@ -442,6 +462,14 @@ export function scoreQuest(q: RankableQuest, ctx: ScoreContext): number {
   // SKILL.md §4 axis 7's logistics clause, enforced softly: multi-venue
   // errand-chains rank behind logistically simple siblings.
   if (requiresMultiVenue(text)) score -= 1.5;
+  // §4 axis 4 stakes gate, enforced softly. -1 keeps it a tiebreaker for
+  // legitimately stake-free registers (cooperative builds with an artifact
+  // end, sensory-cozy rituals with a natural end); the extra -1.5 targets
+  // the assemble-and-photograph busywork template specifically.
+  if (lacksStakes(text)) {
+    score -= 1;
+    if (isDocumentOnlyEnd(text)) score -= 1.5;
+  }
   return score;
 }
 
