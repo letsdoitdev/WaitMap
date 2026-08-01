@@ -7,7 +7,11 @@ import { GeneratedQuest } from "@/lib/generate";
 import { NearbyBucket, NearbyPlace } from "@/lib/nearby";
 import { createClient } from "@/lib/supabase/server";
 import { FREE_DAILY_REROLLS, getUtcDateKey } from "@/lib/constants";
-import { hardFilterQuests, selectTopQuests } from "@/lib/quest-ranker";
+import {
+  anchorTokens,
+  hardFilterQuests,
+  selectTopQuests,
+} from "@/lib/quest-ranker";
 import { pickModel } from "@/lib/model-routing";
 
 export const runtime = "nodejs";
@@ -53,16 +57,24 @@ export type GenerateBody = {
 
 export type CostPref = "free" | "cheap" | "any";
 
-// Slim schema as returned by the model. To keep output tokens (the dominant
-// latency term for a single Haiku call) minimal, the model now returns only
-// title/description/category — duration, groupSize and spiceLevel are filled
-// server-side from the user's own inputs. The extra fields stay optional so a
-// model that still emits them is parsed without error.
+// Schema as returned by the model: title/description/category plus the four
+// compact §9 plan keys (g/p/v/s — M15 generation-time enforcement), all
+// stripped server-side before a client sees anything. duration, groupSize
+// and spiceLevel are filled server-side from the user's own inputs. Legacy
+// fields stay optional so a model that still emits them parses fine.
 export type ClaudeQuest = {
   id?: string;
   title: string;
   description: string;
   category: string;
+  /** §9 plan fields (M15 generation-time enforcement): register code,
+   * central prop, core verb, stake type — emitted by the model BEFORE the
+   * prose, validated server-side, stripped by normalize() before any
+   * client sees the quest. */
+  g?: string;
+  p?: string;
+  v?: string;
+  s?: string;
   duration?: string; // optional; "1-2 hours", "30 minutes"
   groupSize?: string; // optional; "2-4 people", "solo"
   spiceLevel?: number; // optional
@@ -297,9 +309,9 @@ const REQUEST_PROTOCOL = `
 
 You are generating for the WaitMap web/mobile app. Each request supplies compact context lines. Interpret each line exactly as specified below, then construct the batch per the constitution above. Everything in this section restates or applies the constitution — nothing here relaxes a hard rule from §5, §7, or §8.
 
-**Task.** Construct exactly 3 side quests per request — unless the request explicitly asks for a different count, in which case produce exactly that many. Build each quest from a DIFFERENT §6 structural template (different setting, different core verb, different central prop), score each against the §4 rubric, and reject any §5 anti-structure before emitting. Output EXACTLY per the §9 FORMAT ANCHOR: a minified JSON array with one object per quest, keys title/description/category only, each description 10-14 words (16 ABSOLUTE MAX). No markdown fences, no commentary, no whitespace padding.
+**Task.** Construct exactly 3 side quests per request — unless the request explicitly asks for a different count, in which case produce exactly that many. Build each quest from a DIFFERENT §6 structural template (different setting, different core verb, different central prop, different register), score each against the §4 rubric, and reject any §5 anti-structure before emitting. Output EXACTLY per the §9 FORMAT ANCHOR: a minified JSON array with one object per quest, the five plan keys (category/g/p/v/s) FIRST and then title/description, each description 10-14 words (16 ABSOLUTE MAX). The plan keys are validated against the prose server-side — write them first and make the quest obey them. No markdown fences, no commentary, no whitespace padding.
 
-**"Construct N quests."** (optional first line) — produce exactly N objects in the array instead of 3. All other rules hold at batch scale: still at most 1 food-flavored quest in the whole batch, never repeat a §6 template within the batch, and when N is 6 spread the batch across at least 4 different categories (unless a single category was requested) AND at least 4 distinct §3 interest registers. The §5 per-batch caps (C1–C9) also apply to the WHOLE set of N: no two candidates built around the same central prop/object/material (C8), no two using the same capped mechanic family (C2–C7), no two sharing a core verb (C9) — the server hard-drops such duplicates, so a second variation of an idea is a wasted slot. The server ranks and ships the best 3, so N distinct, rule-clean candidates beat N variations of one idea.
+**"Construct N quests."** (optional first line) — produce exactly N objects in the array instead of 3. All other rules hold at batch scale: still at most 1 food-flavored quest in the whole batch, never repeat a §6 template within the batch, and when N is 6 spread the batch across at least 4 different categories (unless a single category was requested) AND at least 4 distinct §3 interest registers. The §5 per-batch caps (C1–C11) also apply to the WHOLE set of N: no two candidates built around the same central prop/object/material (C8), no two using the same capped mechanic family (C2–C7), no two sharing a core verb (C9), no banned anchor as any candidate's prop (C11) — the server hard-drops such duplicates, so a second variation of an idea is a wasted slot. Plan-key rules hold at scale too: when N is 6, at most 2 candidates may declare an "artifact" or "natural" stake. The server ranks and ships the best 3, so N distinct, rule-clean candidates beat N variations of one idea.
 
 **"Generate quests in the X category."** (optional first line) — a deliberate user filter. Every quest in the batch should land in or near that category; the 3-different-categories spread rule is suspended for that request. The spice ceiling, anti-food rule, and all safety bans still apply.
 
@@ -322,11 +334,13 @@ You are generating for the WaitMap web/mobile app. Each request supplies compact
 - "Cost: cheap." — free or low-cost preferred; nothing over ~$15 per person.
 - "Cost: any." — cost is not a constraint; free and paid activities are both fine when they fit.
 
+**"BANNED ANCHORS:"** (optional) — distinctive objects/materials/motifs extracted from the user's recent quests. Do NOT build any quest around one of these as its central prop or motif, and never declare one as a "p" plan key — a reskin of a recent idea IS that idea (§5 C11). Incidental mention is fine; anchoring is not.
+
 **"BANNED TITLES:"** (optional) — a blocklist of the user's recently seen quest titles, oldest first. Do NOT generate any quest whose title or core mechanic closely matches one (exact or near-paraphrase). Treat mechanics visible in the list as recently spent too: if the banned titles already show a relay, a decode/hidden-message, a silent round, a photograph-a-count scavenger, or a blind/backwards navigation, do not build a new quest on that same mechanic. Generating a banned quest is a failure — treat the list as a hard blocklist, not inspiration.
 
 **Server post-processing (why sloppiness is wasted).** The server independently drops quests that trip a §8 safety ban or near-duplicate a banned title, scrubs any leaked venue names, and discards malformed JSON. A dropped quest costs the user a visible slot — construct clean, rule-following quests the first time.
 
-**Batch self-check before emitting.** Run down this list for the finished batch: (1) every description is 10-14 words, never over 16 — count them; (2) every title is 5-8 words; (3) no title matches or paraphrases a banned title, and no quest reuses a mechanic visible in the banned titles; (4) at most 1 food-flavored quest, and no food used as a mechanic, reward, or penalty anywhere; (5) the batch spans at least 3 different categories unless a single category was requested; (6) no two quests share a central prop/object/material (§5 C8), no two use the same capped §5 mechanic family (C1–C7), every quest has a different core verb (C9), and the batch spans distinct §3 registers (C10); (7) every quest sits at or below the spice ceiling; (8) every quest fits the time window, the group size, and any walking/cost constraints; (9) no proper-noun venues, streets, or landmarks anywhere; (10) valid minified JSON, correct key set, nothing else in the output. Fix any failure BEFORE emitting — the array you return is final.`;
+**Batch self-check before emitting.** Run down this list for the finished batch: (1) every description is 10-14 words, never over 16 — count them; (2) every title is 5-8 words; (3) no title matches or paraphrases a banned title, and no quest reuses a mechanic visible in the banned titles; (4) at most 1 food-flavored quest, and no food used as a mechanic, reward, or penalty anywhere; (5) the batch spans at least 3 different categories unless a single category was requested; (6) no two quests share a central prop/object/material (§5 C8), no two use the same capped §5 mechanic family (C1–C7), every quest has a different core verb (C9), the batch spans distinct §3 registers (C10), and no quest anchors on a BANNED ANCHOR (C11); (7) every quest sits at or below the spice ceiling; (8) every quest fits the time window, the group size, and any walking/cost constraints; (9) no proper-noun venues, streets, or landmarks anywhere; (10) valid minified JSON, correct key set and key order, nothing else in the output; (11) every plan key is TRUE of its quest — the category meets its §7 content contract, g/p/v match the prose, and at most one quest per 3 declares an "artifact"/"natural" stake; (12) no quest contradicts itself — a tool its own constraint bans is never also required. Fix any failure BEFORE emitting — the array you return is final.`;
 
 export const SYSTEM_PROMPT = `${SKILL_BODY}${REQUEST_PROTOCOL}`;
 
@@ -751,11 +765,86 @@ const FOOD_KEYWORDS = [
   "cuisine",
 ];
 
+/** Content-only food check (ignores the declared category) — used both by
+ * isFoodQuest and by the M15 category-repair pass, which must not trust
+ * the very declaration it is auditing. */
+export function hasFoodContent(quest: Pick<ClaudeQuest, "title" | "description">): boolean {
+  const text = `${quest.title ?? ""} ${quest.description ?? ""}`.toLowerCase();
+  return FOOD_KEYWORDS.some((kw) => text.includes(kw));
+}
+
 export function isFoodQuest(quest: ClaudeQuest): boolean {
   // isFoodQuest check order: (1) category field, (2) title keywords, (3) description keywords
   if ((quest.category ?? "") === "Food") return true;
-  const text = `${quest.title ?? ""} ${quest.description ?? ""}`.toLowerCase();
-  return FOOD_KEYWORDS.some((kw) => text.includes(kw));
+  return hasFoodContent(quest);
+}
+
+// ---------- Category content repair (M15 generation-time enforcement) ----------
+//
+// The 102-quest audit found [Food] functioning as a junk drawer: quests with
+// zero food filed under Food to satisfy the spread rules — a filter-trust
+// breaker. Declared categories are validated against the §7 content
+// contracts and REPAIRED rather than dropped (the quest is usually fine;
+// the TAG was the lie), so tags predict content by construction.
+
+const OUTDOOR_MARKERS =
+  /\b(?:park|trail|street|sidewalk|field|creek|river|lake|beach|hill|forest|woods|outdoors?|outside|plaza|block|neighborhood|yard|backyard|pavement)\b/i;
+const INDOOR_MARKERS =
+  /\b(?:living\s+room|couch|indoors?|at\s+home|your\s+home|apartment|kitchen|bedroom|hallway|ceiling|pantry|furniture)\b/i;
+
+// Fallback category for a Food-declared quest with no food, keyed by its
+// declared register code (the register usually survives even when the
+// category was junk).
+const REGISTER_TO_V4: Record<string, string> = {
+  phys: "Outdoor",
+  social: "Social",
+  brain: "Challenge",
+  maker: "Creative",
+  cozy: "Culture",
+  explore: "Outdoor",
+  compete: "Challenge",
+};
+
+export type CategoryRepair = { title: string; from: string; to: string };
+
+/** Mutates in place (matches scrub()); returns the repair log. */
+export function repairCategories(quests: ClaudeQuest[]): CategoryRepair[] {
+  const repairs: CategoryRepair[] = [];
+  for (const q of quests) {
+    if (!q || typeof q.title !== "string" || typeof q.description !== "string") {
+      continue;
+    }
+    const text = `${q.title} ${q.description}`;
+    const cat = q.category ?? "";
+    let to: string | null = null;
+    if (cat === "Food" && !hasFoodContent(q)) {
+      const code = (q.g ?? "").trim().toLowerCase();
+      to =
+        REGISTER_TO_V4[code] ??
+        (OUTDOOR_MARKERS.test(text)
+          ? "Outdoor"
+          : INDOOR_MARKERS.test(text)
+            ? "Indoor"
+            : "Creative");
+    } else if (
+      cat === "Indoor" &&
+      OUTDOOR_MARKERS.test(text) &&
+      !INDOOR_MARKERS.test(text)
+    ) {
+      to = "Outdoor";
+    } else if (
+      cat === "Outdoor" &&
+      INDOOR_MARKERS.test(text) &&
+      !OUTDOOR_MARKERS.test(text)
+    ) {
+      to = "Indoor";
+    }
+    if (to && to !== cat) {
+      repairs.push({ title: q.title, from: cat, to });
+      q.category = to;
+    }
+  }
+  return repairs;
 }
 
 // ---------- Validator ----------
@@ -807,6 +896,32 @@ const SAFETY_RULES: SafetyRule[] = [
     regex:
       /(film(?:ing)?|record(?:ing)?)\s+(?:a\s+|the\s+|any\s+|random\s+|some\s+|each\s+)?stranger/i,
     allow: (h) => CONSENT_ALLOW.test(h),
+  },
+  // M15 "screenshot class" — §8's bright line: chaos means social
+  // awkwardness, never a crime. Four classes the 102-quest audit showed
+  // shipping: civic/election infrastructure, real-money deception,
+  // closed-space/rooftop trespass, and defamation of real places/people.
+  {
+    name: "civic_infrastructure",
+    regex:
+      /\bballots?\b[^.!?]{0,30}\b(?:civic|city|town|county|election|official|government|hall|mail)\b|\b(?:civic|election|official)\b[^.!?]{0,30}\bballots?\b|\bpolling\s+(?:place|station)\b|\b(?:stuff|drop|deliver|slip|insert)\w*[^.!?]{0,30}\b(?:mail\s?box(?:es)?|drop[- ]?box(?:es)?)\b/i,
+  },
+  {
+    name: "money_deception",
+    regex:
+      /\b(?:fake|phony|counterfeit|nonexistent|made[- ]up)\s+(?:tickets?|raffles?|fundraisers?|donations?|invoices?)\b|\bcollect(?:ing)?\s+(?:real\s+)?(?:payment|money|cash)\s+for\b|\bsell(?:ing)?\s+[^.!?]{0,25}\b(?:fake|nonexistent|phony)\b/i,
+  },
+  {
+    name: "trespass_closed_space",
+    regex:
+      /\b(?:closed|abandoned|after[- ]hours?|restricted)\s+(?:mall|store|shop|building|venue|warehouse|pool|school|lot|site)\b|\b(?:sneak|break)\w*\s+into\s+(?:a|the|an)\s+(?:closed|locked|empty|abandoned|building|store|mall|venue|school|pool|warehouse)\b|\bacross\s+(?:the\s+)?rooftops?\b|\brooftops?\s+(?:race|racing|parkour|chase|sprint)\b|\b(?:race|racing|sprint\w*|chase)\s+(?:across|over)\s+[^.!?]{0,15}roof/i,
+  },
+  {
+    // Requires a REAL target (a place/business/person noun) — fiction about
+    // yourselves is §8-legal and must not trip this.
+    name: "defamation",
+    regex:
+      /\b(?:fake|false)\s+reviews?\b|\b(?:fake|false|made[- ]up)\s+(?:stor(?:y|ies)|rumors?|claims?)\s+about\s+[^.!?]{0,20}\b(?:spot|shop|store|business|restaurant|cafe|bar|place|neighbor\w*|landmark|owner|employee)\b|\bspread\w*\s+[^.!?]{0,20}\brumors?\b/i,
   },
 ];
 
@@ -1105,6 +1220,22 @@ export function buildUserMessage(p: {
   const previousStr = p.previousTitles.length
     ? `\n\nBANNED TITLES:\n${p.previousTitles.join("\n")}`
     : "";
+  // M15 anti-reskin: distinctive anchor tokens from the user's recent
+  // titles become explicit negative constraints the model sees BEFORE
+  // generating — title-similarity blocklists miss "same idea, new name."
+  // Newest titles first so the freshest motifs are banned; capped at 8 so
+  // heavy rerollers aren't over-constrained.
+  const bannedAnchors: string[] = [];
+  for (let i = p.previousTitles.length - 1; i >= 0 && bannedAnchors.length < 8; i--) {
+    anchorTokens(p.previousTitles[i]).forEach((t) => {
+      if (bannedAnchors.length < 8 && !bannedAnchors.includes(t)) {
+        bannedAnchors.push(t);
+      }
+    });
+  }
+  const bannedAnchorsStr = bannedAnchors.length
+    ? `\n\nBANNED ANCHORS: ${bannedAnchors.join(", ")}`
+    : "";
   const categoryPrefix = p.requestedCategory
     ? `Generate quests in the ${p.requestedCategory} category.\n`
     : "";
@@ -1133,7 +1264,7 @@ Venue types nearby: ${histogram}
 
 ${diversityStr}
 ${vibeStr}${timeStr}
-Inputs: spice level ${p.spiceLevel}/10, group size ${groupSizeHint}, time available ${p.timeAvailable} minutes.${driveStr}${costStr}${previousStr}`;
+Inputs: spice level ${p.spiceLevel}/10, group size ${groupSizeHint}, time available ${p.timeAvailable} minutes.${driveStr}${costStr}${bannedAnchorsStr}${previousStr}`;
 
   // Dev-mode visibility into exactly what the model sees — the assembled
   // message is otherwise reconstructable only from scattered log fields.
@@ -1475,6 +1606,12 @@ export async function POST(req: NextRequest) {
     // violation-gated scrub let a Food-category quest ship a real venue name
     // in an otherwise clean batch, and ranking should see final text anyway.
     scrub(lastParsed, places);
+    // Validate declared categories against content and repair false tags
+    // (M15) BEFORE filtering/ranking, so spread and food logic see truth.
+    const catRepairs = repairCategories(lastParsed);
+    if (catRepairs.length > 0) {
+      console.log("[generate] recategorized", catRepairs);
+    }
 
     // ---------- Hard drops, then ONE shortfall re-ask ----------
     //
@@ -1544,6 +1681,7 @@ export async function POST(req: NextRequest) {
         if (Array.isArray(rparsed)) {
           const refillRaw = (rparsed as ClaudeQuest[]).slice(0, need);
           scrub(refillRaw, places);
+          repairCategories(refillRaw);
           const refill = hardFilterQuests(refillRaw, {
             previousTitles,
             alreadyKept: pool,

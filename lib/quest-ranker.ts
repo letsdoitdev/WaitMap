@@ -19,6 +19,15 @@ export type RankableQuest = {
   title: string;
   description: string;
   category: string;
+  /** Emitted plan fields (M15 generation-time enforcement, SKILL.md §9):
+   * the model commits to a register code, central prop, core verb, and
+   * stake type BEFORE writing the prose. All optional — every declaration
+   * is validated against content, never trusted bare — and all stripped
+   * by normalize() before anything reaches a client. */
+  g?: string; // register code: phys|social|brain|maker|cozy|explore|compete
+  p?: string; // central prop/motif, 1-2 words
+  v?: string; // core verb
+  s?: string; // stake type: win|reveal|kickout|artifact|natural
 };
 
 export type HardCheckHooks = {
@@ -38,8 +47,24 @@ export type HardDropReason =
   | "duplicate"
   | "duplicate_prop"
   | "duplicate_mechanic"
+  | "contradiction"
   | "car_required"
   | "paid_activity";
+
+// ---------- Self-contradiction detector (M15) ----------
+//
+// The audited failure class: a quest whose own constraint bans the tool the
+// quest requires (a phone-free quest that needs a phone camera). Paired
+// conservative regexes; a quest tripping BOTH is incoherent as written and
+// hard-drops (reason "contradiction"), feeding the normal re-ask path.
+const NO_PHONE_CONSTRAINT =
+  /\b(?:no\s+phones?\b|phones?\s+(?:stay|off|banned|away|down|zipped)|without\s+(?:your\s+|any\s+)?phones?|phone[- ]free)/i;
+const PHONE_REQUIRED =
+  /\b(?:film\w*|record\w*|photograph\w*|photos?\b|snap\w*|selfie\w*|video\w*|playlist|timer\s+on\s+your\s+phone|edit(?:ing)?\s+apps?|google|livestream\w*)\b/i;
+
+export function isSelfContradictory(text: string): boolean {
+  return NO_PHONE_CONSTRAINT.test(text) && PHONE_REQUIRED.test(text);
+}
 
 // ---------- Prop / mechanic repetition belt ----------
 //
@@ -213,11 +238,15 @@ export function findBatchConflict(
   candidate: RankableQuest,
   kept: ReadonlyArray<RankableQuest>,
 ): BatchConflict | null {
-  const text = `${candidate.title} ${candidate.description}`;
+  // Declared central props (§9 plan field "p") join the anchor set, so two
+  // candidates COMMITTING to the same prop conflict exactly even when the
+  // prose words differ; text anchors stay as the belt for undeclared or
+  // lying candidates.
+  const text = `${candidate.title} ${candidate.description} ${candidate.p ?? ""}`;
   const anchors = anchorTokens(text);
   const mechanics = detectMechanics(text);
   for (const k of kept) {
-    const kText = `${k.title} ${k.description ?? ""}`;
+    const kText = `${k.title} ${k.description ?? ""} ${k.p ?? ""}`;
     const kAnchors = anchorTokens(kText);
     for (const a of Array.from(anchors)) {
       if (kAnchors.has(a)) {
@@ -245,6 +274,12 @@ export function findBatchConflict(
 export function leadVerb(description: string): string {
   const m = (description ?? "").trim().toLowerCase().match(/^[a-z']+/);
   return m ? m[0].replace(/'/g, "") : "";
+}
+
+/** Core verb of a quest: the description's lead word, falling back to the
+ * declared §9 plan field "v" when the lead word is unusable. */
+export function coreVerb(q: RankableQuest): string {
+  return leadVerb(q.description) || leadVerb(q.v ?? "");
 }
 
 // ---------- Interest registers (two-axis grid) ----------
@@ -301,6 +336,29 @@ export function detectRegister(text: string): string | null {
     if (r.regex.test(text)) return r.name;
   }
   return null;
+}
+
+/** §9 plan-field register codes → full register names. */
+export const REGISTER_CODES: Record<string, string> = {
+  phys: "active-physical",
+  social: "social-performative",
+  brain: "cerebral-puzzle",
+  maker: "creative-maker",
+  cozy: "sensory-cozy",
+  explore: "exploratory-discovery",
+  compete: "competitive",
+};
+
+/**
+ * Register of a quest: textual evidence first (a declaration that
+ * contradicts the prose is a lie), the declared plan code as the
+ * fallback when keywords are inconclusive. Null when neither knows.
+ */
+export function resolveRegister(q: RankableQuest): string | null {
+  const detected = detectRegister(`${q.title} ${q.description}`);
+  if (detected) return detected;
+  const code = (q.g ?? "").trim().toLowerCase();
+  return REGISTER_CODES[code] ?? null;
 }
 
 export type HardFilterResult<Q extends RankableQuest> = {
@@ -398,6 +456,12 @@ export function hardFilterQuests<Q extends RankableQuest>(
     }
     if (opts.hooks.isNearDuplicate(q.title, opts.previousTitles, siblingTitles)) {
       dropped.push({ title: q.title, reason: "duplicate" });
+      continue;
+    }
+    // Incoherent-as-written: the quest's own constraint bans a tool the
+    // quest requires. Cannot be repaired deterministically — drop.
+    if (isSelfContradictory(haystack)) {
+      dropped.push({ title: q.title, reason: "contradiction" });
       continue;
     }
     // Anti-fixation belt: no two batch members built around the same
@@ -541,12 +605,14 @@ export function selectTopQuests<Q extends RankableQuest>(
   const pickedCats = new Set<string>();
   const pickedVerbs = new Set<string>();
   const pickedRegisters = new Set<string>();
+  let pickedStakeFree = 0;
   for (const p of opts.alreadyPicked ?? []) {
     pickedCats.add(normCat(p.category));
-    const v = leadVerb(p.description);
+    const v = coreVerb(p);
     if (v) pickedVerbs.add(v);
-    const r = detectRegister(`${p.title} ${p.description}`);
+    const r = resolveRegister(p);
     if (r) pickedRegisters.add(r);
+    if (lacksStakes(`${p.title} ${p.description}`)) pickedStakeFree++;
   }
   let foodPicked = opts.foodAlreadyPicked ?? false;
 
@@ -558,10 +624,11 @@ export function selectTopQuests<Q extends RankableQuest>(
   const take = (entry: { q: Q; score: number }) => {
     picked.push(entry.q);
     pickedCats.add(normCat(entry.q.category));
-    const v = leadVerb(entry.q.description);
+    const v = coreVerb(entry.q);
     if (v) pickedVerbs.add(v);
-    const r = detectRegister(`${entry.q.title} ${entry.q.description}`);
+    const r = resolveRegister(entry.q);
     if (r) pickedRegisters.add(r);
+    if (lacksStakes(`${entry.q.title} ${entry.q.description}`)) pickedStakeFree++;
     if (opts.isFood(entry.q)) foodPicked = true;
     pool.splice(pool.indexOf(entry), 1);
   };
@@ -591,7 +658,7 @@ export function selectTopQuests<Q extends RankableQuest>(
   // fires when the verb led a recent title (session-level dominance —
   // human scoring found one core verb claiming 4 of 14 quests).
   const verbPenalty = (q: Q) => {
-    const v = leadVerb(q.description);
+    const v = coreVerb(q);
     if (!v) return 0;
     if (pickedVerbs.has(v)) return -3;
     if (recentVerbs.has(v)) return -1;
@@ -600,13 +667,18 @@ export function selectTopQuests<Q extends RankableQuest>(
   // Register-diversity preference (§3 axis 2 / §5 C10): a small tiebreaker
   // so the shipped batch spans distinct interest registers when the pool
   // allows it. Deliberately weaker than the category-spread bonus, and
-  // inert (0) when the heuristic can't classify the quest.
+  // inert (0) when neither keywords nor the declared plan can classify.
   const registerBonus = (q: Q) => {
-    const r = detectRegister(`${q.title} ${q.description}`);
+    const r = resolveRegister(q);
     if (!r) return 0;
     return pickedRegisters.has(r) ? -1 : 1;
   };
-  const slotBonus = (q: Q) => spreadBonus(q) + verbPenalty(q) + registerBonus(q);
+  // §9 stake rule: at most one stake-free (artifact/natural-end) quest per
+  // shipped batch — a second one ranks well behind staked alternatives.
+  const stakeFreePenalty = (q: Q) =>
+    pickedStakeFree >= 1 && lacksStakes(`${q.title} ${q.description}`) ? -2 : 0;
+  const slotBonus = (q: Q) =>
+    spreadBonus(q) + verbPenalty(q) + registerBonus(q) + stakeFreePenalty(q);
 
   while (picked.length < Math.max(0, opts.target - 1)) {
     const pick = bestBy(eligible(), slotBonus);
@@ -626,7 +698,7 @@ export function selectTopQuests<Q extends RankableQuest>(
           )
         : [];
     const pick =
-      bestBy(explorers, (q) => verbPenalty(q) + registerBonus(q)) ??
+      bestBy(explorers, (q) => verbPenalty(q) + registerBonus(q) + stakeFreePenalty(q)) ??
       bestBy(eligible(), slotBonus);
     if (pick) take(pick);
   }

@@ -323,11 +323,11 @@ function anchorTokens(text) {
 }
 
 function findBatchConflict(candidate, kept) {
-  const text = `${candidate.title} ${candidate.description}`;
+  const text = `${candidate.title} ${candidate.description} ${candidate.p ?? ""}`;
   const anchors = anchorTokens(text);
   const mechanics = detectMechanics(text);
   for (const k of kept) {
-    const kText = `${k.title} ${k.description ?? ""}`;
+    const kText = `${k.title} ${k.description ?? ""} ${k.p ?? ""}`;
     const kAnchors = anchorTokens(kText);
     for (const a of anchors) {
       if (kAnchors.has(a)) {
@@ -734,6 +734,184 @@ console.log("\n[stakes] soft-only: stake-free quest survives hard filter, batch 
     } else {
       console.log(`  ✗ ${label}`);
       failures.push(`Stakes soft-only: ${label}`);
+      fail++;
+    }
+  }
+}
+
+// ---------- M15 generation-time enforcement ----------
+// Duplicated from route.ts / lib/quest-ranker.ts (same edit-both rule).
+// Fixtures — see the NOT-EXEMPLARS banner above.
+
+const NEW_SAFETY_RULES = [
+  {
+    name: "civic_infrastructure",
+    regex:
+      /\bballots?\b[^.!?]{0,30}\b(?:civic|city|town|county|election|official|government|hall|mail)\b|\b(?:civic|election|official)\b[^.!?]{0,30}\bballots?\b|\bpolling\s+(?:place|station)\b|\b(?:stuff|drop|deliver|slip|insert)\w*[^.!?]{0,30}\b(?:mail\s?box(?:es)?|drop[- ]?box(?:es)?)\b/i,
+  },
+  {
+    name: "money_deception",
+    regex:
+      /\b(?:fake|phony|counterfeit|nonexistent|made[- ]up)\s+(?:tickets?|raffles?|fundraisers?|donations?|invoices?)\b|\bcollect(?:ing)?\s+(?:real\s+)?(?:payment|money|cash)\s+for\b|\bsell(?:ing)?\s+[^.!?]{0,25}\b(?:fake|nonexistent|phony)\b/i,
+  },
+  {
+    name: "trespass_closed_space",
+    regex:
+      /\b(?:closed|abandoned|after[- ]hours?|restricted)\s+(?:mall|store|shop|building|venue|warehouse|pool|school|lot|site)\b|\b(?:sneak|break)\w*\s+into\s+(?:a|the|an)\s+(?:closed|locked|empty|abandoned|building|store|mall|venue|school|pool|warehouse)\b|\bacross\s+(?:the\s+)?rooftops?\b|\brooftops?\s+(?:race|racing|parkour|chase|sprint)\b|\b(?:race|racing|sprint\w*|chase)\s+(?:across|over)\s+[^.!?]{0,15}roof/i,
+  },
+  {
+    name: "defamation",
+    regex:
+      /\b(?:fake|false)\s+reviews?\b|\b(?:fake|false|made[- ]up)\s+(?:stor(?:y|ies)|rumors?|claims?)\s+about\s+[^.!?]{0,20}\b(?:spot|shop|store|business|restaurant|cafe|bar|place|neighbor\w*|landmark|owner|employee)\b|\bspread\w*\s+[^.!?]{0,20}\brumors?\b/i,
+  },
+];
+
+function findNewSafetyViolation(haystack) {
+  for (const rule of NEW_SAFETY_RULES) {
+    const m = haystack.match(rule.regex);
+    if (m) return { name: rule.name, match: m[0] };
+  }
+  return null;
+}
+
+console.log("\n[m15-safety] screenshot-class cases that MUST ban:");
+const M15_BAN = [
+  ["Write-In Ballot Mailbox Mission", "Deliver absurd write-in ballots to a civic building's mailbox tonight."],
+  ["Phantom Show Ticket Booth", "Sell fake tickets to a nonexistent basement show, collect payment, reveal after."],
+  ["Closed Mall Echo Concert", "Slip inside the closed mall and sing to the empty corridors."],
+  ["Rooftop Sprint Snack Grab", "Race across the rooftops grabbing snacks before the timer dies."],
+  ["Neighborhood Rumor Seed Drop", "Spread a different fake story about a local spot, compare who believed."],
+];
+for (const [title, desc] of M15_BAN) {
+  const v = findNewSafetyViolation(`${title} ${desc}`);
+  if (v) {
+    console.log(`  ✓ banned [${v.name}] "${title}"`);
+    pass++;
+  } else {
+    console.log(`  ✗ MISSED  "${title}"`);
+    failures.push(`M15 safety miss: "${title}"`);
+    fail++;
+  }
+}
+
+console.log("\n[m15-safety] adjacent-but-legal cases that MUST pass:");
+const M15_OK = [
+  ["Kitchen Court Absurd Ballots", "Cast handmade ballots to crown the night's silliest argument winner."],
+  ["Open Roof Deck Constellation Debate", "Head to the public roof deck, debate invented constellations, crown one."],
+  ["Empty Lot Cart Glide", "Push an empty cart across the empty lot, no one around, longest glide wins."],
+  ["Tall Tale Duel About Yourselves", "Trade obviously made-up stories about your own week, vote the best lie."],
+];
+for (const [title, desc] of M15_OK) {
+  const v = findNewSafetyViolation(`${title} ${desc}`);
+  if (!v) {
+    console.log(`  ✓ allowed "${title}"`);
+    pass++;
+  } else {
+    console.log(`  ✗ FALSE POSITIVE [${v.name}] "${title}" matched "${v.match}"`);
+    failures.push(`M15 safety false positive: "${title}"`);
+    fail++;
+  }
+}
+
+// Self-contradiction detector (constraint bans the tool the quest needs).
+const NO_PHONE_CONSTRAINT =
+  /\b(?:no\s+phones?\b|phones?\s+(?:stay|off|banned|away|down|zipped)|without\s+(?:your\s+|any\s+)?phones?|phone[- ]free)/i;
+const PHONE_REQUIRED =
+  /\b(?:film\w*|record\w*|photograph\w*|photos?\b|snap\w*|selfie\w*|video\w*|playlist|timer\s+on\s+your\s+phone|edit(?:ing)?\s+apps?|google|livestream\w*)\b/i;
+const isSelfContradictory = (t) =>
+  NO_PHONE_CONSTRAINT.test(t) && PHONE_REQUIRED.test(t);
+
+console.log("\n[contradiction] must flag / must not flag:");
+const CONTRADICTION_CASES = [
+  ["No phones allowed: film the whole bit and edit it on your phones.", true],
+  ["Phones stay zipped away; photograph five doorways before dark.", true],
+  ["Phones stay home; navigate by memory and return before the hour ends.", false],
+  ["Film each other's worst poses, highest-voted photo wins the round.", false],
+];
+for (const [text, expected] of CONTRADICTION_CASES) {
+  if (isSelfContradictory(text) === expected) {
+    console.log(`  ✓ ${expected ? "flagged" : "clean "} "${text.slice(0, 50)}…"`);
+    pass++;
+  } else {
+    console.log(`  ✗ got ${isSelfContradictory(text)} want ${expected} "${text}"`);
+    failures.push(`Contradiction case: "${text}"`);
+    fail++;
+  }
+}
+
+// Category content repair: Food with no food is re-derived from the
+// declared register (or setting markers); true Food stays put.
+const FOOD_KEYWORDS = [
+  "restaurant", "cafe", "coffee", "food", "eat", "diner", "burger", "pizza",
+  "taco", "snack", "breakfast", "lunch", "dinner", "drink", "bar", "pub",
+  "brewery", "sushi", "dessert", "ice cream", "menu", "order food",
+  "drive-thru", "fast food", "cook-off", "cook off", "drive-through",
+  "takeout", "take-out", "meal", "brunch", "cuisine",
+];
+const hasFoodContent = (q) => {
+  const t = `${q.title} ${q.description}`.toLowerCase();
+  return FOOD_KEYWORDS.some((kw) => t.includes(kw));
+};
+const REGISTER_TO_V4 = {
+  phys: "Outdoor", social: "Social", brain: "Challenge", maker: "Creative",
+  cozy: "Culture", explore: "Outdoor", compete: "Challenge",
+};
+const OUTDOOR_MARKERS =
+  /\b(?:park|trail|street|sidewalk|field|creek|river|lake|beach|hill|forest|woods|outdoors?|outside|plaza|block|neighborhood|yard|backyard|pavement)\b/i;
+const INDOOR_MARKERS =
+  /\b(?:living\s+room|couch|indoors?|at\s+home|your\s+home|apartment|kitchen|bedroom|hallway|ceiling|pantry|furniture)\b/i;
+function repairCategory(q) {
+  const text = `${q.title} ${q.description}`;
+  if (q.category === "Food" && !hasFoodContent(q)) {
+    return (
+      REGISTER_TO_V4[(q.g ?? "").toLowerCase()] ??
+      (OUTDOOR_MARKERS.test(text) ? "Outdoor" : INDOOR_MARKERS.test(text) ? "Indoor" : "Creative")
+    );
+  }
+  if (q.category === "Indoor" && OUTDOOR_MARKERS.test(text) && !INDOOR_MARKERS.test(text)) return "Outdoor";
+  if (q.category === "Outdoor" && INDOOR_MARKERS.test(text) && !OUTDOOR_MARKERS.test(text)) return "Indoor";
+  return q.category;
+}
+
+console.log("\n[category-repair] declared vs repaired:");
+const REPAIR_CASES = [
+  [{ title: "Woodland Whistle Echo Duel", description: "Whistle duels across the forest clearing, longest echo wins.", category: "Food", g: "compete" }, "Challenge"],
+  [{ title: "Gallery Of Pocket Junk", description: "Sculpt statues from pocket junk in the park, judge the show.", category: "Food", g: "" }, "Outdoor"],
+  [{ title: "Pantry Roulette Cookoff", description: "Cook one dish from three random pantry cans, eat the result.", category: "Food", g: "maker" }, "Food"],
+  [{ title: "Hallway Sock Curling Open", description: "Slide socks down the hallway at a target, closest pair wins.", category: "Outdoor", g: "compete" }, "Indoor"],
+];
+for (const [q2, expected] of REPAIR_CASES) {
+  const got = repairCategory(q2);
+  if (got === expected) {
+    console.log(`  ✓ ${q2.category} → ${got} "${q2.title}"`);
+    pass++;
+  } else {
+    console.log(`  ✗ got ${got} want ${expected} "${q2.title}"`);
+    failures.push(`Category repair: "${q2.title}"`);
+    fail++;
+  }
+}
+
+// Declared plan-prop conflict: two candidates COMMITTING to the same prop
+// conflict even when the prose words differ (declared p joins the anchors).
+console.log("\n[plan-fields] declared-prop conflict + register codes:");
+{
+  const a = { title: "Alley Echo Choir Battle", description: "Harmonize one chord in the alley until it rings clean.", p: "flashlight" };
+  const b = { title: "Beam Tag Night Rounds", description: "Hunt the beam holder in rounds, switch hunters each capture.", p: "flashlight" };
+  const conflict = findBatchConflict(b, [a]);
+  const okConflict = conflict && conflict.reason === "duplicate_prop" && conflict.shared === "flashlight";
+  const REGISTER_CODES = { phys: 1, social: 1, brain: 1, maker: 1, cozy: 1, explore: 1, compete: 1 };
+  const okCodes = Object.keys(REGISTER_TO_V4).every((k) => REGISTER_CODES[k]);
+  for (const [label, ok] of [
+    ["same declared prop conflicts as duplicate_prop(flashlight)", okConflict],
+    ["every register code has a repair mapping", okCodes],
+  ]) {
+    if (ok) {
+      console.log(`  ✓ ${label}`);
+      pass++;
+    } else {
+      console.log(`  ✗ ${label}`);
+      failures.push(`Plan fields: ${label}`);
       fail++;
     }
   }
