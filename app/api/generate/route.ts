@@ -502,8 +502,13 @@ function buildHistogram(typeCounts: Record<string, number>): string {
 // Pool hygiene: options naming a §5-capped mechanic family (decode, relay,
 // silent) or a banned anti-structure (narrated) are deliberately absent —
 // seeding a capped mechanic invited Haiku to build the whole batch on it,
-// which the ranker then had to shred. Props stay (chalk, balloon, …) because
-// the protocol caps a seed prop to anchoring at most ONE quest.
+// which the ranker then had to shred. Named OBJECT props (chalk, balloon,
+// polaroid) are gone too: the per-batch cap held, but a 102-quest audit
+// showed each fixed object seed recurring across ~10% of ALL sessions
+// (chalk alone anchored 10/102 quests) — cross-session fixation no
+// per-user blocklist can see. The prop axis now carries CONSTRAINT-type
+// seeds only. "food-based" is gone because §7 hard-bans food as a
+// mechanic, so that seed invited violations by construction.
 
 const DIVERSITY_AXES = {
   verb: [
@@ -540,14 +545,14 @@ const DIVERSITY_AXES = {
   prop: [
     "phone-banned",
     "paper-only",
-    "food-based",
-    "chalk",
+    "timer-boxed",
+    "household-items-only",
     "cash-only",
     "one-shared-item",
     "no-props",
     "music",
-    "polaroid",
-    "balloon",
+    "one-borrowed-item",
+    "coin-or-dice",
   ],
   group_dynamic: [
     "competitive",
@@ -663,9 +668,9 @@ const SETTING_VIBE: Partial<Record<string, VibeBucket>> = {
   commercial: "retail",
 };
 
-const PROP_VIBE: Partial<Record<string, VibeBucket>> = {
-  "food-based": "food",
-};
+// No prop seed currently reinforces a recent-vibe bucket (the food-based
+// seed was removed — §7 bans food as a mechanic, so it invited violations).
+const PROP_VIBE: Partial<Record<string, VibeBucket>> = {};
 
 function pickAxis<T extends string>(
   pool: readonly T[],
