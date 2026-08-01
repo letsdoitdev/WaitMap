@@ -23,6 +23,7 @@ import {
   isNearDuplicate,
   isFoodQuest,
   preferredV4Categories,
+  repairCategories,
   type GenerateBody,
   type ClaudeQuest,
   type GroupSizeBand,
@@ -30,6 +31,7 @@ import {
 import {
   findBatchConflict,
   hardFilterQuests,
+  isSelfContradictory,
   requiresCar,
   requiresSpend,
   selectTopQuests,
@@ -382,6 +384,12 @@ export async function POST(req: NextRequest) {
           noteDrop(q.title, "duplicate");
           return false;
         }
+        // Incoherent-as-written (mirrors hardFilterQuests): the quest's own
+        // constraint bans a tool the quest requires.
+        if (isSelfContradictory(haystack)) {
+          noteDrop(q.title, "contradiction");
+          return false;
+        }
         // Anti-fixation belt (mirrors hardFilterQuests): no shared central
         // prop/motif noun and no repeated capped mechanic vs kept siblings.
         const conflict = findBatchConflict(q, keptSiblings);
@@ -411,6 +419,9 @@ export async function POST(req: NextRequest) {
         } catch {
           return;
         }
+        // Repair a false category declaration before the first card can be
+        // emitted with it (M15 — mirrors the JSON path's parity ordering).
+        repairCategories([q]);
         scanned.push(q);
         if (emitted.length === 0 && passesHardChecks(q, [])) emit(q);
       }
@@ -500,6 +511,10 @@ export async function POST(req: NextRequest) {
           // isSafe scrubs progressively-seen instances, but the full-parse
           // candidates are fresh objects — scrub before filtering/ranking.
           scrub(rest, places);
+          const streamRepairs = repairCategories(rest);
+          if (streamRepairs.length > 0) {
+            console.log("[generate/stream] recategorized", streamRepairs);
+          }
           const filtered = hardFilterQuests(rest, {
             previousTitles,
             // Full emitted quests (not just titles) so the prop/mechanic
@@ -602,6 +617,7 @@ export async function POST(req: NextRequest) {
             if (Array.isArray(tup)) {
               const refill = (tup as ClaudeQuest[]).slice(0, need + 1);
               scrub(refill, places);
+              repairCategories(refill);
               for (const item of refill) {
                 if (emitted.length >= TARGET_COUNT) break;
                 if (passesHardChecks(item, emitted)) {
