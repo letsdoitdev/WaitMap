@@ -259,6 +259,7 @@ const ANCHOR_STOPWORDS = new Set([
   "instead", "together", "apart", "exactly", "about", "against", "through",
   "between", "behind", "across", "toward", "towards", "along", "around",
   "inside", "outside", "someone", "something", "anything", "everything",
+  "somewhere", "anywhere", "everywhere", "nowhere",
   "whoever", "whatever", "whichever", "where", "when", "what", "here",
   "there", "back", "away", "left", "right", "near", "nearby", "local",
   "group", "crew", "everyone", "everybody", "anyone", "friend", "people",
@@ -313,7 +314,7 @@ function anchorTokens(text) {
     const t = raw.replace(/'/g, "");
     if (t.length < 4 || ANCHOR_STOPWORDS.has(t)) continue;
     const sing =
-      t.length > 4 && t.endsWith("s") && !t.endsWith("ss")
+      t.length > 3 && t.endsWith("s") && !t.endsWith("ss")
         ? t.slice(0, -1)
         : t;
     if (ANCHOR_STOPWORDS.has(sing)) continue;
@@ -386,6 +387,10 @@ const MUST_NOT_CONFLICT = [
   // a single proof photo is not the photo-count mechanic
   [q("Fountain Coin Diplomacy", "Trade wishes out loud, seal the best with a group photo."),
    q("Grandma Recipe Roulette", "Cook one random family recipe from memory, plate it fancy.")],
+  // regression: two staked quests both ending in "…wins" must not collide —
+  // 4-letter plurals ("wins") must singularize into the stopword list
+  [q("Alley Bocce Grudge Match", "Roll oranges at a target, closest team wins the walk home."),
+   q("Stairwell Echo Standoff", "Hold one clean chord longest, steadiest voice wins bragging rights.")],
 ];
 
 console.log("\n[anti-fixation] pairs that MUST conflict:");
