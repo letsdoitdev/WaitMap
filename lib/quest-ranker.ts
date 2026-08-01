@@ -141,6 +141,7 @@ const ANCHOR_STOPWORDS = new Set<string>([
   "instead", "together", "apart", "exactly", "about", "against", "through",
   "between", "behind", "across", "toward", "towards", "along", "around",
   "inside", "outside", "someone", "something", "anything", "everything",
+  "somewhere", "anywhere", "everywhere", "nowhere",
   "whoever", "whatever", "whichever", "where", "when", "what", "here",
   "there", "back", "away", "left", "right", "near", "nearby", "local",
   // people
@@ -212,8 +213,13 @@ export function anchorTokens(text: string): Set<string> {
   for (const raw of text.toLowerCase().split(/[^a-z0-9']+/)) {
     const t = raw.replace(/'/g, "");
     if (t.length < 4 || ANCHOR_STOPWORDS.has(t)) continue;
+    // > 3, not > 4: four-letter plurals ("wins", "bets", "ways") must still
+    // reduce to their stopworded singular — with the stakes gate pushing
+    // most descriptions to end in "…wins", leaving "wins" anchorable made
+    // any two staked quests collide as duplicate_prop (caught in the M15
+    // end-to-end verification run).
     const sing =
-      t.length > 4 && t.endsWith("s") && !t.endsWith("ss")
+      t.length > 3 && t.endsWith("s") && !t.endsWith("ss")
         ? t.slice(0, -1)
         : t;
     if (ANCHOR_STOPWORDS.has(sing)) continue;
